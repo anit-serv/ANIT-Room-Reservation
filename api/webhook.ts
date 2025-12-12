@@ -4,9 +4,8 @@ import * as admin from 'firebase-admin';
 import 'dotenv/config';
 
 // ---------------------------------------------------------
-// 1. 設定・初期化
+// 1. 設定・初期化 (ここは変更なし)
 // ---------------------------------------------------------
-// 環境変数のチェックと整形
 const privateKey = process.env.FIREBASE_PRIVATE_KEY
   ? process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n')
   : undefined;
@@ -30,7 +29,7 @@ const config = {
 const client = new line.Client(config);
 
 // ---------------------------------------------------------
-// 2. メイン処理 (Handler)
+// 2. メイン処理 (変更なし)
 // ---------------------------------------------------------
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === 'GET') {
@@ -48,91 +47,188 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 }
 
 // ---------------------------------------------------------
-// 3. イベント分岐処理
+// 3. イベント分岐 (変更なし)
 // ---------------------------------------------------------
 async function handleEvent(event: line.WebhookEvent) {
-  // A. テキストメッセージが来たとき（「予約フォーム」など）
   if (event.type === 'message' && event.message.type === 'text') {
     return handleTextEvent(event);
   }
-
-  // B. 日時選択などのボタン操作（Postback）が来たとき
   if (event.type === 'postback') {
     return handlePostbackEvent(event);
+  }
+  return Promise.resolve(null);
+}
+
+// ---------------------------------------------------------
+// 4. 「登録したい」→ 日付ボタンを表示 (★ここが新しいロジック)
+// ---------------------------------------------------------
+async function handleTextEvent(event: line.MessageEvent) {
+  const userText = (event.message as line.TextEventMessage).text;
+
+  if (userText === '登録したい') {
+    // まず、今が抽選時間(20:50-21:00)かどうかチェック
+    if (isLotteryTime()) {
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: '⚠️ 現在は20:50〜21:00の抽選集計時間のため、予約操作はできません。21:00以降にお試しください。',
+      });
+    }
+
+    // 予約可能な日付リストを計算して取得
+    const availableDates = getAvailableDates();
+
+    if (availableDates.length === 0) {
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: '現在、予約可能な枠がありません。（直近の水・木・土のみ予約可能です）',
+      });
+    }
+
+    // クイックリプライのボタンを作成
+    const quickReplyItems: line.QuickReplyItem[] = availableDates.map((d) => ({
+      type: 'action',
+      action: {
+        type: 'postback',
+        label: d.label, // 表示名 "12/20(水)"
+        data: `action=select_date&date=${d.value}`, // 裏データ "2023-12-20"
+        displayText: d.label, // 押した時にユーザーが喋る言葉
+      },
+    }));
+
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: '予約する日付を選択してください👇',
+      quickReply: {
+        items: quickReplyItems,
+      },
+    });
   }
 
   return Promise.resolve(null);
 }
 
 // ---------------------------------------------------------
-// 4. テキストへの返信ロジック
+// 5. ボタン操作への返信 (★2段階フローの実装)
 // ---------------------------------------------------------
-async function handleTextEvent(event: line.MessageEvent) {
-  const userText = (event.message as line.TextEventMessage).text;
+async function handlePostbackEvent(event: line.PostbackEvent) {
+  const data = event.postback.data; // "action=..."
+  const params = event.postback.params;
 
-  // リッチメニューから「予約フォーム」と送られてきたら...
-  if (userText === '登録したい') {
+  // パターンA: 日付が選ばれたら → 「時間」を聞く
+  if (data.startsWith('action=select_date')) {
+    const selectedDate = new URLSearchParams(data).get('date'); // "2023-12-20"
+
+    // 日付を「年月日」の表示用に整形
+    const dateObj = new Date(selectedDate!);
+    const dateLabel = `${dateObj.getMonth() + 1}/${dateObj.getDate()}`;
+
     return client.replyMessage(event.replyToken, {
       type: 'template',
-      altText: '予約日時を選んでください', // PCなどで非対応の場合の表示
+      altText: '時間を選んでください',
       template: {
         type: 'buttons',
-        text: 'サークルの部屋予約ですね。\n日時を選択してください。',
+        text: `📅 ${dateLabel} ですね。\n利用開始時間を選んでください。`,
         actions: [
           {
-            // ここが魔法の「日時選択アクション」
             type: 'datetimepicker',
-            label: '日時を選ぶ',
-            data: 'action=reservation', // 後で識別するためのタグ
-            mode: 'datetime', // 日付と時刻両方選ぶ
+            label: '時間を選ぶ',
+            // 次のステップのために、選ばれた日付(date)をdataに埋め込んでおく！
+            data: `action=finalize&date=${selectedDate}`,
+            mode: 'time', // 時間だけ選ばせるモード
           },
         ],
       },
     });
   }
 
-  // それ以外の会話
-  return client.replyMessage(event.replyToken, {
-    type: 'text',
-    text: `メニューから操作してください。\n受信したメッセージ: ${userText}`,
-  });
-}
+  // パターンB: 時間も選ばれて、最終確定したとき
+  if (data.startsWith('action=finalize') && params && params.time) {
+    const selectedDate = new URLSearchParams(data).get('date'); // "2023-12-20"
+    const selectedTime = params.time; // "14:00"
 
-// ---------------------------------------------------------
-// 5. ボタン操作(Postback)への返信ロジック
-// ---------------------------------------------------------
-async function handlePostbackEvent(event: line.PostbackEvent) {
-  // datetimepickerで選ばれたデータを取り出す
-  const data = event.postback.data; // "action=reservation"
-  const selectedParams = event.postback.params; // { datetime: "2023-12-25T14:00" }
+    // 日時を結合: "2023-12-20T14:00"
+    const finalDateTimeStr = `${selectedDate}T${selectedTime}`;
+    const displayStr = `${selectedDate?.replace(/-/g, '/').slice(5)} ${selectedTime}`;
 
-  // 予約アクションの場合
-  if (data === 'action=reservation' && selectedParams && selectedParams.datetime) {
     const userId = event.source.userId;
-    const userDate = selectedParams.datetime; // 例: "2023-12-25T14:00"
-
-    // 日付を見やすく整形 (例: 2023-12-25T14:00 -> 12/25 14:00)
-    const displayDate = userDate.replace('T', ' ').slice(5);
 
     try {
-      // ★ Firestoreに保存！
       await db.collection('reservations').add({
         userId: userId,
-        date: userDate,
-        status: 'pending', // 抽選待ち
+        date: finalDateTimeStr,
+        status: 'pending',
         createdAt: new Date(),
       });
 
       return client.replyMessage(event.replyToken, {
         type: 'text',
-        text: `了解です！\n📅 ${displayDate} で予約を受け付けました。\n抽選結果をお待ちください。`,
+        text: `✅ 予約を受け付けました\n日時: ${displayStr}\n\n抽選結果をお待ちください。`,
       });
     } catch (err) {
       console.error(err);
       return client.replyMessage(event.replyToken, {
         type: 'text',
-        text: 'すみません、保存に失敗しました。もう一度試してください。',
+        text: 'エラーが発生しました。もう一度お試しください。',
       });
     }
   }
+}
+
+// ---------------------------------------------------------
+// 6. ロジック関数群 (カレンダー計算)
+// ---------------------------------------------------------
+
+// 抽選時間(20:50-21:00)かどうか判定
+function isLotteryTime(): boolean {
+  const now = new Date();
+  const jstOffset = 9 * 60 * 60 * 1000;
+  const nowJST = new Date(now.getTime() + jstOffset);
+  const h = nowJST.getUTCHours();
+  const m = nowJST.getUTCMinutes();
+  return h === 20 && m >= 50;
+}
+
+// 予約可能な日付リストを生成する
+function getAvailableDates(): { label: string; value: string }[] {
+  const now = new Date();
+  const jstOffset = 9 * 60 * 60 * 1000;
+  const nowJST = new Date(now.getTime() + jstOffset);
+  const currentHour = nowJST.getUTCHours();
+
+  // 開始日の決定ルール
+  // 21時前なら「明日」から。21時以降なら「明後日」から。
+  let daysToAdd = currentHour >= 21 ? 2 : 1;
+  
+  const startDate = new Date(nowJST);
+  startDate.setUTCDate(startDate.getUTCDate() + daysToAdd);
+  startDate.setUTCHours(0, 0, 0, 0);
+
+  const results: { label: string; value: string }[] = [];
+  const weekDays = ['日', '月', '火', '水', '木', '金', '土'];
+
+  // 向こう7日間を走査
+  for (let i = 0; i < 7; i++) {
+    const targetDate = new Date(startDate);
+    targetDate.setUTCDate(startDate.getUTCDate() + i);
+
+    const dayIndex = targetDate.getUTCDay(); // 0(日)〜6(土)
+    
+    // 水(3), 木(4), 土(6) のみ許可
+    if (dayIndex === 3 || dayIndex === 4 || dayIndex === 6) {
+      const m = targetDate.getUTCMonth() + 1;
+      const d = targetDate.getUTCDate();
+      const wd = weekDays[dayIndex];
+      
+      // データ用: YYYY-MM-DD
+      const yyyy = targetDate.getUTCFullYear();
+      const mm = ('0' + m).slice(-2);
+      const dd = ('0' + d).slice(-2);
+
+      results.push({
+        label: `${m}/${d}(${wd})`,
+        value: `${yyyy}-${mm}-${dd}`
+      });
+    }
+  }
+  return results;
 }
