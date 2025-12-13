@@ -428,6 +428,11 @@ async function handlePostbackEvent(event: line.PostbackEvent) {
     return handleDeleteReservation(event, data);
   }
 
+  // パターンF2: 削除キャンセル
+  if (data.startsWith('action=cancel_delete')) {
+    return handleCancelDelete(event);
+  }
+
   // パターンG: バンド名更新確定
   if (data.startsWith('action=update_band_name')) {
     return handleUpdateBandName(event, data);
@@ -737,6 +742,14 @@ async function handleDeleteReservation(event: line.PostbackEvent, data: string) 
       text: 'エラーが発生しました。もう一度お試しください。',
     });
   }
+}
+
+// パターンF2: 削除キャンセル
+async function handleCancelDelete(event: line.PostbackEvent) {
+  return client.replyMessage(event.replyToken, {
+    type: 'text',
+    text: '削除をキャンセルしました。',
+  });
 }
 
 // パターンG: バンド名更新（テキスト入力後に呼ばれる）
