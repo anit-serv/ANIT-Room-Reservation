@@ -471,6 +471,84 @@ async function handleOtherInput(event: line.MessageEvent, userId: string, userTe
     }
   }
 
+  // 日時編集中（日付選択待ち）の場合 → クイックリプライを再表示
+  if (stateData && stateData.status === 'EDITING_DATETIME') {
+    const startTime = stateData.editStartTime;
+    if (startTime && isSessionExpired(startTime)) {
+      await db.collection('states').doc(userId).delete();
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: '⏰ 5分間経過したため、編集をキャンセルしました。\nもう一度お試しください。',
+      });
+    }
+
+    const docId = stateData.editingDocId;
+    const availableDates = getAvailableDates();
+    if (availableDates.length === 0) {
+      await db.collection('states').doc(userId).delete();
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: '現在、予約可能な枠がありません。',
+      });
+    }
+
+    const quickReplyItems: line.QuickReplyItem[] = availableDates.map((d) => ({
+      type: 'action',
+      action: {
+        type: 'postback',
+        label: d.label,
+        data: `action=edit_select_date&docId=${docId}&date=${d.value}&start=${startTime}`,
+      },
+    }));
+
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: '日付を選択してください👇\n(中断する場合は「キャンセル」と送ってください)',
+      quickReply: { items: quickReplyItems },
+    });
+  }
+
+  // 日時編集中（時間選択待ち）の場合 → クイックリプライを再表示
+  if (stateData && stateData.status === 'EDITING_DATETIME_TIME') {
+    const startTime = stateData.editStartTime;
+    if (startTime && isSessionExpired(startTime)) {
+      await db.collection('states').doc(userId).delete();
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: '⏰ 5分間経過したため、編集をキャンセルしました。\nもう一度お試しください。',
+      });
+    }
+
+    const docId = stateData.editingDocId;
+    const selectedDate = stateData.editSelectedDate;
+    const dateObj = new Date(selectedDate);
+    const dateLabel = `${dateObj.getMonth() + 1}/${dateObj.getDate()}`;
+
+    const timeSlots = [
+      { label: '9:00~10:00', value: '09:00-10:00' },
+      { label: '10:00~12:00', value: '10:00-12:00' },
+      { label: '12:00~14:00', value: '12:00-14:00' },
+      { label: '14:00~16:00', value: '14:00-16:00' },
+      { label: '16:00~18:00', value: '16:00-18:00' },
+      { label: '18:00~20:00', value: '18:00-20:00' },
+    ];
+
+    const quickReplyItems: line.QuickReplyItem[] = timeSlots.map((slot) => ({
+      type: 'action',
+      action: {
+        type: 'postback',
+        label: slot.label,
+        data: `action=edit_finalize&docId=${docId}&date=${selectedDate}&time=${slot.value}&start=${startTime}`,
+      },
+    }));
+
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: `📅 ${dateLabel} の時間を選択してください👇\n(中断する場合は「キャンセル」と送ってください)`,
+      quickReply: { items: quickReplyItems },
+    });
+  }
+
   return Promise.resolve(null);
 }
 
