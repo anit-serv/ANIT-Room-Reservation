@@ -301,6 +301,7 @@ async function handleRegisterRequest(event: line.MessageEvent, userId: string) {
   await db.collection('states').doc(userId).set({
     status: 'WAITING_BAND_NAME',
     createdAt: new Date(),
+    lastButtonPressTs: Date.now(),
   });
 
   return client.replyMessage(event.replyToken, {
@@ -629,8 +630,6 @@ async function handleEditReservation(event: line.PostbackEvent, data: string) {
         text: `${message}\n「自分の登録を見たい」と送って最新の一覧を取得してください。`,
       });
     }
-    // ボタン押下時刻を記録
-    await recordButtonPress(userId);
   }
 
   // 抽選時間チェック
@@ -643,11 +642,12 @@ async function handleEditReservation(event: line.PostbackEvent, data: string) {
 
   const docId = params.get('docId');
 
-  // 編集対象のドキュメントIDを状態に保存
+  // 編集対象のドキュメントIDを状態に保存（lastButtonPressTsも一緒に保存）
   await db.collection('states').doc(userId).set({
     status: 'EDITING_BAND_NAME',
     editingDocId: docId,
     createdAt: new Date(),
+    lastButtonPressTs: Date.now(),
   });
 
   return client.replyMessage(event.replyToken, {
@@ -824,8 +824,6 @@ async function handleEditDateTime(event: line.PostbackEvent, data: string) {
         text: `${message}\n「自分の登録を見たい」と送って最新の一覧を取得してください。`,
       });
     }
-    // ボタン押下時刻を記録
-    await recordButtonPress(userId);
   }
 
   // 抽選時間チェック
@@ -835,6 +833,9 @@ async function handleEditDateTime(event: line.PostbackEvent, data: string) {
       text: '⚠️ 現在は20:50〜21:00の抽選集計時間のため、編集操作はできません。21:00以降にお試しください。',
     });
   }
+
+  // ボタン押下時刻を記録（他のカルーセルボタンを無効化）
+  await recordButtonPress(userId);
 
   const docId = params.get('docId');
   const startTime = Date.now(); // 編集開始時刻
