@@ -105,6 +105,87 @@ async function recordButtonPress(userId: string): Promise<void> {
   }, { merge: true });
 }
 
+// 進行中の操作があれば、クイックリプライを再表示するメッセージを作成
+async function getOngoingOperationReply(userId: string, replyToken: string): Promise<line.Message[] | null> {
+  const stateSnap = await db.collection('states').doc(userId).get();
+  if (!stateSnap.exists) return null;
+
+  const stateData = stateSnap.data();
+  if (!stateData) return null;
+
+  // 日時編集中（日付選択待ち）
+  if (stateData.status === 'EDITING_DATETIME') {
+    const startTime = stateData.editStartTime;
+    if (startTime && isSessionExpired(startTime)) {
+      await db.collection('states').doc(userId).delete();
+      return null;
+    }
+
+    const docId = stateData.editingDocId;
+    const availableDates = getAvailableDates();
+    if (availableDates.length === 0) return null;
+
+    const quickReplyItems: line.QuickReplyItem[] = availableDates.map((d) => ({
+      type: 'action',
+      action: {
+        type: 'postback',
+        label: d.label,
+        data: `action=edit_select_date&docId=${docId}&date=${d.value}&start=${startTime}`,
+      },
+    }));
+
+    return [
+      {
+        type: 'text',
+        text: '⚠️ このボタンは無効です。\n\n日付を選択してください👇',
+        quickReply: { items: quickReplyItems },
+      },
+    ];
+  }
+
+  // 日時編集中（時間選択待ち）
+  if (stateData.status === 'EDITING_DATETIME_TIME') {
+    const startTime = stateData.editStartTime;
+    if (startTime && isSessionExpired(startTime)) {
+      await db.collection('states').doc(userId).delete();
+      return null;
+    }
+
+    const docId = stateData.editingDocId;
+    const selectedDate = stateData.editSelectedDate;
+    const dateObj = new Date(selectedDate);
+    const dateLabel = `${dateObj.getMonth() + 1}/${dateObj.getDate()}`;
+
+    const timeSlots = [
+      { label: '9:00~10:00', value: '09:00-10:00' },
+      { label: '10:00~12:00', value: '10:00-12:00' },
+      { label: '12:00~14:00', value: '12:00-14:00' },
+      { label: '14:00~16:00', value: '14:00-16:00' },
+      { label: '16:00~18:00', value: '16:00-18:00' },
+      { label: '18:00~20:00', value: '18:00-20:00' },
+    ];
+
+    const quickReplyItems: line.QuickReplyItem[] = timeSlots.map((slot) => ({
+      type: 'action',
+      action: {
+        type: 'postback',
+        label: slot.label,
+        data: `action=edit_finalize&docId=${docId}&date=${selectedDate}&time=${slot.value}&start=${startTime}`,
+      },
+    }));
+
+    return [
+      {
+        type: 'text',
+        text: `⚠️ このボタンは無効です。\n\n📅 ${dateLabel} の時間を選択してください👇`,
+        quickReply: { items: quickReplyItems },
+      },
+    ];
+  }
+
+  return null;
+}
+
 async function handleTextEvent(event: line.MessageEvent) {
   const userId = event.source.userId!;
   const userText = (event.message as line.TextEventMessage).text;
@@ -666,6 +747,11 @@ async function handleConfirmDelete(event: line.PostbackEvent, data: string) {
   if (ts) {
     const validation = await isCarouselButtonValid(userId, Number(ts));
     if (!validation.valid) {
+      // 進行中の操作があればクイックリプライを再表示
+      const ongoingReply = await getOngoingOperationReply(userId, event.replyToken);
+      if (ongoingReply) {
+        return client.replyMessage(event.replyToken, ongoingReply);
+      }
       const message = validation.reason === 'expired'
         ? '⏰ このボタンは有効期限切れです。'
         : '⚠️ このカルーセルは既に操作済みです。';
@@ -788,6 +874,11 @@ async function handleViewMyMore(event: line.PostbackEvent, data: string) {
   if (ts) {
     const validation = await isCarouselButtonValid(userId, Number(ts));
     if (!validation.valid) {
+      // 進行中の操作があればクイックリプライを再表示
+      const ongoingReply = await getOngoingOperationReply(userId, event.replyToken);
+      if (ongoingReply) {
+        return client.replyMessage(event.replyToken, ongoingReply);
+      }
       const message = validation.reason === 'expired'
         ? '⏰ このボタンは有効期限切れです。'
         : '⚠️ このカルーセルは既に操作済みです。';
@@ -816,6 +907,11 @@ async function handleEditDateTime(event: line.PostbackEvent, data: string) {
   if (ts) {
     const validation = await isCarouselButtonValid(userId, Number(ts));
     if (!validation.valid) {
+      // 進行中の操作があればクイックリプライを再表示
+      const ongoingReply = await getOngoingOperationReply(userId, event.replyToken);
+      if (ongoingReply) {
+        return client.replyMessage(event.replyToken, ongoingReply);
+      }
       const message = validation.reason === 'expired'
         ? '⏰ このボタンは有効期限切れです。'
         : '⚠️ このカルーセルは既に操作済みです。';
@@ -834,9 +930,6 @@ async function handleEditDateTime(event: line.PostbackEvent, data: string) {
     });
   }
 
-  // ボタン押下時刻を記録（他のカルーセルボタンを無効化）
-  await recordButtonPress(userId);
-
   const docId = params.get('docId');
   const startTime = Date.now(); // 編集開始時刻
 
@@ -848,6 +941,15 @@ async function handleEditDateTime(event: line.PostbackEvent, data: string) {
       text: '現在、予約可能な枠がありません。（直近の水・木・土のみ予約可能です）',
     });
   }
+
+  // 状態を保存（日時編集中であることを記録）
+  await db.collection('states').doc(userId).set({
+    status: 'EDITING_DATETIME',
+    editingDocId: docId,
+    editStartTime: startTime,
+    createdAt: new Date(),
+    lastButtonPressTs: Date.now(),
+  });
 
   // 日付選択のクイックリプライを作成
   const quickReplyItems: line.QuickReplyItem[] = availableDates.map((d) => ({
@@ -874,14 +976,26 @@ async function handleEditSelectDate(event: line.PostbackEvent, data: string) {
   const docId = params.get('docId');
   const selectedDate = params.get('date');
   const startTime = params.get('start');
+  const userId = event.source.userId!;
 
   // タイムアウトチェック
   if (startTime && isSessionExpired(Number(startTime))) {
+    await db.collection('states').doc(userId).delete();
     return client.replyMessage(event.replyToken, {
       type: 'text',
       text: '⏰ 5分間経過したため、編集をキャンセルしました。\nもう一度お試しください。',
     });
   }
+
+  // 状態を更新（時間選択段階に）
+  await db.collection('states').doc(userId).set({
+    status: 'EDITING_DATETIME_TIME',
+    editingDocId: docId,
+    editSelectedDate: selectedDate,
+    editStartTime: Number(startTime),
+    createdAt: new Date(),
+    lastButtonPressTs: Date.now(),
+  });
 
   const dateObj = new Date(selectedDate!);
   const dateLabel = `${dateObj.getMonth() + 1}/${dateObj.getDate()}`;
@@ -920,14 +1034,19 @@ async function handleEditFinalize(event: line.PostbackEvent, data: string) {
   const selectedDate = params.get('date');
   const selectedTime = params.get('time');
   const startTime = params.get('start');
+  const userId = event.source.userId!;
 
   // タイムアウトチェック
   if (startTime && isSessionExpired(Number(startTime))) {
+    await db.collection('states').doc(userId).delete();
     return client.replyMessage(event.replyToken, {
       type: 'text',
       text: '⏰ 5分間経過したため、編集をキャンセルしました。\nもう一度お試しください。',
     });
   }
+
+  // 状態を削除
+  await db.collection('states').doc(userId).delete();
 
   const newDateTime = `${selectedDate}T${selectedTime}`;
   const displayStr = `${selectedDate?.replace(/-/g, '/').slice(5)} ${selectedTime}`;
