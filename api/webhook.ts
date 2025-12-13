@@ -66,6 +66,7 @@ async function handleEvent(event: line.WebhookEvent) {
 const TRIGGER_WORDS = {
   REGISTER: ['登録したい', '予約', '予約したい', '登録'],
   CANCEL: ['キャンセル', 'やめる', '終了'],
+  VIEW_ALL: ['全登録を見たい', '全予約', '一覧'],
 };
 
 const SESSION_TIMEOUT_MINUTES = 5;
@@ -91,6 +92,11 @@ async function handleTextEvent(event: line.MessageEvent) {
     return handleRegisterRequest(event, userId);
   }
 
+  // 全登録表示トリガーワード
+  if (TRIGGER_WORDS.VIEW_ALL.includes(userText)) {
+    return handleViewAllRequest(event);
+  }
+
   // それ以外（状態に応じた処理）
   return handleOtherInput(event, userId, userText);
 }
@@ -101,6 +107,35 @@ async function handleCancelRequest(event: line.MessageEvent, userId: string) {
   return client.replyMessage(event.replyToken, {
     type: 'text',
     text: '操作をキャンセルしました。',
+  });
+}
+
+// 全登録表示リクエストの処理
+async function handleViewAllRequest(event: line.MessageEvent) {
+  const availableDates = getAvailableDates();
+
+  if (availableDates.length === 0) {
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: '現在、表示可能な日付がありません。',
+    });
+  }
+
+  const quickReplyItems: line.QuickReplyItem[] = availableDates.map((d) => ({
+    type: 'action',
+    action: {
+      type: 'postback',
+      label: d.label,
+      data: `action=view_reservations&date=${d.value}`,
+    },
+  }));
+
+  return client.replyMessage(event.replyToken, {
+    type: 'text',
+    text: '登録状況を見たい日付を選択してください👇',
+    quickReply: {
+      items: quickReplyItems,
+    },
   });
 }
 
@@ -198,6 +233,11 @@ async function handlePostbackEvent(event: line.PostbackEvent) {
   if (data.startsWith('action=finalize')) {
     return handleFinalize(event, data);
   }
+
+  // パターンC: 全登録表示（日付選択後）
+  if (data.startsWith('action=view_reservations')) {
+    return handleViewReservations(event, data);
+  }
 }
 
 // パターンA: 日付選択 → 時間選択を促す
@@ -280,6 +320,68 @@ async function handleFinalize(event: line.PostbackEvent, data: string) {
     return client.replyMessage(event.replyToken, {
       type: 'text',
       text: `✅ 予約を受け付けました\n\nバンド名: ${bandName}\n日時: ${displayStr}\n\n抽選結果をお待ちください。`,
+    });
+  } catch (err) {
+    console.error(err);
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: 'エラーが発生しました。もう一度お試しください。',
+    });
+  }
+}
+
+// パターンC: 全登録表示（日付選択後）
+async function handleViewReservations(event: line.PostbackEvent, data: string) {
+  const params = new URLSearchParams(data);
+  const selectedDate = params.get('date'); // "2023-12-20"
+
+  try {
+    // 選択された日付の予約を取得（dateフィールドが "2023-12-20T" で始まるもの）
+    const snapshot = await db.collection('reservations')
+      .where('date', '>=', `${selectedDate}T00:00`)
+      .where('date', '<=', `${selectedDate}T23:59`)
+      .get();
+
+    if (snapshot.empty) {
+      const dateLabel = selectedDate?.replace(/-/g, '/').slice(5);
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: `📅 ${dateLabel} の登録はまだありません。`,
+      });
+    }
+
+    // 時間帯ごとに整理
+    const timeSlotOrder = ['09:00-10:00', '10:00-12:00', '12:00-14:00', '14:00-16:00', '16:00-18:00', '18:00-20:00'];
+    const reservationsByTime: { [key: string]: string[] } = {};
+
+    snapshot.forEach((doc) => {
+      const data = doc.data();
+      const timeSlot = data.date.split('T')[1]; // "09:00-10:00"
+      const bandName = data.bandName || '(バンド名なし)';
+
+      if (!reservationsByTime[timeSlot]) {
+        reservationsByTime[timeSlot] = [];
+      }
+      reservationsByTime[timeSlot].push(bandName);
+    });
+
+    // メッセージを組み立て
+    const dateLabel = selectedDate?.replace(/-/g, '/').slice(5);
+    let message = `📅 ${dateLabel} の登録状況\n${'─'.repeat(15)}\n`;
+
+    for (const timeSlot of timeSlotOrder) {
+      const bands = reservationsByTime[timeSlot];
+      if (bands && bands.length > 0) {
+        message += `\n🕐 ${timeSlot}\n`;
+        bands.forEach((band, index) => {
+          message += `  ${index + 1}. ${band}\n`;
+        });
+      }
+    }
+
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: message.trim(),
     });
   } catch (err) {
     console.error(err);
