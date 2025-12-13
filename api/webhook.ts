@@ -180,6 +180,9 @@ async function handleViewMyReservations(event: line.MessageEvent | line.Postback
       });
     }
 
+    // カルーセル生成時刻（ボタンの有効期限チェック用）
+    const carouselCreatedAt = Date.now();
+
     // カルーセルのカラムを作成（最大9件 + さらに表示で合計10件以内）
     const columns: line.TemplateColumn[] = sortedDocs.slice(startIndex, endIndex).map((doc) => {
       const data = doc.data();
@@ -197,17 +200,17 @@ async function handleViewMyReservations(event: line.MessageEvent | line.Postback
           {
             type: 'postback' as const,
             label: '✏️ バンド名を編集',
-            data: `action=edit_reservation&docId=${docId}`,
+            data: `action=edit_reservation&docId=${docId}&ts=${carouselCreatedAt}`,
           },
           {
             type: 'postback' as const,
             label: '📅 日時を編集',
-            data: `action=edit_datetime&docId=${docId}`,
+            data: `action=edit_datetime&docId=${docId}&ts=${carouselCreatedAt}`,
           },
           {
             type: 'postback' as const,
             label: '🗑️ 削除する',
-            data: `action=confirm_delete&docId=${docId}&band=${encodeURIComponent(bandName)}`,
+            data: `action=confirm_delete&docId=${docId}&band=${encodeURIComponent(bandName)}&ts=${carouselCreatedAt}`,
           },
         ],
       };
@@ -223,7 +226,7 @@ async function handleViewMyReservations(event: line.MessageEvent | line.Postback
           {
             type: 'postback' as const,
             label: '➡️ 次を見る',
-            data: `action=view_my_more&page=${page + 1}`,
+            data: `action=view_my_more&page=${page + 1}&ts=${carouselCreatedAt}`,
           },
           {
             type: 'postback' as const,
@@ -577,6 +580,17 @@ async function handleViewReservations(event: line.PostbackEvent, data: string) {
 
 // パターンD: 予約編集（バンド名入力待ち状態にする）
 async function handleEditReservation(event: line.PostbackEvent, data: string) {
+  const params = new URLSearchParams(data);
+  const ts = params.get('ts');
+
+  // ボタンの有効期限チェック（5分）
+  if (ts && isSessionExpired(Number(ts))) {
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: '⏰ このボタンは有効期限切れです。\n「自分の登録を見たい」と送って最新の一覧を取得してください。',
+    });
+  }
+
   // 抽選時間チェック
   if (isLotteryTime()) {
     return client.replyMessage(event.replyToken, {
@@ -585,7 +599,6 @@ async function handleEditReservation(event: line.PostbackEvent, data: string) {
     });
   }
 
-  const params = new URLSearchParams(data);
   const docId = params.get('docId');
   const userId = event.source.userId!;
 
@@ -605,6 +618,16 @@ async function handleEditReservation(event: line.PostbackEvent, data: string) {
 // パターンE: 削除確認
 async function handleConfirmDelete(event: line.PostbackEvent, data: string) {
   const params = new URLSearchParams(data);
+  const ts = params.get('ts');
+
+  // ボタンの有効期限チェック（5分）
+  if (ts && isSessionExpired(Number(ts))) {
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: '⏰ このボタンは有効期限切れです。\n「自分の登録を見たい」と送って最新の一覧を取得してください。',
+    });
+  }
+
   const docId = params.get('docId');
   const bandName = decodeURIComponent(params.get('band') || '');
 
@@ -660,6 +683,16 @@ async function handleUpdateBandName(event: line.PostbackEvent, data: string) {
 // パターンH: 自分の登録をさらに表示
 async function handleViewMyMore(event: line.PostbackEvent, data: string) {
   const params = new URLSearchParams(data);
+  const ts = params.get('ts');
+
+  // ボタンの有効期限チェック（5分）
+  if (ts && isSessionExpired(Number(ts))) {
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: '⏰ このボタンは有効期限切れです。\n「自分の登録を見たい」と送って最新の一覧を取得してください。',
+    });
+  }
+
   const page = parseInt(params.get('page') || '0', 10);
   const userId = event.source.userId!;
 
@@ -668,6 +701,17 @@ async function handleViewMyMore(event: line.PostbackEvent, data: string) {
 
 // パターンI: 日時編集開始
 async function handleEditDateTime(event: line.PostbackEvent, data: string) {
+  const params = new URLSearchParams(data);
+  const ts = params.get('ts');
+
+  // ボタンの有効期限チェック（5分）
+  if (ts && isSessionExpired(Number(ts))) {
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: '⏰ このボタンは有効期限切れです。\n「自分の登録を見たい」と送って最新の一覧を取得してください。',
+    });
+  }
+
   // 抽選時間チェック
   if (isLotteryTime()) {
     return client.replyMessage(event.replyToken, {
@@ -676,7 +720,6 @@ async function handleEditDateTime(event: line.PostbackEvent, data: string) {
     });
   }
 
-  const params = new URLSearchParams(data);
   const docId = params.get('docId');
   const startTime = Date.now(); // 編集開始時刻
 
