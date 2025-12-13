@@ -201,7 +201,12 @@ async function handleViewMyReservations(event: line.MessageEvent | line.Postback
           },
           {
             type: 'postback' as const,
-            label: '🗑️ 削除する',
+            label: '� 日時を編集',
+            data: `action=edit_datetime&docId=${docId}`,
+          },
+          {
+            type: 'postback' as const,
+            label: '�🗑️ 削除する',
             data: `action=confirm_delete&docId=${docId}&band=${encodeURIComponent(bandName)}`,
           },
         ],
@@ -391,6 +396,21 @@ async function handlePostbackEvent(event: line.PostbackEvent) {
   if (data.startsWith('action=view_my_more')) {
     return handleViewMyMore(event, data);
   }
+
+  // パターンI: 日時編集開始
+  if (data.startsWith('action=edit_datetime')) {
+    return handleEditDateTime(event, data);
+  }
+
+  // パターンJ: 日時編集 - 日付選択後
+  if (data.startsWith('action=edit_select_date')) {
+    return handleEditSelectDate(event, data);
+  }
+
+  // パターンK: 日時編集 - 時間選択後（確定）
+  if (data.startsWith('action=edit_finalize')) {
+    return handleEditFinalize(event, data);
+  }
 }
 
 // パターンA: 日付選択 → 時間選択を促す
@@ -547,6 +567,14 @@ async function handleViewReservations(event: line.PostbackEvent, data: string) {
 
 // パターンD: 予約編集（バンド名入力待ち状態にする）
 async function handleEditReservation(event: line.PostbackEvent, data: string) {
+  // 抽選時間チェック
+  if (isLotteryTime()) {
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: '⚠️ 現在は20:50〜21:00の抽選集計時間のため、編集操作はできません。21:00以降にお試しください。',
+    });
+  }
+
   const params = new URLSearchParams(data);
   const docId = params.get('docId');
   const userId = event.source.userId!;
@@ -626,6 +654,130 @@ async function handleViewMyMore(event: line.PostbackEvent, data: string) {
   const userId = event.source.userId!;
 
   return handleViewMyReservations(event, userId, page);
+}
+
+// パターンI: 日時編集開始
+async function handleEditDateTime(event: line.PostbackEvent, data: string) {
+  // 抽選時間チェック
+  if (isLotteryTime()) {
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: '⚠️ 現在は20:50〜21:00の抽選集計時間のため、編集操作はできません。21:00以降にお試しください。',
+    });
+  }
+
+  const params = new URLSearchParams(data);
+  const docId = params.get('docId');
+  const startTime = Date.now(); // 編集開始時刻
+
+  const availableDates = getAvailableDates();
+
+  if (availableDates.length === 0) {
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: '現在、予約可能な枠がありません。（直近の水・木・土のみ予約可能です）',
+    });
+  }
+
+  // 日付選択のクイックリプライを作成
+  const quickReplyItems: line.QuickReplyItem[] = availableDates.map((d) => ({
+    type: 'action',
+    action: {
+      type: 'postback',
+      label: d.label,
+      data: `action=edit_select_date&docId=${docId}&date=${d.value}&start=${startTime}`,
+    },
+  }));
+
+  return client.replyMessage(event.replyToken, {
+    type: 'text',
+    text: '新しい日付を選択してください👇\n(中断する場合は「キャンセル」と送ってください)',
+    quickReply: {
+      items: quickReplyItems,
+    },
+  });
+}
+
+// パターンJ: 日時編集 - 日付選択後 → 時間選択を促す
+async function handleEditSelectDate(event: line.PostbackEvent, data: string) {
+  const params = new URLSearchParams(data);
+  const docId = params.get('docId');
+  const selectedDate = params.get('date');
+  const startTime = params.get('start');
+
+  // タイムアウトチェック
+  if (startTime && isSessionExpired(Number(startTime))) {
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: '⏰ 5分間経過したため、編集をキャンセルしました。\nもう一度お試しください。',
+    });
+  }
+
+  const dateObj = new Date(selectedDate!);
+  const dateLabel = `${dateObj.getMonth() + 1}/${dateObj.getDate()}`;
+
+  const timeSlots = [
+    { label: '9:00~10:00', value: '09:00-10:00' },
+    { label: '10:00~12:00', value: '10:00-12:00' },
+    { label: '12:00~14:00', value: '12:00-14:00' },
+    { label: '14:00~16:00', value: '14:00-16:00' },
+    { label: '16:00~18:00', value: '16:00-18:00' },
+    { label: '18:00~20:00', value: '18:00-20:00' },
+  ];
+
+  const quickReplyItems: line.QuickReplyItem[] = timeSlots.map((slot) => ({
+    type: 'action',
+    action: {
+      type: 'postback',
+      label: slot.label,
+      data: `action=edit_finalize&docId=${docId}&date=${selectedDate}&time=${slot.value}&start=${startTime}`,
+    },
+  }));
+
+  return client.replyMessage(event.replyToken, {
+    type: 'text',
+    text: `📅 ${dateLabel} ですね。\n新しい時間を選択してください👇`,
+    quickReply: {
+      items: quickReplyItems,
+    },
+  });
+}
+
+// パターンK: 日時編集 - 時間選択後（確定）
+async function handleEditFinalize(event: line.PostbackEvent, data: string) {
+  const params = new URLSearchParams(data);
+  const docId = params.get('docId');
+  const selectedDate = params.get('date');
+  const selectedTime = params.get('time');
+  const startTime = params.get('start');
+
+  // タイムアウトチェック
+  if (startTime && isSessionExpired(Number(startTime))) {
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: '⏰ 5分間経過したため、編集をキャンセルしました。\nもう一度お試しください。',
+    });
+  }
+
+  const newDateTime = `${selectedDate}T${selectedTime}`;
+  const displayStr = `${selectedDate?.replace(/-/g, '/').slice(5)} ${selectedTime}`;
+
+  try {
+    await db.collection('reservations').doc(docId!).update({
+      date: newDateTime,
+    });
+
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: `✅ 日時を「${displayStr}」に更新しました。`,
+    });
+  } catch (err) {
+    console.error(err);
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: 'エラーが発生しました。もう一度お試しください。',
+    });
+  }
 }
 
 // ---------------------------------------------------------
