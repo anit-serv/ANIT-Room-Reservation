@@ -60,51 +60,62 @@ async function handleEvent(event: line.WebhookEvent) {
 }
 
 // ---------------------------------------------------------
-// 4. 「登録したい」→ 日付ボタンを表示 (★ここが新しいロジック)
+// 4. テキストメッセージの処理
 // ---------------------------------------------------------
+
+// トリガーワードの定義
+const TRIGGER_WORDS = {
+  REGISTER: ['登録したい', '予約', '予約したい', '登録'],
+};
+
 async function handleTextEvent(event: line.MessageEvent) {
   const userText = (event.message as line.TextEventMessage).text;
 
-  if (userText === '登録したい') {
-    // まず、今が抽選時間(20:50-21:00)かどうかチェック
-    if (isLotteryTime()) {
-      return client.replyMessage(event.replyToken, {
-        type: 'text',
-        text: '⚠️ 現在は20:50〜21:00の抽選集計時間のため、予約操作はできません。21:00以降にお試しください。',
-      });
-    }
-
-    // 予約可能な日付リストを計算して取得
-    const availableDates = getAvailableDates();
-
-    if (availableDates.length === 0) {
-      return client.replyMessage(event.replyToken, {
-        type: 'text',
-        text: '現在、予約可能な枠がありません。（直近の水・木・土のみ予約可能です）',
-      });
-    }
-
-    // クイックリプライのボタンを作成
-    const quickReplyItems: line.QuickReplyItem[] = availableDates.map((d) => ({
-      type: 'action',
-      action: {
-        type: 'postback',
-        label: d.label, // 表示名 "12/20(水)"
-        data: `action=select_date&date=${d.value}`, // 裏データ "2023-12-20"
-        displayText: d.label, // 押した時にユーザーが喋る言葉
-      },
-    }));
-
-    return client.replyMessage(event.replyToken, {
-      type: 'text',
-      text: '予約する日付を選択してください👇',
-      quickReply: {
-        items: quickReplyItems,
-      },
-    });
+  // 登録系のトリガーワード
+  if (TRIGGER_WORDS.REGISTER.includes(userText)) {
+    return handleRegisterRequest(event);
   }
 
   return Promise.resolve(null);
+}
+
+// 予約登録リクエストの処理
+async function handleRegisterRequest(event: line.MessageEvent) {
+  // まず、今が抽選時間(20:50-21:00)かどうかチェック
+  if (isLotteryTime()) {
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: '⚠️ 現在は20:50〜21:00の抽選集計時間のため、予約操作はできません。21:00以降にお試しください。',
+    });
+  }
+
+  // 予約可能な日付リストを計算して取得
+  const availableDates = getAvailableDates();
+
+  if (availableDates.length === 0) {
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: '現在、予約可能な枠がありません。（直近の水・木・土のみ予約可能です）',
+    });
+  }
+
+  // クイックリプライのボタンを作成
+  const quickReplyItems: line.QuickReplyItem[] = availableDates.map((d) => ({
+    type: 'action',
+    action: {
+      type: 'postback',
+      label: d.label, // 表示名 "12/20(水)"
+      data: `action=select_date&date=${d.value}`, // 裏データ "2023-12-20"
+    },
+  }));
+
+  return client.replyMessage(event.replyToken, {
+    type: 'text',
+    text: '予約する日付を選択してください👇',
+    quickReply: {
+      items: quickReplyItems,
+    },
+  });
 }
 
 // ---------------------------------------------------------
@@ -116,61 +127,82 @@ async function handlePostbackEvent(event: line.PostbackEvent) {
 
   // パターンA: 日付が選ばれたら → 「時間」を聞く
   if (data.startsWith('action=select_date')) {
-    const selectedDate = new URLSearchParams(data).get('date'); // "2023-12-20"
-
-    // 日付を「年月日」の表示用に整形
-    const dateObj = new Date(selectedDate!);
-    const dateLabel = `${dateObj.getMonth() + 1}/${dateObj.getDate()}`;
-
-    return client.replyMessage(event.replyToken, {
-      type: 'template',
-      altText: '時間を選んでください',
-      template: {
-        type: 'buttons',
-        text: `📅 ${dateLabel} ですね。\n利用開始時間を選んでください。`,
-        actions: [
-          {
-            type: 'datetimepicker',
-            label: '時間を選ぶ',
-            // 次のステップのために、選ばれた日付(date)をdataに埋め込んでおく！
-            data: `action=finalize&date=${selectedDate}`,
-            mode: 'time', // 時間だけ選ばせるモード
-          },
-        ],
-      },
-    });
+    return handleSelectDate(event, data);
   }
 
   // パターンB: 時間も選ばれて、最終確定したとき
-  if (data.startsWith('action=finalize') && params && params.time) {
-    const selectedDate = new URLSearchParams(data).get('date'); // "2023-12-20"
-    const selectedTime = params.time; // "14:00"
+  if (data.startsWith('action=finalize') && data.includes('time=')) {
+    return handleFinalize(event, data);
+  }
+}
 
-    // 日時を結合: "2023-12-20T14:00"
-    const finalDateTimeStr = `${selectedDate}T${selectedTime}`;
-    const displayStr = `${selectedDate?.replace(/-/g, '/').slice(5)} ${selectedTime}`;
+// パターンA: 日付選択 → 時間選択を促す
+async function handleSelectDate(event: line.PostbackEvent, data: string) {
+  const selectedDate = new URLSearchParams(data).get('date'); // "2023-12-20"
 
-    const userId = event.source.userId;
+  // 日付を「年月日」の表示用に整形
+  const dateObj = new Date(selectedDate!);
+  const dateLabel = `${dateObj.getMonth() + 1}/${dateObj.getDate()}`;
 
-    try {
-      await db.collection('reservations').add({
-        userId: userId,
-        date: finalDateTimeStr,
-        status: 'pending',
-        createdAt: new Date(),
-      });
+  // 時間帯の選択肢
+  const timeSlots = [
+    { label: '9:00~10:00', value: '09:00-10:00' },
+    { label: '10:00~12:00', value: '10:00-12:00' },
+    { label: '12:00~14:00', value: '12:00-14:00' },
+    { label: '14:00~16:00', value: '14:00-16:00' },
+    { label: '16:00~18:00', value: '16:00-18:00' },
+    { label: '18:00~20:00', value: '18:00-20:00' },
+  ];
 
-      return client.replyMessage(event.replyToken, {
-        type: 'text',
-        text: `✅ 予約を受け付けました\n日時: ${displayStr}\n\n抽選結果をお待ちください。`,
-      });
-    } catch (err) {
-      console.error(err);
-      return client.replyMessage(event.replyToken, {
-        type: 'text',
-        text: 'エラーが発生しました。もう一度お試しください。',
-      });
-    }
+  // クイックリプライのボタンを作成
+  const quickReplyItems: line.QuickReplyItem[] = timeSlots.map((slot) => ({
+    type: 'action',
+    action: {
+      type: 'postback',
+      label: slot.label,
+      data: `action=finalize&date=${selectedDate}&time=${slot.value}`,
+    },
+  }));
+
+  return client.replyMessage(event.replyToken, {
+    type: 'text',
+    text: `📅 ${dateLabel} ですね。\n利用時間を選んでください👇`,
+    quickReply: {
+      items: quickReplyItems,
+    },
+  });
+}
+
+// パターンB: 時間選択 → 予約確定
+async function handleFinalize(event: line.PostbackEvent, data: string) {
+  const params = new URLSearchParams(data);
+  const selectedDate = params.get('date'); // "2023-12-20"
+  const selectedTime = params.get('time'); // "09:00-10:00"
+
+  // 日時を結合: "2023-12-20T09:00-10:00"
+  const finalDateTimeStr = `${selectedDate}T${selectedTime}`;
+  const displayStr = `${selectedDate?.replace(/-/g, '/').slice(5)} ${selectedTime}`;
+
+  const userId = event.source.userId;
+
+  try {
+    await db.collection('reservations').add({
+      userId: userId,
+      date: finalDateTimeStr,
+      status: 'pending',
+      createdAt: new Date(),
+    });
+
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: `✅ 予約を受け付けました\n日時: ${displayStr}\n\n抽選結果をお待ちください。`,
+    });
+  } catch (err) {
+    console.error(err);
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: 'エラーが発生しました。もう一度お試しください。',
+    });
   }
 }
 
