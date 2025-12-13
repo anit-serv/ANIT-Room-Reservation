@@ -70,6 +70,17 @@ const TRIGGER_WORDS = {
   VIEW_MY: ['自分の登録を見たい', '自分の予約', 'マイ予約'],
 };
 
+// 共通メッセージ
+const MESSAGES = {
+  ERROR: 'エラーが発生しました。もう一度お試しください。',
+  SESSION_EXPIRED: '⏰ 5分間経過したため、操作をキャンセルしました。\nもう一度お試しください。',
+  LOTTERY_TIME: '⚠️ 現在は20:50〜21:00の抽選集計時間のため、操作はできません。21:00以降にお試しください。',
+  CAROUSEL_EXPIRED: '⏰ このボタンは有効期限切れです。',
+  CAROUSEL_OUTDATED: '⚠️ このカルーセルは既に操作済みです。',
+  CAROUSEL_REFRESH: '「自分の登録を見たい」と送って最新の一覧を取得してください。',
+  NO_AVAILABLE_DATES: '現在、予約可能な枠がありません。（直近の水・木・土のみ予約可能です）',
+};
+
 const SESSION_TIMEOUT_MINUTES = 5;
 
 // セッションタイムアウトチェック（開始時刻からの経過時間）
@@ -103,6 +114,45 @@ async function recordButtonPress(userId: string): Promise<void> {
   await db.collection('states').doc(userId).set({
     lastButtonPressTs: Date.now(),
   }, { merge: true });
+}
+
+// カルーセル/確認ダイアログのボタン押下時の共通チェック処理
+// 無効な場合はエラーメッセージを返し、有効な場合はnullを返す
+async function checkButtonAndGetErrorReply(
+  event: line.PostbackEvent,
+  userId: string,
+  ts: string | null,
+  options: { recordPress?: boolean; dialogType?: 'carousel' | 'confirm' } = {}
+): Promise<line.Message[] | null> {
+  const { recordPress = false, dialogType = 'carousel' } = options;
+
+  if (!ts) return null;
+
+  const validation = await isCarouselButtonValid(userId, Number(ts));
+  if (validation.valid) {
+    if (recordPress) {
+      await recordButtonPress(userId);
+    }
+    return null;
+  }
+
+  // 進行中の操作があればクイックリプライを再表示
+  const ongoingReply = await getOngoingOperationReply(userId, true);
+  if (ongoingReply) {
+    return ongoingReply;
+  }
+
+  // エラーメッセージ
+  const expiredMsg = MESSAGES.CAROUSEL_EXPIRED;
+  const outdatedMsg = dialogType === 'confirm'
+    ? '⚠️ この確認ダイアログは既に操作済みです。'
+    : MESSAGES.CAROUSEL_OUTDATED;
+  const message = validation.reason === 'expired' ? expiredMsg : outdatedMsg;
+
+  return [{
+    type: 'text',
+    text: `${message}\n${MESSAGES.CAROUSEL_REFRESH}`,
+  }];
 }
 
 // ---------------------------------------------------------
@@ -338,7 +388,7 @@ async function handleViewMyReservations(event: line.MessageEvent | line.Postback
     console.error(err);
     return client.replyMessage(event.replyToken, {
       type: 'text',
-      text: 'エラーが発生しました。もう一度お試しください。',
+      text: MESSAGES.ERROR,
     });
   }
 }
@@ -397,7 +447,7 @@ async function handleOtherInput(event: line.MessageEvent, userId: string, userTe
     if (availableDates.length === 0) {
       return client.replyMessage(event.replyToken, {
         type: 'text',
-        text: '現在、予約可能な枠がありません。（直近の水・木・土のみ予約可能です）',
+        text: MESSAGES.NO_AVAILABLE_DATES,
       });
     }
 
@@ -439,7 +489,7 @@ async function handleOtherInput(event: line.MessageEvent, userId: string, userTe
       console.error(err);
       return client.replyMessage(event.replyToken, {
         type: 'text',
-        text: 'エラーが発生しました。もう一度お試しください。',
+        text: MESSAGES.ERROR,
       });
     }
   }
@@ -538,17 +588,8 @@ async function handleSelectDate(event: line.PostbackEvent, data: string) {
   const dateObj = new Date(selectedDate!);
   const dateLabel = `${dateObj.getMonth() + 1}/${dateObj.getDate()}`;
 
-  const timeSlots = [
-    { label: '9:00~10:00', value: '09:00-10:00' },
-    { label: '10:00~12:00', value: '10:00-12:00' },
-    { label: '12:00~14:00', value: '12:00-14:00' },
-    { label: '14:00~16:00', value: '14:00-16:00' },
-    { label: '16:00~18:00', value: '16:00-18:00' },
-    { label: '18:00~20:00', value: '18:00-20:00' },
-  ];
-
   // クイックリプライ作成
-  const quickReplyItems: line.QuickReplyItem[] = timeSlots.map((slot) => ({
+  const quickReplyItems: line.QuickReplyItem[] = TIME_SLOTS.map((slot) => ({
     type: 'action',
     action: {
       type: 'postback',
@@ -605,7 +646,7 @@ async function handleFinalize(event: line.PostbackEvent, data: string) {
     console.error(err);
     return client.replyMessage(event.replyToken, {
       type: 'text',
-      text: 'エラーが発生しました。もう一度お試しください。',
+      text: MESSAGES.ERROR,
     });
   }
 }
@@ -681,7 +722,7 @@ async function handleViewReservations(event: line.PostbackEvent, data: string) {
     console.error(err);
     return client.replyMessage(event.replyToken, {
       type: 'text',
-      text: 'エラーが発生しました。もう一度お試しください。',
+      text: MESSAGES.ERROR,
     });
   }
 }
@@ -693,29 +734,16 @@ async function handleEditReservation(event: line.PostbackEvent, data: string) {
   const userId = event.source.userId!;
 
   // ボタンの有効性チェック
-  if (ts) {
-    const validation = await isCarouselButtonValid(userId, Number(ts));
-    if (!validation.valid) {
-      // 進行中の操作があればクイックリプライを再表示
-      const ongoingReply = await getOngoingOperationReply(userId, true);
-      if (ongoingReply) {
-        return client.replyMessage(event.replyToken, ongoingReply);
-      }
-      const message = validation.reason === 'expired'
-        ? '⏰ このボタンは有効期限切れです。'
-        : '⚠️ このカルーセルは既に操作済みです。';
-      return client.replyMessage(event.replyToken, {
-        type: 'text',
-        text: `${message}\n「自分の登録を見たい」と送って最新の一覧を取得してください。`,
-      });
-    }
+  const errorReply = await checkButtonAndGetErrorReply(event, userId, ts);
+  if (errorReply) {
+    return client.replyMessage(event.replyToken, errorReply);
   }
 
   // 抽選時間チェック
   if (isLotteryTime()) {
     return client.replyMessage(event.replyToken, {
       type: 'text',
-      text: '⚠️ 現在は20:50〜21:00の抽選集計時間のため、編集操作はできません。21:00以降にお試しください。',
+      text: MESSAGES.LOTTERY_TIME,
     });
   }
 
@@ -742,24 +770,9 @@ async function handleConfirmDelete(event: line.PostbackEvent, data: string) {
   const userId = event.source.userId!;
 
   // ボタンの有効性チェック
-  if (ts) {
-    const validation = await isCarouselButtonValid(userId, Number(ts));
-    if (!validation.valid) {
-      // 進行中の操作があればクイックリプライを再表示
-      const ongoingReply = await getOngoingOperationReply(userId, true);
-      if (ongoingReply) {
-        return client.replyMessage(event.replyToken, ongoingReply);
-      }
-      const message = validation.reason === 'expired'
-        ? '⏰ このボタンは有効期限切れです。'
-        : '⚠️ このカルーセルは既に操作済みです。';
-      return client.replyMessage(event.replyToken, {
-        type: 'text',
-        text: `${message}\n「自分の登録を見たい」と送って最新の一覧を取得してください。`,
-      });
-    }
-    // ボタン押下時刻を記録
-    await recordButtonPress(userId);
+  const errorReply = await checkButtonAndGetErrorReply(event, userId, ts, { recordPress: true });
+  if (errorReply) {
+    return client.replyMessage(event.replyToken, errorReply);
   }
 
   const docId = params.get('docId');
@@ -795,24 +808,9 @@ async function handleDeleteReservation(event: line.PostbackEvent, data: string) 
   const userId = event.source.userId!;
 
   // ボタンの有効性チェック
-  if (ts) {
-    const validation = await isCarouselButtonValid(userId, Number(ts));
-    if (!validation.valid) {
-      // 進行中の操作があればクイックリプライを再表示
-      const ongoingReply = await getOngoingOperationReply(userId, true);
-      if (ongoingReply) {
-        return client.replyMessage(event.replyToken, ongoingReply);
-      }
-      const message = validation.reason === 'expired'
-        ? '⏰ このボタンは有効期限切れです。'
-        : '⚠️ この確認ダイアログは既に操作済みです。';
-      return client.replyMessage(event.replyToken, {
-        type: 'text',
-        text: `${message}\n「自分の登録を見たい」と送って最新の一覧を取得してください。`,
-      });
-    }
-    // ボタン押下時刻を記録
-    await recordButtonPress(userId);
+  const errorReply = await checkButtonAndGetErrorReply(event, userId, ts, { recordPress: true, dialogType: 'confirm' });
+  if (errorReply) {
+    return client.replyMessage(event.replyToken, errorReply);
   }
 
   const docId = params.get('docId');
@@ -828,7 +826,7 @@ async function handleDeleteReservation(event: line.PostbackEvent, data: string) 
     console.error(err);
     return client.replyMessage(event.replyToken, {
       type: 'text',
-      text: 'エラーが発生しました。もう一度お試しください。',
+      text: MESSAGES.ERROR,
     });
   }
 }
@@ -840,24 +838,9 @@ async function handleCancelDelete(event: line.PostbackEvent, data: string) {
   const userId = event.source.userId!;
 
   // ボタンの有効性チェック
-  if (ts) {
-    const validation = await isCarouselButtonValid(userId, Number(ts));
-    if (!validation.valid) {
-      // 進行中の操作があればクイックリプライを再表示
-      const ongoingReply = await getOngoingOperationReply(userId, true);
-      if (ongoingReply) {
-        return client.replyMessage(event.replyToken, ongoingReply);
-      }
-      const message = validation.reason === 'expired'
-        ? '⏰ このボタンは有効期限切れです。'
-        : '⚠️ この確認ダイアログは既に操作済みです。';
-      return client.replyMessage(event.replyToken, {
-        type: 'text',
-        text: `${message}\n「自分の登録を見たい」と送って最新の一覧を取得してください。`,
-      });
-    }
-    // ボタン押下時刻を記録
-    await recordButtonPress(userId);
+  const errorReply = await checkButtonAndGetErrorReply(event, userId, ts, { recordPress: true, dialogType: 'confirm' });
+  if (errorReply) {
+    return client.replyMessage(event.replyToken, errorReply);
   }
 
   return client.replyMessage(event.replyToken, {
@@ -878,24 +861,10 @@ async function handleViewMyMore(event: line.PostbackEvent, data: string) {
   const ts = params.get('ts');
   const userId = event.source.userId!;
 
-  // ボタンの有効性チェック（5分経過または既に操作済み）
-  if (ts) {
-    const validation = await isCarouselButtonValid(userId, Number(ts));
-    if (!validation.valid) {
-      // 進行中の操作があればクイックリプライを再表示
-      const ongoingReply = await getOngoingOperationReply(userId, true);
-      if (ongoingReply) {
-        return client.replyMessage(event.replyToken, ongoingReply);
-      }
-      const message = validation.reason === 'expired'
-        ? '⏰ このボタンは有効期限切れです。'
-        : '⚠️ このカルーセルは既に操作済みです。';
-      return client.replyMessage(event.replyToken, {
-        type: 'text',
-        text: `${message}\n「自分の登録を見たい」と送って最新の一覧を取得してください。`,
-      });
-    }
-    // 「さらに表示」はボタン押下時刻を記録しない（無効化しない）
+  // ボタンの有効性チェック（「さらに表示」はボタン押下時刻を記録しない）
+  const errorReply = await checkButtonAndGetErrorReply(event, userId, ts);
+  if (errorReply) {
+    return client.replyMessage(event.replyToken, errorReply);
   }
 
   const page = parseInt(params.get('page') || '0', 10);
@@ -912,29 +881,16 @@ async function handleEditDateTime(event: line.PostbackEvent, data: string) {
   const userId = event.source.userId!;
 
   // ボタンの有効性チェック
-  if (ts) {
-    const validation = await isCarouselButtonValid(userId, Number(ts));
-    if (!validation.valid) {
-      // 進行中の操作があればクイックリプライを再表示
-      const ongoingReply = await getOngoingOperationReply(userId, true);
-      if (ongoingReply) {
-        return client.replyMessage(event.replyToken, ongoingReply);
-      }
-      const message = validation.reason === 'expired'
-        ? '⏰ このボタンは有効期限切れです。'
-        : '⚠️ このカルーセルは既に操作済みです。';
-      return client.replyMessage(event.replyToken, {
-        type: 'text',
-        text: `${message}\n「自分の登録を見たい」と送って最新の一覧を取得してください。`,
-      });
-    }
+  const errorReply = await checkButtonAndGetErrorReply(event, userId, ts);
+  if (errorReply) {
+    return client.replyMessage(event.replyToken, errorReply);
   }
 
   // 抽選時間チェック
   if (isLotteryTime()) {
     return client.replyMessage(event.replyToken, {
       type: 'text',
-      text: '⚠️ 現在は20:50〜21:00の抽選集計時間のため、編集操作はできません。21:00以降にお試しください。',
+      text: MESSAGES.LOTTERY_TIME,
     });
   }
 
@@ -946,7 +902,7 @@ async function handleEditDateTime(event: line.PostbackEvent, data: string) {
   if (availableDates.length === 0) {
     return client.replyMessage(event.replyToken, {
       type: 'text',
-      text: '現在、予約可能な枠がありません。（直近の水・木・土のみ予約可能です）',
+      text: MESSAGES.NO_AVAILABLE_DATES,
     });
   }
 
@@ -1065,7 +1021,7 @@ async function handleEditFinalize(event: line.PostbackEvent, data: string) {
     console.error(err);
     return client.replyMessage(event.replyToken, {
       type: 'text',
-      text: 'エラーが発生しました。もう一度お試しください。',
+      text: MESSAGES.ERROR,
     });
   }
 }
