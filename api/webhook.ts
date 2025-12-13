@@ -160,24 +160,41 @@ async function handleViewMyReservations(event: line.MessageEvent, userId: string
       });
     }
 
-    let message = '📝 あなたの登録一覧\n' + '─'.repeat(15) + '\n';
-
-    snapshot.docs.forEach((doc, index) => {
+    // カルーセルのカラムを作成（最大10件まで）
+    const columns: line.TemplateColumn[] = snapshot.docs.slice(0, 10).map((doc) => {
       const data = doc.data();
+      const docId = doc.id;
       const bandName = data.bandName || '(バンド名なし)';
       const dateTime = data.date; // "2023-12-20T09:00-10:00"
       const [datePart, timePart] = dateTime.split('T');
       const displayDate = datePart.replace(/-/g, '/').slice(5); // "12/20"
       const status = data.status === 'confirmed' ? '✅確定' : '⏳抽選待ち';
 
-      message += `\n${index + 1}. ${bandName}\n`;
-      message += `   📅 ${displayDate} ${timePart}\n`;
-      message += `   ${status}\n`;
+      return {
+        title: bandName.slice(0, 40), // タイトルは40文字まで
+        text: `📅 ${displayDate} ${timePart}\n${status}`,
+        actions: [
+          {
+            type: 'postback' as const,
+            label: '✂️ バンド名を編集',
+            data: `action=edit_reservation&docId=${docId}`,
+          },
+          {
+            type: 'postback' as const,
+            label: '🗑️ 削除する',
+            data: `action=confirm_delete&docId=${docId}&band=${encodeURIComponent(bandName)}`,
+          },
+        ],
+      };
     });
 
     return client.replyMessage(event.replyToken, {
-      type: 'text',
-      text: message.trim(),
+      type: 'template',
+      altText: 'あなたの登録一覧',
+      template: {
+        type: 'carousel',
+        columns: columns,
+      },
     });
   } catch (err) {
     console.error(err);
@@ -264,6 +281,30 @@ async function handleOtherInput(event: line.MessageEvent, userId: string, userTe
     });
   }
 
+  // バンド名編集中の場合
+  if (stateData && stateData.status === 'EDITING_BAND_NAME') {
+    const newBandName = userText;
+    const docId = stateData.editingDocId;
+    await db.collection('states').doc(userId).delete();
+
+    try {
+      await db.collection('reservations').doc(docId).update({
+        bandName: newBandName,
+      });
+
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: `✅ バンド名を「${newBandName}」に更新しました。`,
+      });
+    } catch (err) {
+      console.error(err);
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: 'エラーが発生しました。もう一度お試しください。',
+      });
+    }
+  }
+
   return Promise.resolve(null);
 }
 
@@ -286,6 +327,26 @@ async function handlePostbackEvent(event: line.PostbackEvent) {
   // パターンC: 全登録表示（日付選択後）
   if (data.startsWith('action=view_reservations')) {
     return handleViewReservations(event, data);
+  }
+
+  // パターンD: 予約編集
+  if (data.startsWith('action=edit_reservation')) {
+    return handleEditReservation(event, data);
+  }
+
+  // パターンE: 削除確認
+  if (data.startsWith('action=confirm_delete')) {
+    return handleConfirmDelete(event, data);
+  }
+
+  // パターンF: 削除実行
+  if (data.startsWith('action=delete_reservation')) {
+    return handleDeleteReservation(event, data);
+  }
+
+  // パターンG: バンド名更新確定
+  if (data.startsWith('action=update_band_name')) {
+    return handleUpdateBandName(event, data);
   }
 }
 
@@ -439,6 +500,80 @@ async function handleViewReservations(event: line.PostbackEvent, data: string) {
       text: 'エラーが発生しました。もう一度お試しください。',
     });
   }
+}
+
+// パターンD: 予約編集（バンド名入力待ち状態にする）
+async function handleEditReservation(event: line.PostbackEvent, data: string) {
+  const params = new URLSearchParams(data);
+  const docId = params.get('docId');
+  const userId = event.source.userId!;
+
+  // 編集対象のドキュメントIDを状態に保存
+  await db.collection('states').doc(userId).set({
+    status: 'EDITING_BAND_NAME',
+    editingDocId: docId,
+    createdAt: new Date(),
+  });
+
+  return client.replyMessage(event.replyToken, {
+    type: 'text',
+    text: '新しい【バンド名】を入力してください。\n(中断する場合は「キャンセル」と送ってください)',
+  });
+}
+
+// パターンE: 削除確認
+async function handleConfirmDelete(event: line.PostbackEvent, data: string) {
+  const params = new URLSearchParams(data);
+  const docId = params.get('docId');
+  const bandName = decodeURIComponent(params.get('band') || '');
+
+  return client.replyMessage(event.replyToken, {
+    type: 'template',
+    altText: '削除確認',
+    template: {
+      type: 'confirm',
+      text: `「${bandName}」の登録を削除しますか？`,
+      actions: [
+        {
+          type: 'postback',
+          label: 'はい、削除する',
+          data: `action=delete_reservation&docId=${docId}`,
+        },
+        {
+          type: 'postback',
+          label: 'いいえ',
+          data: 'action=cancel_delete',
+        },
+      ],
+    },
+  });
+}
+
+// パターンF: 削除実行
+async function handleDeleteReservation(event: line.PostbackEvent, data: string) {
+  const params = new URLSearchParams(data);
+  const docId = params.get('docId');
+
+  try {
+    await db.collection('reservations').doc(docId!).delete();
+
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: '🗑️ 登録を削除しました。',
+    });
+  } catch (err) {
+    console.error(err);
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: 'エラーが発生しました。もう一度お試しください。',
+    });
+  }
+}
+
+// パターンG: バンド名更新（テキスト入力後に呼ばれる）
+async function handleUpdateBandName(event: line.PostbackEvent, data: string) {
+  // この関数は使わない（handleOtherInputで処理）
+  return Promise.resolve(null);
 }
 
 // ---------------------------------------------------------
