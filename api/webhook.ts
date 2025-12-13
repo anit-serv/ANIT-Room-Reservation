@@ -67,6 +67,7 @@ const TRIGGER_WORDS = {
   REGISTER: ['登録したい', '予約', '予約したい', '登録'],
   CANCEL: ['キャンセル', 'やめる', '終了'],
   VIEW_ALL: ['全登録を見たい', '全予約', '一覧'],
+  VIEW_MY: ['自分の登録を見たい', '自分の予約', 'マイ予約'],
 };
 
 const SESSION_TIMEOUT_MINUTES = 5;
@@ -95,6 +96,11 @@ async function handleTextEvent(event: line.MessageEvent) {
   // 全登録表示トリガーワード
   if (TRIGGER_WORDS.VIEW_ALL.includes(userText)) {
     return handleViewAllRequest(event);
+  }
+
+  // 自分の登録表示トリガーワード
+  if (TRIGGER_WORDS.VIEW_MY.includes(userText)) {
+    return handleViewMyReservations(event, userId);
   }
 
   // それ以外（状態に応じた処理）
@@ -137,6 +143,49 @@ async function handleViewAllRequest(event: line.MessageEvent) {
       items: quickReplyItems,
     },
   });
+}
+
+// 自分の登録表示の処理
+async function handleViewMyReservations(event: line.MessageEvent, userId: string) {
+  try {
+    const snapshot = await db.collection('reservations')
+      .where('userId', '==', userId)
+      .orderBy('date', 'asc')
+      .get();
+
+    if (snapshot.empty) {
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: '📝 あなたの登録はまだありません。',
+      });
+    }
+
+    let message = '📝 あなたの登録一覧\n' + '─'.repeat(15) + '\n';
+
+    snapshot.docs.forEach((doc, index) => {
+      const data = doc.data();
+      const bandName = data.bandName || '(バンド名なし)';
+      const dateTime = data.date; // "2023-12-20T09:00-10:00"
+      const [datePart, timePart] = dateTime.split('T');
+      const displayDate = datePart.replace(/-/g, '/').slice(5); // "12/20"
+      const status = data.status === 'confirmed' ? '✅確定' : '⏳抽選待ち';
+
+      message += `\n${index + 1}. ${bandName}\n`;
+      message += `   📅 ${displayDate} ${timePart}\n`;
+      message += `   ${status}\n`;
+    });
+
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: message.trim(),
+    });
+  } catch (err) {
+    console.error(err);
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: 'エラーが発生しました。もう一度お試しください。',
+    });
+  }
 }
 
 // 登録リクエストの処理
