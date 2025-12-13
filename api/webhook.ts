@@ -68,6 +68,15 @@ const TRIGGER_WORDS = {
   CANCEL: ['キャンセル', 'やめる', '終了'],
 };
 
+const SESSION_TIMEOUT_MINUTES = 5;
+
+// セッションタイムアウトチェック（開始時刻からの経過時間）
+function isSessionExpired(startTime: number): boolean {
+  const now = Date.now();
+  const diffMinutes = (now - startTime) / (1000 * 60);
+  return diffMinutes >= SESSION_TIMEOUT_MINUTES;
+}
+
 async function handleTextEvent(event: line.MessageEvent) {
   const userId = event.source.userId!;
   const userText = (event.message as line.TextEventMessage).text;
@@ -125,9 +134,22 @@ async function handleOtherInput(event: line.MessageEvent, userId: string, userTe
 
   const stateData = stateSnap.data();
 
+  // タイムアウトチェック
+  if (stateData && stateData.createdAt) {
+    const createdAt = stateData.createdAt.toDate().getTime();
+    if (isSessionExpired(createdAt)) {
+      await db.collection('states').doc(userId).delete();
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: '⏰ 5分間経過したため、登録をキャンセルしました。\nもう一度「登録したい」と送ってください。',
+      });
+    }
+  }
+
   // バンド名入力待ちの場合
   if (stateData && stateData.status === 'WAITING_BAND_NAME') {
     const bandName = userText;
+    const startTime = stateData.createdAt.toDate().getTime(); // 開始時刻を取得
     await db.collection('states').doc(userId).delete();
 
     const availableDates = getAvailableDates();
@@ -139,12 +161,13 @@ async function handleOtherInput(event: line.MessageEvent, userId: string, userTe
       });
     }
 
+    // 開始時刻をpostbackデータに埋め込む
     const quickReplyItems: line.QuickReplyItem[] = availableDates.map((d) => ({
       type: 'action',
       action: {
         type: 'postback',
         label: d.label,
-        data: `action=select_date&date=${d.value}&band=${bandName}`,
+        data: `action=select_date&date=${d.value}&band=${encodeURIComponent(bandName)}&start=${startTime}`,
       },
     }));
 
@@ -181,7 +204,16 @@ async function handlePostbackEvent(event: line.PostbackEvent) {
 async function handleSelectDate(event: line.PostbackEvent, data: string) {
   const params = new URLSearchParams(data);
   const selectedDate = params.get('date');
-  const bandName = params.get('band'); // 受け取ったバンド名
+  const bandName = params.get('band');
+  const startTime = params.get('start');
+
+  // タイムアウトチェック
+  if (startTime && isSessionExpired(Number(startTime))) {
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: '⏰ 5分間経過したため、登録をキャンセルしました。\nもう一度「登録したい」と送ってください。',
+    });
+  }
 
   const dateObj = new Date(selectedDate!);
   const dateLabel = `${dateObj.getMonth() + 1}/${dateObj.getDate()}`;
@@ -201,8 +233,8 @@ async function handleSelectDate(event: line.PostbackEvent, data: string) {
     action: {
       type: 'postback',
       label: slot.label,
-      // ★ここでもバンド名を次のデータに引き継ぐ！
-      data: `action=finalize&date=${selectedDate}&time=${slot.value}&band=${bandName}`,
+      // 開始時刻も次のデータに引き継ぐ
+      data: `action=finalize&date=${selectedDate}&time=${slot.value}&band=${bandName}&start=${startTime}`,
     },
   }));
 
@@ -220,7 +252,16 @@ async function handleFinalize(event: line.PostbackEvent, data: string) {
   const params = new URLSearchParams(data);
   const selectedDate = params.get('date');
   const selectedTime = params.get('time');
-  const bandName = params.get('band'); // 最終的にここでバンド名を取り出す
+  const bandName = decodeURIComponent(params.get('band') || '');
+  const startTime = params.get('start');
+
+  // タイムアウトチェック
+  if (startTime && isSessionExpired(Number(startTime))) {
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: '⏰ 5分間経過したため、登録をキャンセルしました。\nもう一度「登録したい」と送ってください。',
+    });
+  }
 
   const finalDateTimeStr = `${selectedDate}T${selectedTime}`;
   const displayStr = `${selectedDate?.replace(/-/g, '/').slice(5)} ${selectedTime}`;
