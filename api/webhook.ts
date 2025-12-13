@@ -196,17 +196,17 @@ async function handleViewMyReservations(event: line.MessageEvent | line.Postback
         actions: [
           {
             type: 'postback' as const,
-            label: '✂️ バンド名を編集',
+            label: '✏️ バンド名を編集',
             data: `action=edit_reservation&docId=${docId}`,
           },
           {
             type: 'postback' as const,
-            label: '� 日時を編集',
+            label: '📅 日時を編集',
             data: `action=edit_datetime&docId=${docId}`,
           },
           {
             type: 'postback' as const,
-            label: '�🗑️ 削除する',
+            label: '🗑️ 削除する',
             data: `action=confirm_delete&docId=${docId}&band=${encodeURIComponent(bandName)}`,
           },
         ],
