@@ -202,28 +202,35 @@ async function handleTextEvent(event: line.MessageEvent) {
   const userId = event.source.userId!;
   const userText = (event.message as line.TextEventMessage).text;
 
-  // キャンセル処理
+  // キャンセル処理は常に最優先
   if (TRIGGER_WORDS.CANCEL.includes(userText)) {
     return handleCancelRequest(event, userId);
   }
 
-  // 登録系トリガーワード
+  // 状態を取得して、操作中かどうかを判定
+  const stateSnap = await db.collection('states').doc(userId).get();
+  const hasActiveState = stateSnap.exists && stateSnap.data()?.status;
+
+  // 操作中の場合は予約語を無視して状態に応じた処理を行う
+  if (hasActiveState) {
+    return handleOtherInput(event, userId, userText, stateSnap);
+  }
+
+  // 状態がない場合のみ予約語をトリガーとして処理
   if (TRIGGER_WORDS.REGISTER.includes(userText)) {
     return handleRegisterRequest(event, userId);
   }
 
-  // 全登録表示トリガーワード
   if (TRIGGER_WORDS.VIEW_ALL.includes(userText)) {
     return handleViewAllRequest(event, userId);
   }
 
-  // 自分の登録表示トリガーワード
   if (TRIGGER_WORDS.VIEW_MY.includes(userText)) {
     return handleViewMyReservations(event, userId);
   }
 
-  // それ以外（状態に応じた処理）
-  return handleOtherInput(event, userId, userText);
+  // それ以外（状態なし＆予約語でもない）
+  return Promise.resolve(null);
 }
 
 // キャンセル処理
@@ -415,8 +422,17 @@ async function handleRegisterRequest(event: line.MessageEvent, userId: string) {
 }
 
 // その他の入力処理（状態に応じた処理）
-async function handleOtherInput(event: line.MessageEvent, userId: string, userText: string) {
-  const stateSnap = await db.collection('states').doc(userId).get();
+// stateSnapを引数で受け取ることで、重複したDB読み取りを避ける
+async function handleOtherInput(
+  event: line.MessageEvent,
+  userId: string,
+  userText: string,
+  stateSnap?: FirebaseFirestore.DocumentSnapshot
+) {
+  // stateSnapが渡されていない場合は取得
+  if (!stateSnap) {
+    stateSnap = await db.collection('states').doc(userId).get();
+  }
 
   if (!stateSnap.exists) {
     return Promise.resolve(null);
@@ -436,8 +452,23 @@ async function handleOtherInput(event: line.MessageEvent, userId: string, userTe
     }
   }
 
+  // 予約語が入力された場合の警告（テキスト入力待ち状態で）
+  const isReservedWord = [
+    ...TRIGGER_WORDS.REGISTER,
+    ...TRIGGER_WORDS.VIEW_ALL,
+    ...TRIGGER_WORDS.VIEW_MY,
+  ].includes(userText);
+
   // バンド名入力待ちの場合
   if (stateData && stateData.status === 'WAITING_BAND_NAME') {
+    // 予約語が入力された場合は警告
+    if (isReservedWord) {
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: `⚠️「${userText}」は予約語のため、バンド名として使用できません。\n\n別のバンド名を入力してください。\n(中断する場合は「キャンセル」と送ってください)`,
+      });
+    }
+
     const bandName = userText;
     const startTime = stateData.createdAt.toDate().getTime(); // 開始時刻を取得
     await db.collection('states').doc(userId).delete();
@@ -472,6 +503,14 @@ async function handleOtherInput(event: line.MessageEvent, userId: string, userTe
 
   // バンド名編集中の場合
   if (stateData && stateData.status === 'EDITING_BAND_NAME') {
+    // 予約語が入力された場合は警告
+    if (isReservedWord) {
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: `⚠️「${userText}」は予約語のため、バンド名として使用できません。\n\n別のバンド名を入力してください。\n(中断する場合は「キャンセル」と送ってください)`,
+      });
+    }
+
     const newBandName = userText;
     const docId = stateData.editingDocId;
     await db.collection('states').doc(userId).delete();
