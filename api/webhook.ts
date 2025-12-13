@@ -222,8 +222,18 @@ async function handleViewMyReservations(event: line.MessageEvent | line.Postback
         actions: [
           {
             type: 'postback' as const,
-            label: '➡️ 次の9件を見る',
+            label: '➡️ 次を見る',
             data: `action=view_my_more&page=${page + 1}`,
+          },
+          {
+            type: 'postback' as const,
+            label: '─',
+            data: 'action=noop',
+          },
+          {
+            type: 'postback' as const,
+            label: '─',
+            data: 'action=noop',
           },
         ],
       });
