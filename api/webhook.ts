@@ -703,6 +703,11 @@ async function handleEditReservation(event: line.PostbackEvent, data: string) {
   if (ts) {
     const validation = await isCarouselButtonValid(userId, Number(ts));
     if (!validation.valid) {
+      // 進行中の操作があればクイックリプライを再表示
+      const ongoingReply = await getOngoingOperationReply(userId, event.replyToken);
+      if (ongoingReply) {
+        return client.replyMessage(event.replyToken, ongoingReply);
+      }
       const message = validation.reason === 'expired'
         ? '⏰ このボタンは有効期限切れです。'
         : '⚠️ このカルーセルは既に操作済みです。';
@@ -800,6 +805,11 @@ async function handleDeleteReservation(event: line.PostbackEvent, data: string) 
   if (ts) {
     const validation = await isCarouselButtonValid(userId, Number(ts));
     if (!validation.valid) {
+      // 進行中の操作があればクイックリプライを再表示
+      const ongoingReply = await getOngoingOperationReply(userId, event.replyToken);
+      if (ongoingReply) {
+        return client.replyMessage(event.replyToken, ongoingReply);
+      }
       const message = validation.reason === 'expired'
         ? '⏰ このボタンは有効期限切れです。'
         : '⚠️ この確認ダイアログは既に操作済みです。';
@@ -840,6 +850,11 @@ async function handleCancelDelete(event: line.PostbackEvent, data: string) {
   if (ts) {
     const validation = await isCarouselButtonValid(userId, Number(ts));
     if (!validation.valid) {
+      // 進行中の操作があればクイックリプライを再表示
+      const ongoingReply = await getOngoingOperationReply(userId, event.replyToken);
+      if (ongoingReply) {
+        return client.replyMessage(event.replyToken, ongoingReply);
+      }
       const message = validation.reason === 'expired'
         ? '⏰ このボタンは有効期限切れです。'
         : '⚠️ この確認ダイアログは既に操作済みです。';
