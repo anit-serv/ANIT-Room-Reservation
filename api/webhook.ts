@@ -137,7 +137,7 @@ async function checkButtonAndGetErrorReply(
   }
 
   // 進行中の操作があればクイックリプライを再表示
-  const ongoingReply = await getOngoingOperationReply(userId, true);
+  const ongoingReply = await getOngoingOperationReply(userId, { isInvalidButton: true });
   if (ongoingReply) {
     return ongoingReply;
   }
@@ -170,7 +170,12 @@ const TIME_SLOTS = [
 ];
 
 // 進行中の操作があれば、クイックリプライを再表示するメッセージを作成
-async function getOngoingOperationReply(userId: string, isInvalidButton: boolean = true): Promise<line.Message[] | null> {
+async function getOngoingOperationReply(
+  userId: string,
+  options: { isInvalidButton?: boolean; isReservedWord?: boolean } = {}
+): Promise<line.Message[] | null> {
+  const { isInvalidButton = true, isReservedWord = false } = options;
+
   const stateSnap = await db.collection('states').doc(userId).get();
   if (!stateSnap.exists) return null;
 
@@ -184,10 +189,15 @@ async function getOngoingOperationReply(userId: string, isInvalidButton: boolean
     return null;
   }
 
-  // 汎用メッセージ
-  const message = isInvalidButton
-    ? '⚠️ このボタンは無効です。\n\n選択を続けてください👇'
-    : '選択を続けてください👇\n(中断する場合は「キャンセル」と送ってください)';
+  // メッセージ選択
+  let message: string;
+  if (isInvalidButton) {
+    message = '⚠️ このボタンは無効です。\n\n選択を続けてください👇';
+  } else if (isReservedWord) {
+    message = '⚠️ 操作中のため予約語は使用できません。\n\n選択を続けてください👇\n(中断する場合は「キャンセル」と送ってください)';
+  } else {
+    message = '選択を続けてください👇\n(中断する場合は「キャンセル」と送ってください)';
+  }
 
   return [
     {
@@ -534,7 +544,7 @@ async function handleOtherInput(
   }
 
   // クイックリプライが必要な状態の場合 → 共通関数で再表示
-  const ongoingReply = await getOngoingOperationReply(userId, false);
+  const ongoingReply = await getOngoingOperationReply(userId, { isInvalidButton: false, isReservedWord });
   if (ongoingReply) {
     return client.replyMessage(event.replyToken, ongoingReply);
   }
