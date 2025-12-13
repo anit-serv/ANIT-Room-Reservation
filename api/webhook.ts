@@ -79,6 +79,25 @@ function isSessionExpired(startTime: number): boolean {
   return diffMinutes >= SESSION_TIMEOUT_MINUTES;
 }
 
+// カルーセルのボタンが有効かチェック（最新のカルーセルかつ期限内）
+async function isCarouselButtonValid(userId: string, buttonTs: number): Promise<{ valid: boolean; reason?: string }> {
+  // 5分経過チェック
+  if (isSessionExpired(buttonTs)) {
+    return { valid: false, reason: 'expired' };
+  }
+
+  // 最新のカルーセルかチェック
+  const stateSnap = await db.collection('states').doc(userId).get();
+  if (stateSnap.exists) {
+    const stateData = stateSnap.data();
+    if (stateData?.lastCarouselTs && buttonTs < stateData.lastCarouselTs) {
+      return { valid: false, reason: 'outdated' };
+    }
+  }
+
+  return { valid: true };
+}
+
 async function handleTextEvent(event: line.MessageEvent) {
   const userId = event.source.userId!;
   const userText = (event.message as line.TextEventMessage).text;
@@ -180,8 +199,13 @@ async function handleViewMyReservations(event: line.MessageEvent | line.Postback
       });
     }
 
-    // カルーセル生成時刻（ボタンの有効期限チェック用）
+    // カルーセル生成時刻（ボタンの有効性チェック用）
     const carouselCreatedAt = Date.now();
+
+    // ユーザーの最新カルーセルタイムスタンプを保存
+    await db.collection('states').doc(userId).set({
+      lastCarouselTs: carouselCreatedAt,
+    }, { merge: true });
 
     // カルーセルのカラムを作成（最大9件 + さらに表示で合計10件以内）
     const columns: line.TemplateColumn[] = sortedDocs.slice(startIndex, endIndex).map((doc) => {
@@ -582,13 +606,20 @@ async function handleViewReservations(event: line.PostbackEvent, data: string) {
 async function handleEditReservation(event: line.PostbackEvent, data: string) {
   const params = new URLSearchParams(data);
   const ts = params.get('ts');
+  const userId = event.source.userId!;
 
-  // ボタンの有効期限チェック（5分）
-  if (ts && isSessionExpired(Number(ts))) {
-    return client.replyMessage(event.replyToken, {
-      type: 'text',
-      text: '⏰ このボタンは有効期限切れです。\n「自分の登録を見たい」と送って最新の一覧を取得してください。',
-    });
+  // ボタンの有効性チェック
+  if (ts) {
+    const validation = await isCarouselButtonValid(userId, Number(ts));
+    if (!validation.valid) {
+      const message = validation.reason === 'expired'
+        ? '⏰ このボタンは有効期限切れです。'
+        : '⚠️ このカルーセルは古いため無効です。';
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: `${message}\n「自分の登録を見たい」と送って最新の一覧を取得してください。`,
+      });
+    }
   }
 
   // 抽選時間チェック
@@ -600,7 +631,6 @@ async function handleEditReservation(event: line.PostbackEvent, data: string) {
   }
 
   const docId = params.get('docId');
-  const userId = event.source.userId!;
 
   // 編集対象のドキュメントIDを状態に保存
   await db.collection('states').doc(userId).set({
@@ -619,13 +649,20 @@ async function handleEditReservation(event: line.PostbackEvent, data: string) {
 async function handleConfirmDelete(event: line.PostbackEvent, data: string) {
   const params = new URLSearchParams(data);
   const ts = params.get('ts');
+  const userId = event.source.userId!;
 
-  // ボタンの有効期限チェック（5分）
-  if (ts && isSessionExpired(Number(ts))) {
-    return client.replyMessage(event.replyToken, {
-      type: 'text',
-      text: '⏰ このボタンは有効期限切れです。\n「自分の登録を見たい」と送って最新の一覧を取得してください。',
-    });
+  // ボタンの有効性チェック
+  if (ts) {
+    const validation = await isCarouselButtonValid(userId, Number(ts));
+    if (!validation.valid) {
+      const message = validation.reason === 'expired'
+        ? '⏰ このボタンは有効期限切れです。'
+        : '⚠️ このカルーセルは古いため無効です。';
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: `${message}\n「自分の登録を見たい」と送って最新の一覧を取得してください。`,
+      });
+    }
   }
 
   const docId = params.get('docId');
@@ -684,17 +721,23 @@ async function handleUpdateBandName(event: line.PostbackEvent, data: string) {
 async function handleViewMyMore(event: line.PostbackEvent, data: string) {
   const params = new URLSearchParams(data);
   const ts = params.get('ts');
+  const userId = event.source.userId!;
 
-  // ボタンの有効期限チェック（5分）
-  if (ts && isSessionExpired(Number(ts))) {
-    return client.replyMessage(event.replyToken, {
-      type: 'text',
-      text: '⏰ このボタンは有効期限切れです。\n「自分の登録を見たい」と送って最新の一覧を取得してください。',
-    });
+  // ボタンの有効性チェック
+  if (ts) {
+    const validation = await isCarouselButtonValid(userId, Number(ts));
+    if (!validation.valid) {
+      const message = validation.reason === 'expired'
+        ? '⏰ このボタンは有効期限切れです。'
+        : '⚠️ このカルーセルは古いため無効です。';
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: `${message}\n「自分の登録を見たい」と送って最新の一覧を取得してください。`,
+      });
+    }
   }
 
   const page = parseInt(params.get('page') || '0', 10);
-  const userId = event.source.userId!;
 
   return handleViewMyReservations(event, userId, page);
 }
@@ -703,13 +746,20 @@ async function handleViewMyMore(event: line.PostbackEvent, data: string) {
 async function handleEditDateTime(event: line.PostbackEvent, data: string) {
   const params = new URLSearchParams(data);
   const ts = params.get('ts');
+  const userId = event.source.userId!;
 
-  // ボタンの有効期限チェック（5分）
-  if (ts && isSessionExpired(Number(ts))) {
-    return client.replyMessage(event.replyToken, {
-      type: 'text',
-      text: '⏰ このボタンは有効期限切れです。\n「自分の登録を見たい」と送って最新の一覧を取得してください。',
-    });
+  // ボタンの有効性チェック
+  if (ts) {
+    const validation = await isCarouselButtonValid(userId, Number(ts));
+    if (!validation.valid) {
+      const message = validation.reason === 'expired'
+        ? '⏰ このボタンは有効期限切れです。'
+        : '⚠️ このカルーセルは古いため無効です。';
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: `${message}\n「自分の登録を見たい」と送って最新の一覧を取得してください。`,
+      });
+    }
   }
 
   // 抽選時間チェック
