@@ -430,7 +430,7 @@ async function handlePostbackEvent(event: line.PostbackEvent) {
 
   // パターンF2: 削除キャンセル
   if (data.startsWith('action=cancel_delete')) {
-    return handleCancelDelete(event);
+    return handleCancelDelete(event, data);
   }
 
   // パターンG: バンド名更新確定
@@ -697,7 +697,7 @@ async function handleConfirmDelete(event: line.PostbackEvent, data: string) {
         {
           type: 'postback',
           label: 'いいえ',
-          data: 'action=cancel_delete',
+          data: `action=cancel_delete&ts=${confirmTs}`,
         },
       ],
     },
@@ -745,7 +745,27 @@ async function handleDeleteReservation(event: line.PostbackEvent, data: string) 
 }
 
 // パターンF2: 削除キャンセル
-async function handleCancelDelete(event: line.PostbackEvent) {
+async function handleCancelDelete(event: line.PostbackEvent, data: string) {
+  const params = new URLSearchParams(data);
+  const ts = params.get('ts');
+  const userId = event.source.userId!;
+
+  // ボタンの有効性チェック
+  if (ts) {
+    const validation = await isCarouselButtonValid(userId, Number(ts));
+    if (!validation.valid) {
+      const message = validation.reason === 'expired'
+        ? '⏰ このボタンは有効期限切れです。'
+        : '⚠️ この確認ダイアログは既に操作済みです。';
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: `${message}\n「自分の登録を見たい」と送って最新の一覧を取得してください。`,
+      });
+    }
+    // ボタン押下時刻を記録
+    await recordButtonPress(userId);
+  }
+
   return client.replyMessage(event.replyToken, {
     type: 'text',
     text: '削除をキャンセルしました。',
