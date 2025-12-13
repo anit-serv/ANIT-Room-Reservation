@@ -172,7 +172,7 @@ async function handleViewAllRequest(event: line.MessageEvent) {
 }
 
 // 自分の登録表示の処理
-async function handleViewMyReservations(event: line.MessageEvent | line.PostbackEvent, userId: string, page: number = 0) {
+async function handleViewMyReservations(event: line.MessageEvent | line.PostbackEvent, userId: string, page: number = 0, originalTs?: number) {
   try {
     // インデックスなしでも動くようにorderByを削除し、クライアント側でソート
     const snapshot = await db.collection('reservations')
@@ -206,8 +206,9 @@ async function handleViewMyReservations(event: line.MessageEvent | line.Postback
       });
     }
 
-    // カルーセル生成時刻（ボタンの有効性チェック用）
-    const carouselCreatedAt = Date.now();
+    // カルーセル生成時刻（元のタイムスタンプがあればそれを使用）
+    const carouselCreatedAt = originalTs ?? Date.now();
+    const isLottery = isLotteryTime();
 
     // カルーセルのカラムを作成（最大9件 + さらに表示で合計10件以内）
     const columns: line.TemplateColumn[] = sortedDocs.slice(startIndex, endIndex).map((doc) => {
@@ -219,30 +220,39 @@ async function handleViewMyReservations(event: line.MessageEvent | line.Postback
       const displayDate = datePart.replace(/-/g, '/').slice(5); // "12/20"
       const status = data.status === 'confirmed' ? '✅確定' : '⏳抽選待ち';
 
+      // 抽選時間中はボタンなし（閲覧専用）
+      const actions: line.Action[] = isLottery
+        ? [
+            { type: 'postback' as const, label: '─', data: 'action=noop' },
+            { type: 'postback' as const, label: '🔒 抽選中', data: 'action=noop' },
+            { type: 'postback' as const, label: '─', data: 'action=noop' },
+          ]
+        : [
+            {
+              type: 'postback' as const,
+              label: '✏️ バンド名を編集',
+              data: `action=edit_reservation&docId=${docId}&ts=${carouselCreatedAt}`,
+            },
+            {
+              type: 'postback' as const,
+              label: '📅 日時を編集',
+              data: `action=edit_datetime&docId=${docId}&ts=${carouselCreatedAt}`,
+            },
+            {
+              type: 'postback' as const,
+              label: '🗑️ 削除する',
+              data: `action=confirm_delete&docId=${docId}&band=${encodeURIComponent(bandName)}&ts=${carouselCreatedAt}`,
+            },
+          ];
+
       return {
         title: bandName.slice(0, 40), // タイトルは40文字まで
         text: `📅 ${displayDate} ${timePart}\n${status}`,
-        actions: [
-          {
-            type: 'postback' as const,
-            label: '✏️ バンド名を編集',
-            data: `action=edit_reservation&docId=${docId}&ts=${carouselCreatedAt}`,
-          },
-          {
-            type: 'postback' as const,
-            label: '📅 日時を編集',
-            data: `action=edit_datetime&docId=${docId}&ts=${carouselCreatedAt}`,
-          },
-          {
-            type: 'postback' as const,
-            label: '🗑️ 削除する',
-            data: `action=confirm_delete&docId=${docId}&band=${encodeURIComponent(bandName)}&ts=${carouselCreatedAt}`,
-          },
-        ],
+        actions: actions,
       };
     });
 
-    // まだ残りがある場合は「さらに表示」カラムを追加
+    // まだ残りがある場合は「さらに表示」カラムを追加（抽選時間中も有効）
     if (hasMore) {
       const remainingCount = totalCount - endIndex;
       columns.push({
@@ -254,16 +264,8 @@ async function handleViewMyReservations(event: line.MessageEvent | line.Postback
             label: '➡️ 次を見る',
             data: `action=view_my_more&page=${page + 1}&ts=${carouselCreatedAt}`,
           },
-          {
-            type: 'postback' as const,
-            label: '─',
-            data: 'action=noop',
-          },
-          {
-            type: 'postback' as const,
-            label: '─',
-            data: 'action=noop',
-          },
+          { type: 'postback' as const, label: '─', data: 'action=noop' },
+          { type: 'postback' as const, label: '─', data: 'action=noop' },
         ],
       });
     }
@@ -749,7 +751,7 @@ async function handleViewMyMore(event: line.PostbackEvent, data: string) {
   const ts = params.get('ts');
   const userId = event.source.userId!;
 
-  // ボタンの有効性チェック
+  // ボタンの有効性チェック（5分経過または既に操作済み）
   if (ts) {
     const validation = await isCarouselButtonValid(userId, Number(ts));
     if (!validation.valid) {
@@ -761,13 +763,14 @@ async function handleViewMyMore(event: line.PostbackEvent, data: string) {
         text: `${message}\n「自分の登録を見たい」と送って最新の一覧を取得してください。`,
       });
     }
-    // ボタン押下時刻を記録
-    await recordButtonPress(userId);
+    // 「さらに表示」はボタン押下時刻を記録しない（無効化しない）
   }
 
   const page = parseInt(params.get('page') || '0', 10);
+  const originalTs = ts ? Number(ts) : undefined;
 
-  return handleViewMyReservations(event, userId, page);
+  // 元のタイムスタンプを引き継いでカルーセルを表示
+  return handleViewMyReservations(event, userId, page, originalTs);
 }
 
 // パターンI: 日時編集開始
