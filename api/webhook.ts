@@ -148,9 +148,9 @@ async function handleViewAllRequest(event: line.MessageEvent) {
 // 自分の登録表示の処理
 async function handleViewMyReservations(event: line.MessageEvent, userId: string) {
   try {
+    // インデックスなしでも動くようにorderByを削除し、クライアント側でソート
     const snapshot = await db.collection('reservations')
       .where('userId', '==', userId)
-      .orderBy('date', 'asc')
       .get();
 
     if (snapshot.empty) {
@@ -160,8 +160,15 @@ async function handleViewMyReservations(event: line.MessageEvent, userId: string
       });
     }
 
+    // 日付でソート
+    const sortedDocs = snapshot.docs.sort((a, b) => {
+      const dateA = a.data().date || '';
+      const dateB = b.data().date || '';
+      return dateA.localeCompare(dateB);
+    });
+
     // カルーセルのカラムを作成（最大10件まで）
-    const columns: line.TemplateColumn[] = snapshot.docs.slice(0, 10).map((doc) => {
+    const columns: line.TemplateColumn[] = sortedDocs.slice(0, 10).map((doc) => {
       const data = doc.data();
       const docId = doc.id;
       const bandName = data.bandName || '(バンド名なし)';
