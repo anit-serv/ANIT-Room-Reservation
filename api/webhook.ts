@@ -168,8 +168,8 @@ async function handleViewMyReservations(event: line.MessageEvent | line.Postback
     });
 
     const totalCount = sortedDocs.length;
-    const startIndex = page * 10;
-    const endIndex = startIndex + 10;
+    const startIndex = page * 9; // 9件ずつ表示（さらに表示ボタン用に1枠確保）
+    const endIndex = Math.min(startIndex + 9, totalCount);
     const hasMore = endIndex < totalCount;
 
     // 該当ページのデータがない場合
@@ -180,7 +180,7 @@ async function handleViewMyReservations(event: line.MessageEvent | line.Postback
       });
     }
 
-    // カルーセルのカラムを作成（最大10件）
+    // カルーセルのカラムを作成（最大9件 + さらに表示で合計10件以内）
     const columns: line.TemplateColumn[] = sortedDocs.slice(startIndex, endIndex).map((doc) => {
       const data = doc.data();
       const docId = doc.id;
@@ -222,14 +222,14 @@ async function handleViewMyReservations(event: line.MessageEvent | line.Postback
         actions: [
           {
             type: 'postback' as const,
-            label: '➡️ 次の10件を見る',
+            label: '➡️ 次の9件を見る',
             data: `action=view_my_more&page=${page + 1}`,
           },
         ],
       });
     }
 
-    const pageInfo = totalCount > 10 ? ` (${startIndex + 1}-${Math.min(endIndex, totalCount)}/${totalCount}件)` : '';
+    const pageInfo = totalCount > 9 ? ` (${startIndex + 1}-${endIndex}/${totalCount}件)` : '';
 
     return client.replyMessage(event.replyToken, {
       type: 'template',
