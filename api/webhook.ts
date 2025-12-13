@@ -146,7 +146,7 @@ async function handleViewAllRequest(event: line.MessageEvent) {
 }
 
 // 自分の登録表示の処理
-async function handleViewMyReservations(event: line.MessageEvent, userId: string) {
+async function handleViewMyReservations(event: line.MessageEvent | line.PostbackEvent, userId: string, page: number = 0) {
   try {
     // インデックスなしでも動くようにorderByを削除し、クライアント側でソート
     const snapshot = await db.collection('reservations')
@@ -167,8 +167,21 @@ async function handleViewMyReservations(event: line.MessageEvent, userId: string
       return dateA.localeCompare(dateB);
     });
 
-    // カルーセルのカラムを作成（最大10件まで）
-    const columns: line.TemplateColumn[] = sortedDocs.slice(0, 10).map((doc) => {
+    const totalCount = sortedDocs.length;
+    const startIndex = page * 10;
+    const endIndex = startIndex + 10;
+    const hasMore = endIndex < totalCount;
+
+    // 該当ページのデータがない場合
+    if (startIndex >= totalCount) {
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: 'これ以上の登録はありません。',
+      });
+    }
+
+    // カルーセルのカラムを作成（最大10件）
+    const columns: line.TemplateColumn[] = sortedDocs.slice(startIndex, endIndex).map((doc) => {
       const data = doc.data();
       const docId = doc.id;
       const bandName = data.bandName || '(バンド名なし)';
@@ -195,9 +208,27 @@ async function handleViewMyReservations(event: line.MessageEvent, userId: string
       };
     });
 
+    // まだ残りがある場合は「さらに表示」カラムを追加
+    if (hasMore) {
+      const remainingCount = totalCount - endIndex;
+      columns.push({
+        title: `さらに表示 (${remainingCount}件)`,
+        text: `残り${remainingCount}件の登録があります`,
+        actions: [
+          {
+            type: 'postback' as const,
+            label: '➡️ 次の10件を見る',
+            data: `action=view_my_more&page=${page + 1}`,
+          },
+        ],
+      });
+    }
+
+    const pageInfo = totalCount > 10 ? ` (${startIndex + 1}-${Math.min(endIndex, totalCount)}/${totalCount}件)` : '';
+
     return client.replyMessage(event.replyToken, {
       type: 'template',
-      altText: 'あなたの登録一覧',
+      altText: `あなたの登録一覧${pageInfo}`,
       template: {
         type: 'carousel',
         columns: columns,
@@ -354,6 +385,11 @@ async function handlePostbackEvent(event: line.PostbackEvent) {
   // パターンG: バンド名更新確定
   if (data.startsWith('action=update_band_name')) {
     return handleUpdateBandName(event, data);
+  }
+
+  // パターンH: 自分の登録をさらに表示
+  if (data.startsWith('action=view_my_more')) {
+    return handleViewMyMore(event, data);
   }
 }
 
@@ -581,6 +617,15 @@ async function handleDeleteReservation(event: line.PostbackEvent, data: string) 
 async function handleUpdateBandName(event: line.PostbackEvent, data: string) {
   // この関数は使わない（handleOtherInputで処理）
   return Promise.resolve(null);
+}
+
+// パターンH: 自分の登録をさらに表示
+async function handleViewMyMore(event: line.PostbackEvent, data: string) {
+  const params = new URLSearchParams(data);
+  const page = parseInt(params.get('page') || '0', 10);
+  const userId = event.source.userId!;
+
+  return handleViewMyReservations(event, userId, page);
 }
 
 // ---------------------------------------------------------
