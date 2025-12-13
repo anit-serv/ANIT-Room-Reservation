@@ -113,6 +113,35 @@ async function getOngoingOperationReply(userId: string, replyToken: string): Pro
   const stateData = stateSnap.data();
   if (!stateData) return null;
 
+  // 全登録表示の日付選択待ち
+  if (stateData.status === 'VIEWING_ALL_DATE_SELECT') {
+    const startTime = stateData.viewStartTime;
+    if (startTime && isSessionExpired(startTime)) {
+      await db.collection('states').doc(userId).delete();
+      return null;
+    }
+
+    const availableDates = getAvailableDates();
+    if (availableDates.length === 0) return null;
+
+    const quickReplyItems: line.QuickReplyItem[] = availableDates.map((d) => ({
+      type: 'action',
+      action: {
+        type: 'postback',
+        label: d.label,
+        data: `action=view_reservations&date=${d.value}&start=${startTime}`,
+      },
+    }));
+
+    return [
+      {
+        type: 'text',
+        text: '⚠️ このボタンは無効です。\n\n日付を選択してください👇',
+        quickReply: { items: quickReplyItems },
+      },
+    ];
+  }
+
   // 日時編集中（日付選択待ち）
   if (stateData.status === 'EDITING_DATETIME') {
     const startTime = stateData.editStartTime;
@@ -202,7 +231,7 @@ async function handleTextEvent(event: line.MessageEvent) {
 
   // 全登録表示トリガーワード
   if (TRIGGER_WORDS.VIEW_ALL.includes(userText)) {
-    return handleViewAllRequest(event);
+    return handleViewAllRequest(event, userId);
   }
 
   // 自分の登録表示トリガーワード
@@ -224,7 +253,7 @@ async function handleCancelRequest(event: line.MessageEvent, userId: string) {
 }
 
 // 全登録表示リクエストの処理
-async function handleViewAllRequest(event: line.MessageEvent) {
+async function handleViewAllRequest(event: line.MessageEvent, userId: string) {
   const availableDates = getAvailableDates();
 
   if (availableDates.length === 0) {
@@ -234,12 +263,22 @@ async function handleViewAllRequest(event: line.MessageEvent) {
     });
   }
 
+  const startTime = Date.now();
+
+  // 状態を保存
+  await db.collection('states').doc(userId).set({
+    status: 'VIEWING_ALL_DATE_SELECT',
+    viewStartTime: startTime,
+    createdAt: new Date(),
+    lastButtonPressTs: Date.now(),
+  });
+
   const quickReplyItems: line.QuickReplyItem[] = availableDates.map((d) => ({
     type: 'action',
     action: {
       type: 'postback',
       label: d.label,
-      data: `action=view_reservations&date=${d.value}`,
+      data: `action=view_reservations&date=${d.value}&start=${startTime}`,
     },
   }));
 
@@ -469,6 +508,42 @@ async function handleOtherInput(event: line.MessageEvent, userId: string, userTe
         text: 'エラーが発生しました。もう一度お試しください。',
       });
     }
+  }
+
+  // 全登録表示の日付選択待ちの場合 → クイックリプライを再表示
+  if (stateData && stateData.status === 'VIEWING_ALL_DATE_SELECT') {
+    const startTime = stateData.viewStartTime;
+    if (startTime && isSessionExpired(startTime)) {
+      await db.collection('states').doc(userId).delete();
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: '⏰ 5分間経過したため、操作をキャンセルしました。\nもう一度お試しください。',
+      });
+    }
+
+    const availableDates = getAvailableDates();
+    if (availableDates.length === 0) {
+      await db.collection('states').doc(userId).delete();
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: '現在、表示可能な日付がありません。',
+      });
+    }
+
+    const quickReplyItems: line.QuickReplyItem[] = availableDates.map((d) => ({
+      type: 'action',
+      action: {
+        type: 'postback',
+        label: d.label,
+        data: `action=view_reservations&date=${d.value}&start=${startTime}`,
+      },
+    }));
+
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: '日付を選択してください👇\n(中断する場合は「キャンセル」と送ってください)',
+      quickReply: { items: quickReplyItems },
+    });
   }
 
   // 日時編集中（日付選択待ち）の場合 → クイックリプライを再表示
@@ -713,6 +788,20 @@ async function handleFinalize(event: line.PostbackEvent, data: string) {
 async function handleViewReservations(event: line.PostbackEvent, data: string) {
   const params = new URLSearchParams(data);
   const selectedDate = params.get('date'); // "2023-12-20"
+  const startTime = params.get('start');
+  const userId = event.source.userId!;
+
+  // タイムアウトチェック
+  if (startTime && isSessionExpired(Number(startTime))) {
+    await db.collection('states').doc(userId).delete();
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: '⏰ 5分間経過したため、操作をキャンセルしました。\nもう一度お試しください。',
+    });
+  }
+
+  // 状態を削除
+  await db.collection('states').doc(userId).delete();
 
   try {
     // 選択された日付の予約を取得（dateフィールドが "2023-12-20T" で始まるもの）
