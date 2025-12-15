@@ -1079,13 +1079,26 @@ async function handleEditFinalize(event: line.PostbackEvent, data: string) {
 // 6. ロジック関数群
 // ---------------------------------------------------------
 
+// 登録可能な曜日（0=日, 1=月, 2=火, 3=水, 4=木, 5=金, 6=土）
+const AVAILABLE_DAYS = [3, 4, 6]; // 水・木・土
+
 function isLotteryTime(): boolean {
   const now = new Date();
   const jstOffset = 9 * 60 * 60 * 1000;
   const nowJST = new Date(now.getTime() + jstOffset);
   const h = nowJST.getUTCHours();
   const m = nowJST.getUTCMinutes();
-  return h === 20 && m >= 50;
+
+  // 20:50〜21:00の時間帯かチェック
+  const isLotteryTimeSlot = h === 20 && m >= 50;
+  if (!isLotteryTimeSlot) return false;
+
+  // 翌日が登録可能日かどうかをチェック
+  const tomorrow = new Date(nowJST);
+  tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+  const tomorrowDayIndex = tomorrow.getUTCDay();
+
+  return AVAILABLE_DAYS.includes(tomorrowDayIndex);
 }
 
 function getAvailableDates(): { label: string; value: string }[] {
@@ -1109,7 +1122,7 @@ function getAvailableDates(): { label: string; value: string }[] {
 
     const dayIndex = targetDate.getUTCDay();
     
-    if (dayIndex === 3 || dayIndex === 4 || dayIndex === 6) {
+    if (AVAILABLE_DAYS.includes(dayIndex)) {
       const m = targetDate.getUTCMonth() + 1;
       const d = targetDate.getUTCDate();
       const wd = weekDays[dayIndex];
