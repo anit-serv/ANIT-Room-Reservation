@@ -622,7 +622,13 @@ async function handleOtherInput(
 
     const newBandName = userText;
     const docId = stateData.editingDocId;
-    await db.collection('states').doc(userId).delete();
+    
+    // 状態の特定フィールドのみ削除（lastButtonPressTsは保持して元のカルーセルのボタンを無効に保つ）
+    await db.collection('states').doc(userId).set({
+      status: admin.firestore.FieldValue.delete(),
+      editingDocId: admin.firestore.FieldValue.delete(),
+      createdAt: admin.firestore.FieldValue.delete(),
+    }, { merge: true });
 
     try {
       await db.collection('reservations').doc(docId).update({
@@ -1202,8 +1208,15 @@ async function handleEditFinalize(event: line.PostbackEvent, data: string) {
     });
   }
 
-  // 状態を削除
-  await db.collection('states').doc(userId).delete();
+  // 状態の特定フィールドのみ削除（lastButtonPressTsは保持して元のカルーセルのボタンを無効に保つ）
+  await db.collection('states').doc(userId).set({
+    status: admin.firestore.FieldValue.delete(),
+    editingDocId: admin.firestore.FieldValue.delete(),
+    editSelectedDate: admin.firestore.FieldValue.delete(),
+    createdAt: admin.firestore.FieldValue.delete(),
+    pendingQuickReply: admin.firestore.FieldValue.delete(),
+    quickReplyStartTime: admin.firestore.FieldValue.delete(),
+  }, { merge: true });
 
   const newDateTime = `${selectedDate}T${selectedTime}`;
   const displayStr = `${selectedDate?.replace(/-/g, '/').slice(5)} ${selectedTime}`;
