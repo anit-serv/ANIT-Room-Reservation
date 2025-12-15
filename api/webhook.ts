@@ -934,8 +934,8 @@ async function handleViewMyMore(event: line.PostbackEvent, data: string) {
   const ts = params.get('ts');
   const userId = event.source.userId!;
 
-  // ボタンの有効性チェック（「さらに表示」はボタン押下時刻を記録しない）
-  const errorReply = await checkButtonAndGetErrorReply(event, userId, ts);
+  // ボタンの有効性チェック（重複押下防止のためボタン押下時刻を記録）
+  const errorReply = await checkButtonAndGetErrorReply(event, userId, ts, { recordPress: true });
   if (errorReply) {
     return client.replyMessage(event.replyToken, errorReply);
   }
