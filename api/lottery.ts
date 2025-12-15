@@ -71,10 +71,13 @@ async function getConfig(): Promise<{
 // ---------------------------------------------------------
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // セキュリティチェック
-  const { key } = req.query;
+  const { key, force } = req.query;
   if (key !== process.env.CRON_SECRET) {
     return res.status(401).json({ status: 'error', message: 'Unauthorized' });
   }
+
+  // force=true の場合は翌日チェックをスキップ
+  const forceExecute = force === 'true';
 
   try {
     // -----------------------------------------------------
@@ -89,15 +92,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const targetDateJST = new Date(nowJST);
     targetDateJST.setDate(targetDateJST.getDate() + 1);
 
-    // 翌日が登録可能日かチェック
-    const config = await getConfig();
-    const targetDayIndex = targetDateJST.getDay();
-    
-    if (!config.availableDays.includes(targetDayIndex)) {
-      return res.status(200).json({ 
-        status: 'skipped', 
-        message: `Tomorrow (dayIndex: ${targetDayIndex}) is not an available day. Skipping lottery.` 
-      });
+    // 翌日が登録可能日かチェック（force=true の場合はスキップ）
+    if (!forceExecute) {
+      const config = await getConfig();
+      const targetDayIndex = targetDateJST.getDay();
+      
+      if (!config.availableDays.includes(targetDayIndex)) {
+        return res.status(200).json({ 
+          status: 'skipped', 
+          message: `Tomorrow (dayIndex: ${targetDayIndex}) is not an available day. Skipping lottery.` 
+        });
+      }
     }
 
     // YYYY-MM-DD 形式の文字列を作る (例: "2023-12-21")
@@ -166,10 +171,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const data = doc.data();
         const bandName = data.bandName || 'バンド名なし';
         
-        // 予約データのステータスを更新
+        // 予約データに抽選結果を記録（ステータスは変更しない）
         const ref = db.collection('reservations').doc(doc.id);
         batch.update(ref, { 
-          status: 'determined', 
           lotteryRank: rank,
           lotteryTotal: docs.length,
           lotteryDate: targetDateStr // いつ抽選されたかも記録
