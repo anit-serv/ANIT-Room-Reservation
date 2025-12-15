@@ -71,7 +71,7 @@ async function getConfig(): Promise<{
 // ---------------------------------------------------------
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // セキュリティチェック
-  const { key, force } = req.query;
+  const { key, force, date } = req.query;
   if (key !== process.env.CRON_SECRET) {
     return res.status(401).json({ status: 'error', message: 'Unauthorized' });
   }
@@ -88,9 +88,27 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const jstOffset = 9 * 60 * 60 * 1000;
     const nowJST = new Date(now.getTime() + jstOffset);
 
-    // 「翌日」を計算
-    const targetDateJST = new Date(nowJST);
-    targetDateJST.setDate(targetDateJST.getDate() + 1);
+    let targetDateJST: Date;
+    let targetDateStr: string;
+
+    // force=true で date パラメータが指定されている場合、その日付を使用
+    if (forceExecute && date && typeof date === 'string') {
+      // YYYY-MM-DD 形式を解析
+      const [y, m, d] = date.split('-').map(Number);
+      if (isNaN(y) || isNaN(m) || isNaN(d)) {
+        return res.status(400).json({ 
+          status: 'error', 
+          message: 'Invalid date format. Use YYYY-MM-DD.' 
+        });
+      }
+      targetDateJST = new Date(y, m - 1, d);
+      targetDateStr = date;
+    } else {
+      // 通常は翌日を計算
+      targetDateJST = new Date(nowJST);
+      targetDateJST.setDate(targetDateJST.getDate() + 1);
+      targetDateStr = `${targetDateJST.getFullYear()}-${('0' + (targetDateJST.getMonth() + 1)).slice(-2)}-${('0' + targetDateJST.getDate()).slice(-2)}`;
+    }
 
     // 翌日が登録可能日かチェック（force=true の場合はスキップ）
     if (!forceExecute) {
@@ -104,12 +122,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         });
       }
     }
-
-    // YYYY-MM-DD 形式の文字列を作る (例: "2023-12-21")
-    const y = targetDateJST.getFullYear();
-    const m = ('0' + (targetDateJST.getMonth() + 1)).slice(-2);
-    const d = ('0' + targetDateJST.getDate()).slice(-2);
-    const targetDateStr = `${y}-${m}-${d}`;
 
     console.log(`Running lottery for target date: ${targetDateStr}`);
 
