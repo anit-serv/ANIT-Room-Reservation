@@ -189,15 +189,84 @@ async function checkButtonAndGetErrorReply(
 // クイックリプライ状態の一元管理
 // ---------------------------------------------------------
 
-// 時間枠の定義（共通で使用）
-const TIME_SLOTS = [
-  { label: '9:00~10:00', value: '09:00-10:00' },
-  { label: '10:00~12:00', value: '10:00-12:00' },
-  { label: '12:00~14:00', value: '12:00-14:00' },
-  { label: '14:00~16:00', value: '14:00-16:00' },
-  { label: '16:00~18:00', value: '16:00-18:00' },
-  { label: '18:00~20:00', value: '18:00-20:00' },
-];
+// 設定キャッシュ（パフォーマンス向上のため）
+let configCache: {
+  availableDays: number[];
+  timeSlots: { label: string; value: string }[];
+  lastFetched: number;
+} | null = null;
+
+const CONFIG_CACHE_TTL = 5 * 60 * 1000; // 5分間キャッシュ
+
+// Firestoreから設定を取得（キャッシュ付き）
+async function getConfig(): Promise<{
+  availableDays: number[];
+  timeSlots: { label: string; value: string }[];
+}> {
+  const now = Date.now();
+
+  // キャッシュが有効ならそれを返す
+  if (configCache && (now - configCache.lastFetched) < CONFIG_CACHE_TTL) {
+    return {
+      availableDays: configCache.availableDays,
+      timeSlots: configCache.timeSlots,
+    };
+  }
+
+  // Firestoreから取得
+  const configDoc = await db.collection('settings').doc('reservation').get();
+
+  if (configDoc.exists) {
+    const data = configDoc.data()!;
+    configCache = {
+      availableDays: data.availableDays || [3, 4, 6],
+      timeSlots: data.timeSlots || [
+        { label: '9:00~10:00', value: '09:00-10:00' },
+        { label: '10:00~12:00', value: '10:00-12:00' },
+        { label: '12:00~14:00', value: '12:00-14:00' },
+        { label: '14:00~16:00', value: '14:00-16:00' },
+        { label: '16:00~18:00', value: '16:00-18:00' },
+        { label: '18:00~20:00', value: '18:00-20:00' },
+      ],
+      lastFetched: now,
+    };
+  } else {
+    // 設定がない場合はデフォルト値を使用（初回はFirestoreに保存）
+    const defaultConfig = {
+      availableDays: [3, 4, 6], // 水・木・土
+      timeSlots: [
+        { label: '9:00~10:00', value: '09:00-10:00' },
+        { label: '10:00~12:00', value: '10:00-12:00' },
+        { label: '12:00~14:00', value: '12:00-14:00' },
+        { label: '14:00~16:00', value: '14:00-16:00' },
+        { label: '16:00~18:00', value: '16:00-18:00' },
+        { label: '18:00~20:00', value: '18:00-20:00' },
+      ],
+    };
+    await db.collection('settings').doc('reservation').set(defaultConfig);
+    configCache = {
+      ...defaultConfig,
+      lastFetched: now,
+    };
+  }
+
+  return {
+    availableDays: configCache.availableDays,
+    timeSlots: configCache.timeSlots,
+  };
+}
+
+// 時間枠を取得するヘルパー関数
+async function getTimeSlots(): Promise<{ label: string; value: string }[]> {
+  const config = await getConfig();
+  return config.timeSlots;
+}
+
+// 登録可能な曜日を取得するヘルパー関数
+async function getAvailableDays(): Promise<number[]> {
+  const config = await getConfig();
+  return config.availableDays;
+}
 
 // 進行中の操作があれば、クイックリプライを再表示するメッセージを作成
 async function getOngoingOperationReply(
@@ -284,7 +353,7 @@ async function handleCancelRequest(event: line.MessageEvent, userId: string) {
 
 // 全登録表示リクエストの処理
 async function handleViewAllRequest(event: line.MessageEvent, userId: string) {
-  const availableDates = getAvailableDates();
+  const availableDates = await getAvailableDateList();
 
   if (availableDates.length === 0) {
     return client.replyMessage(event.replyToken, {
@@ -359,7 +428,7 @@ async function handleViewMyReservations(event: line.MessageEvent | line.Postback
 
     // カルーセル生成時刻（元のタイムスタンプがあればそれを使用）
     const carouselCreatedAt = originalTs ?? Date.now();
-    const isLottery = isLotteryTime();
+    const isLottery = await isLotteryTime();
 
     // カルーセルのカラムを作成（最大9件 + さらに表示で合計10件以内）
     const columns: line.TemplateColumn[] = sortedDocs.slice(startIndex, endIndex).map((doc) => {
@@ -442,7 +511,7 @@ async function handleViewMyReservations(event: line.MessageEvent | line.Postback
 
 // 登録リクエストの処理
 async function handleRegisterRequest(event: line.MessageEvent, userId: string) {
-  if (isLotteryTime()) {
+  if (await isLotteryTime()) {
     return client.replyMessage(event.replyToken, {
       type: 'text',
       text: '⚠️ 現在は20:50〜21:00の抽選集計時間のため、予約操作はできません。21:00以降にお試しください。',
@@ -513,7 +582,7 @@ async function handleOtherInput(
     const startTime = stateData.createdAt.toDate().getTime(); // 開始時刻を取得
     await db.collection('states').doc(userId).delete();
 
-    const availableDates = getAvailableDates();
+    const availableDates = await getAvailableDateList();
 
     if (availableDates.length === 0) {
       return client.replyMessage(event.replyToken, {
@@ -676,8 +745,11 @@ async function handleSelectDate(event: line.PostbackEvent, data: string) {
   const dateObj = new Date(selectedDate!);
   const dateLabel = `${dateObj.getMonth() + 1}/${dateObj.getDate()}`;
 
+  // 時間枠をFirestoreから取得
+  const timeSlots = await getTimeSlots();
+
   // クイックリプライ作成
-  const quickReplyItems: line.QuickReplyItem[] = TIME_SLOTS.map((slot) => ({
+  const quickReplyItems: line.QuickReplyItem[] = timeSlots.map((slot) => ({
     type: 'action',
     action: {
       type: 'postback',
@@ -828,7 +900,7 @@ async function handleEditReservation(event: line.PostbackEvent, data: string) {
   }
 
   // 抽選時間チェック
-  if (isLotteryTime()) {
+  if (await isLotteryTime()) {
     return client.replyMessage(event.replyToken, {
       type: 'text',
       text: MESSAGES.LOTTERY_TIME,
@@ -1003,7 +1075,7 @@ async function handleEditDateTime(event: line.PostbackEvent, data: string) {
   }
 
   // 抽選時間チェック
-  if (isLotteryTime()) {
+  if (await isLotteryTime()) {
     return client.replyMessage(event.replyToken, {
       type: 'text',
       text: MESSAGES.LOTTERY_TIME,
@@ -1013,7 +1085,7 @@ async function handleEditDateTime(event: line.PostbackEvent, data: string) {
   const docId = params.get('docId');
   const startTime = Date.now(); // 編集開始時刻
 
-  const availableDates = getAvailableDates();
+  const availableDates = await getAvailableDateList();
 
   if (availableDates.length === 0) {
     return client.replyMessage(event.replyToken, {
@@ -1071,7 +1143,10 @@ async function handleEditSelectDate(event: line.PostbackEvent, data: string) {
   const dateObj = new Date(selectedDate!);
   const dateLabel = `${dateObj.getMonth() + 1}/${dateObj.getDate()}`;
 
-  const quickReplyItems: line.QuickReplyItem[] = TIME_SLOTS.map((slot) => ({
+  // 時間枠をFirestoreから取得
+  const timeSlots = await getTimeSlots();
+
+  const quickReplyItems: line.QuickReplyItem[] = timeSlots.map((slot) => ({
     type: 'action',
     action: {
       type: 'postback',
@@ -1146,10 +1221,7 @@ async function handleEditFinalize(event: line.PostbackEvent, data: string) {
 // 6. ロジック関数群
 // ---------------------------------------------------------
 
-// 登録可能な曜日（0=日, 1=月, 2=火, 3=水, 4=木, 5=金, 6=土）
-const AVAILABLE_DAYS = [3, 4, 6]; // 水・木・土
-
-function isLotteryTime(): boolean {
+async function isLotteryTime(): Promise<boolean> {
   const now = new Date();
   const jstOffset = 9 * 60 * 60 * 1000;
   const nowJST = new Date(now.getTime() + jstOffset);
@@ -1165,10 +1237,11 @@ function isLotteryTime(): boolean {
   tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
   const tomorrowDayIndex = tomorrow.getUTCDay();
 
-  return AVAILABLE_DAYS.includes(tomorrowDayIndex);
+  const availableDays = await getAvailableDays();
+  return availableDays.includes(tomorrowDayIndex);
 }
 
-function getAvailableDates(): { label: string; value: string }[] {
+async function getAvailableDateList(): Promise<{ label: string; value: string }[]> {
   const now = new Date();
   const jstOffset = 9 * 60 * 60 * 1000;
   const nowJST = new Date(now.getTime() + jstOffset);
@@ -1183,13 +1256,15 @@ function getAvailableDates(): { label: string; value: string }[] {
   const results: { label: string; value: string }[] = [];
   const weekDays = ['日', '月', '火', '水', '木', '金', '土'];
 
+  const availableDays = await getAvailableDays();
+
   for (let i = 0; i < 7; i++) {
     const targetDate = new Date(startDate);
     targetDate.setUTCDate(startDate.getUTCDate() + i);
 
     const dayIndex = targetDate.getUTCDay();
     
-    if (AVAILABLE_DAYS.includes(dayIndex)) {
+    if (availableDays.includes(dayIndex)) {
       const m = targetDate.getUTCMonth() + 1;
       const d = targetDate.getUTCDate();
       const wd = weekDays[dayIndex];

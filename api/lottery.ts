@@ -30,6 +30,42 @@ function shuffleArray<T>(array: T[]): T[] {
   return array;
 }
 
+// Firestoreから設定を取得
+async function getConfig(): Promise<{
+  availableDays: number[];
+  timeSlots: { label: string; value: string }[];
+}> {
+  const configDoc = await db.collection('settings').doc('reservation').get();
+
+  if (configDoc.exists) {
+    const data = configDoc.data()!;
+    return {
+      availableDays: data.availableDays || [3, 4, 6],
+      timeSlots: data.timeSlots || [
+        { label: '9:00~10:00', value: '09:00-10:00' },
+        { label: '10:00~12:00', value: '10:00-12:00' },
+        { label: '12:00~14:00', value: '12:00-14:00' },
+        { label: '14:00~16:00', value: '14:00-16:00' },
+        { label: '16:00~18:00', value: '16:00-18:00' },
+        { label: '18:00~20:00', value: '18:00-20:00' },
+      ],
+    };
+  }
+
+  // デフォルト値
+  return {
+    availableDays: [3, 4, 6],
+    timeSlots: [
+      { label: '9:00~10:00', value: '09:00-10:00' },
+      { label: '10:00~12:00', value: '10:00-12:00' },
+      { label: '12:00~14:00', value: '12:00-14:00' },
+      { label: '14:00~16:00', value: '14:00-16:00' },
+      { label: '16:00~18:00', value: '16:00-18:00' },
+      { label: '18:00~20:00', value: '18:00-20:00' },
+    ],
+  };
+}
+
 // ---------------------------------------------------------
 // 2. メイン処理
 // ---------------------------------------------------------
@@ -52,6 +88,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // 「翌日」を計算
     const targetDateJST = new Date(nowJST);
     targetDateJST.setDate(targetDateJST.getDate() + 1);
+
+    // 翌日が登録可能日かチェック
+    const config = await getConfig();
+    const targetDayIndex = targetDateJST.getDay();
+    
+    if (!config.availableDays.includes(targetDayIndex)) {
+      return res.status(200).json({ 
+        status: 'skipped', 
+        message: `Tomorrow (dayIndex: ${targetDayIndex}) is not an available day. Skipping lottery.` 
+      });
+    }
 
     // YYYY-MM-DD 形式の文字列を作る (例: "2023-12-21")
     const y = targetDateJST.getFullYear();
