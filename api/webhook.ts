@@ -543,6 +543,15 @@ async function handleOtherInput(
     }
   }
 
+  // 削除確認ダイアログ待ちの場合
+  if (stateData && stateData.status === 'WAITING_DELETE_CONFIRM') {
+    const bandName = stateData.deletingBandName || '';
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: `⚠️「${bandName}」の削除確認中です。\n\n確認ダイアログで「はい、削除する」または「いいえ」を選択してください。\n(中断する場合は「キャンセル」と送ってください)`,
+    });
+  }
+
   // クイックリプライが必要な状態の場合 → 共通関数で再表示
   const ongoingReply = await getOngoingOperationReply(userId, { isInvalidButton: false, isReservedWord });
   if (ongoingReply) {
@@ -828,6 +837,15 @@ async function handleConfirmDelete(event: line.PostbackEvent, data: string) {
   const bandName = decodeURIComponent(params.get('band') || '');
   const confirmTs = Date.now(); // 確認ダイアログ生成時刻
 
+  // 確認ダイアログ待ち状態を保存
+  await db.collection('states').doc(userId).set({
+    status: 'WAITING_DELETE_CONFIRM',
+    deletingDocId: docId,
+    deletingBandName: bandName,
+    createdAt: new Date(),
+    lastButtonPressTs: confirmTs,
+  });
+
   return client.replyMessage(event.replyToken, {
     type: 'template',
     altText: '削除確認',
@@ -864,6 +882,9 @@ async function handleDeleteReservation(event: line.PostbackEvent, data: string) 
 
   const docId = params.get('docId');
 
+  // 状態を削除
+  await db.collection('states').doc(userId).delete();
+
   try {
     await db.collection('reservations').doc(docId!).delete();
 
@@ -891,6 +912,9 @@ async function handleCancelDelete(event: line.PostbackEvent, data: string) {
   if (errorReply) {
     return client.replyMessage(event.replyToken, errorReply);
   }
+
+  // 状態を削除
+  await db.collection('states').doc(userId).delete();
 
   return client.replyMessage(event.replyToken, {
     type: 'text',
