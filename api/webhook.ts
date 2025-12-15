@@ -116,6 +116,36 @@ async function recordButtonPress(userId: string): Promise<void> {
   }, { merge: true });
 }
 
+// 「さらに表示」ボタンの重複押下チェック（ページ番号が進む方向のみ許可）
+async function isViewMyMoreValid(userId: string, page: number, carouselTs: number): Promise<boolean> {
+  const stateSnap = await db.collection('states').doc(userId).get();
+  if (!stateSnap.exists) return true;
+
+  const stateData = stateSnap.data();
+  const lastCarouselTs = stateData?.lastViewMyCarouselTs;
+  const lastViewedPage = stateData?.lastViewMyMorePage ?? 0;
+
+  // 別のカルーセル（異なるタイムスタンプ）なら許可
+  if (lastCarouselTs !== carouselTs) {
+    return true;
+  }
+
+  // 同じカルーセルで、既に見たページ以下なら拒否（進む方向のみ許可）
+  if (page <= lastViewedPage) {
+    return false;
+  }
+
+  return true;
+}
+
+// 「さらに表示」ボタン押下を記録
+async function recordViewMyMore(userId: string, page: number, carouselTs: number): Promise<void> {
+  await db.collection('states').doc(userId).set({
+    lastViewMyCarouselTs: carouselTs,
+    lastViewMyMorePage: page,
+  }, { merge: true });
+}
+
 // カルーセル/確認ダイアログのボタン押下時の共通チェック処理
 // 無効な場合はエラーメッセージを返し、有効な場合はnullを返す
 async function checkButtonAndGetErrorReply(
@@ -934,14 +964,27 @@ async function handleViewMyMore(event: line.PostbackEvent, data: string) {
   const ts = params.get('ts');
   const userId = event.source.userId!;
 
-  // ボタンの有効性チェック（重複押下防止のためボタン押下時刻を記録）
-  const errorReply = await checkButtonAndGetErrorReply(event, userId, ts, { recordPress: true });
+  // ボタンの有効性チェック（他の操作に影響を与えないよう押下時刻を記録しない）
+  const errorReply = await checkButtonAndGetErrorReply(event, userId, ts);
   if (errorReply) {
     return client.replyMessage(event.replyToken, errorReply);
   }
 
   const page = parseInt(params.get('page') || '0', 10);
   const originalTs = ts ? Number(ts) : undefined;
+
+  // 「さらに表示」の重複押下チェック
+  if (originalTs && !(await isViewMyMoreValid(userId, page, originalTs))) {
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: '⚠️ このボタンは既に押されています。\n「自分の登録を見たい」と送って最新の一覧を取得してください。',
+    });
+  }
+
+  // 押下を記録
+  if (originalTs) {
+    await recordViewMyMore(userId, page, originalTs);
+  }
 
   // 元のタイムスタンプを引き継いでカルーセルを表示
   return handleViewMyReservations(event, userId, page, originalTs);
