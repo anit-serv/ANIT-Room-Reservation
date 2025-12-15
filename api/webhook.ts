@@ -983,8 +983,13 @@ async function handleDeleteReservation(event: line.PostbackEvent, data: string) 
 
   const docId = params.get('docId');
 
-  // 状態を削除
-  await db.collection('states').doc(userId).delete();
+  // 状態の特定フィールドのみ削除（lastButtonPressTsは保持して元のカルーセルのボタンを無効に保つ）
+  await db.collection('states').doc(userId).set({
+    status: admin.firestore.FieldValue.delete(),
+    deletingDocId: admin.firestore.FieldValue.delete(),
+    deletingBandName: admin.firestore.FieldValue.delete(),
+    createdAt: admin.firestore.FieldValue.delete(),
+  }, { merge: true });
 
   try {
     await db.collection('reservations').doc(docId!).delete();
@@ -1014,8 +1019,13 @@ async function handleCancelDelete(event: line.PostbackEvent, data: string) {
     return client.replyMessage(event.replyToken, errorReply);
   }
 
-  // 状態を削除
-  await db.collection('states').doc(userId).delete();
+  // 状態の特定フィールドのみ削除（lastButtonPressTsは保持して元のカルーセルのボタンを無効に保つ）
+  await db.collection('states').doc(userId).set({
+    status: admin.firestore.FieldValue.delete(),
+    deletingDocId: admin.firestore.FieldValue.delete(),
+    deletingBandName: admin.firestore.FieldValue.delete(),
+    createdAt: admin.firestore.FieldValue.delete(),
+  }, { merge: true });
 
   return client.replyMessage(event.replyToken, {
     type: 'text',
