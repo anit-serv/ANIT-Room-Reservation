@@ -929,7 +929,7 @@ async function handleConfirmDelete(event: line.PostbackEvent, data: string) {
   const ts = params.get('ts');
   const userId = event.source.userId!;
 
-  // ボタンの有効性チェック
+  // ボタンの有効性チェック（recordPress: trueで他のボタンを無効化）
   const errorReply = await checkButtonAndGetErrorReply(event, userId, ts, { recordPress: true });
   if (errorReply) {
     return client.replyMessage(event.replyToken, errorReply);
@@ -937,16 +937,15 @@ async function handleConfirmDelete(event: line.PostbackEvent, data: string) {
 
   const docId = params.get('docId');
   const bandName = decodeURIComponent(params.get('band') || '');
-  const confirmTs = Date.now(); // 確認ダイアログ生成時刻
+  const confirmTs = Date.now() + 10; // 確認ダイアログ生成時刻（lastButtonPressTsより確実に大きくするため+10ms）
 
-  // 確認ダイアログ待ち状態を保存
+  // 確認ダイアログ待ち状態を保存（lastButtonPressTsは上書きしない）
   await db.collection('states').doc(userId).set({
     status: 'WAITING_DELETE_CONFIRM',
     deletingDocId: docId,
     deletingBandName: bandName,
     createdAt: new Date(),
-    lastButtonPressTs: confirmTs,
-  });
+  }, { merge: true });
 
   return client.replyMessage(event.replyToken, {
     type: 'template',
