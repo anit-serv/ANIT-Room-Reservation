@@ -818,8 +818,11 @@ async function handleFinalize(event: line.PostbackEvent, data: string) {
       createdAt: new Date(),
     });
 
-    // 予約完了後、statesを完全に削除（クイックリプライが再表示されないように）
-    await db.collection('states').doc(userId!).delete();
+    // 予約完了後、クイックリプライ情報のみ削除し、lastButtonPressTsは保持（古いボタンを無効に保つ）
+    await db.collection('states').doc(userId!).set({
+      pendingQuickReply: admin.firestore.FieldValue.delete(),
+      quickReplyStartTime: admin.firestore.FieldValue.delete(),
+    }, { merge: true });
 
     return client.replyMessage(event.replyToken, {
       type: 'text',
