@@ -284,7 +284,13 @@ async function getOngoingOperationReply(
   // タイムアウトチェック
   const startTime = stateData.quickReplyStartTime;
   if (startTime && isSessionExpired(startTime)) {
-    await db.collection('states').doc(userId).delete();
+    // 特定フィールドのみ削除（lastViewMyCarouselTs、lastViewMyMorePage、lastButtonPressTsは保持）
+    await db.collection('states').doc(userId).set({
+      pendingQuickReply: admin.firestore.FieldValue.delete(),
+      quickReplyStartTime: admin.firestore.FieldValue.delete(),
+      status: admin.firestore.FieldValue.delete(),
+      createdAt: admin.firestore.FieldValue.delete(),
+    }, { merge: true });
     return null;
   }
 
@@ -344,7 +350,17 @@ async function handleTextEvent(event: line.MessageEvent) {
 
 // キャンセル処理
 async function handleCancelRequest(event: line.MessageEvent, userId: string) {
-  await db.collection('states').doc(userId).delete();
+  // 特定フィールドのみ削除（lastViewMyCarouselTs、lastViewMyMorePage、lastButtonPressTsは保持）
+  await db.collection('states').doc(userId).set({
+    status: admin.firestore.FieldValue.delete(),
+    createdAt: admin.firestore.FieldValue.delete(),
+    editingDocId: admin.firestore.FieldValue.delete(),
+    editSelectedDate: admin.firestore.FieldValue.delete(),
+    deletingDocId: admin.firestore.FieldValue.delete(),
+    deletingBandName: admin.firestore.FieldValue.delete(),
+    pendingQuickReply: admin.firestore.FieldValue.delete(),
+    quickReplyStartTime: admin.firestore.FieldValue.delete(),
+  }, { merge: true });
   return client.replyMessage(event.replyToken, {
     type: 'text',
     text: '操作をキャンセルしました。',
@@ -554,7 +570,17 @@ async function handleOtherInput(
   if (stateData && stateData.createdAt) {
     const createdAt = stateData.createdAt.toDate().getTime();
     if (isSessionExpired(createdAt)) {
-      await db.collection('states').doc(userId).delete();
+      // 特定フィールドのみ削除（lastViewMyCarouselTs、lastViewMyMorePage、lastButtonPressTsは保持）
+      await db.collection('states').doc(userId).set({
+        status: admin.firestore.FieldValue.delete(),
+        createdAt: admin.firestore.FieldValue.delete(),
+        editingDocId: admin.firestore.FieldValue.delete(),
+        editSelectedDate: admin.firestore.FieldValue.delete(),
+        deletingDocId: admin.firestore.FieldValue.delete(),
+        deletingBandName: admin.firestore.FieldValue.delete(),
+        pendingQuickReply: admin.firestore.FieldValue.delete(),
+        quickReplyStartTime: admin.firestore.FieldValue.delete(),
+      }, { merge: true });
       return client.replyMessage(event.replyToken, {
         type: 'text',
         text: '⏰ 5分間経過したため、登録をキャンセルしました。\nもう一度「登録したい」と送ってください。',
@@ -848,15 +874,26 @@ async function handleViewReservations(event: line.PostbackEvent, data: string) {
 
   // タイムアウトチェック
   if (startTime && isSessionExpired(Number(startTime))) {
-    await db.collection('states').doc(userId).delete();
+    // 特定フィールドのみ削除（lastViewMyCarouselTs、lastViewMyMorePage、lastButtonPressTsは保持）
+    await db.collection('states').doc(userId).set({
+      status: admin.firestore.FieldValue.delete(),
+      createdAt: admin.firestore.FieldValue.delete(),
+      pendingQuickReply: admin.firestore.FieldValue.delete(),
+      quickReplyStartTime: admin.firestore.FieldValue.delete(),
+    }, { merge: true });
     return client.replyMessage(event.replyToken, {
       type: 'text',
       text: '⏰ 5分間経過したため、操作をキャンセルしました。\nもう一度お試しください。',
     });
   }
 
-  // 状態を削除
-  await db.collection('states').doc(userId).delete();
+  // 状態を削除（lastViewMyCarouselTs、lastViewMyMorePage、lastButtonPressTsは保持）
+  await db.collection('states').doc(userId).set({
+    status: admin.firestore.FieldValue.delete(),
+    createdAt: admin.firestore.FieldValue.delete(),
+    pendingQuickReply: admin.firestore.FieldValue.delete(),
+    quickReplyStartTime: admin.firestore.FieldValue.delete(),
+  }, { merge: true });
 
   try {
     // 選択された日付の予約を取得（dateフィールドが "2023-12-20T" で始まるもの）
@@ -1198,7 +1235,14 @@ async function handleEditSelectDate(event: line.PostbackEvent, data: string) {
 
   // タイムアウトチェック
   if (startTime && isSessionExpired(Number(startTime))) {
-    await db.collection('states').doc(userId).delete();
+    // 特定フィールドのみ削除（lastViewMyCarouselTs、lastViewMyMorePage、lastButtonPressTsは保持）
+    await db.collection('states').doc(userId).set({
+      status: admin.firestore.FieldValue.delete(),
+      editingDocId: admin.firestore.FieldValue.delete(),
+      createdAt: admin.firestore.FieldValue.delete(),
+      pendingQuickReply: admin.firestore.FieldValue.delete(),
+      quickReplyStartTime: admin.firestore.FieldValue.delete(),
+    }, { merge: true });
     return client.replyMessage(event.replyToken, {
       type: 'text',
       text: '⏰ 5分間経過したため、編集をキャンセルしました。\nもう一度お試しください。',
