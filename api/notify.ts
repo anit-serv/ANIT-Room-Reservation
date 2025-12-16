@@ -78,7 +78,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const dateObj = new Date(targetDateStr);
     const wd = weekDays[dateObj.getDay()];
 
-    let message = `📢 【部屋取り抽選結果】\n\n対象日: ${displayDate}(${wd})\n\n`;
+    let message = `📢 【部屋取り抽選結果】<${displayDate}(${wd})>\n\n`;
     
     // 抽選結果から時間帯を取得してソート
     const timeSlots = Object.keys(results).sort();
@@ -91,9 +91,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       
       if (bands.length > 0) {
         hasContent = true;
-        message += `■ ${timeSlot}\n`;
+        message += `【${timeSlot}】\n`;
         bands.forEach((bandName, index) => {
-          message += `${index + 1}位: ${bandName}\n`;
+          message += `${index + 1}. ${bandName}\n`;
         });
         message += `\n`;
       }
@@ -104,8 +104,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     message += `------------------\n`;
-    message += `※順位の高い順に部屋を使用できます。\n`;
-    message += `※詳細はLINE Botの「結果確認」ボタンからも確認できます。`;
+    message += `※詳細はLINE ANIT部屋取りシステム【全登録一覧】からも確認できます。`;
 
     // 4. BAND APIに投稿
     const bandAccessToken = process.env.BAND_ACCESS_TOKEN;
