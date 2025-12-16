@@ -818,10 +818,11 @@ async function handleFinalize(event: line.PostbackEvent, data: string) {
       createdAt: new Date(),
     });
 
-    // 予約完了後、クイックリプライ情報のみ削除し、lastButtonPressTsは保持（古いボタンを無効に保つ）
+    // 予約完了後、クイックリプライ情報を削除し、lastButtonPressTsを更新（登録が増えたので古いカルーセルを無効化）
     await db.collection('states').doc(userId!).set({
       pendingQuickReply: admin.firestore.FieldValue.delete(),
       quickReplyStartTime: admin.firestore.FieldValue.delete(),
+      lastButtonPressTs: Date.now(),
     }, { merge: true });
 
     return client.replyMessage(event.replyToken, {
