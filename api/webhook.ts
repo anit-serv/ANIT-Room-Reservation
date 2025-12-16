@@ -949,22 +949,35 @@ async function handleViewReservations(event: line.PostbackEvent, data: string) {
         // 抽選済みかどうかをチェック（全てconfirmedならソート）
         const allConfirmed = reservations.every(r => r.status === 'confirmed');
         
-        if (allConfirmed && reservations[0].order !== undefined) {
-          // 抽選済み: order順でソート（orderがある場合）
-          const sorted = reservations.sort((a, b) => (a.order || 0) - (b.order || 0));
-          sorted.forEach((r, index) => {
-            message += `  ${index + 1}. ${r.bandName}\n`;
-          });
-        } else if (allConfirmed) {
-          // 抽選済みだがorderがない場合: createdAt順
-          const sorted = reservations.sort((a, b) => {
-            const timeA = a.createdAt?.toMillis?.() || 0;
-            const timeB = b.createdAt?.toMillis?.() || 0;
-            return timeA - timeB;
-          });
-          sorted.forEach((r, index) => {
-            message += `  ${index + 1}. ${r.bandName}\n`;
-          });
+        if (allConfirmed) {
+          // 抽選済み: orderがあるものを優先的にソート
+          const hasAnyOrder = reservations.some(r => r.order !== undefined);
+          
+          if (hasAnyOrder) {
+            // orderがある場合: order順でソート（orderがないものは最後に配置）
+            const sorted = reservations.sort((a, b) => {
+              const orderA = a.order !== undefined ? a.order : 999;
+              const orderB = b.order !== undefined ? b.order : 999;
+              if (orderA !== orderB) return orderA - orderB;
+              // orderが同じ場合はcreatedAt順
+              const timeA = a.createdAt?.toMillis?.() || 0;
+              const timeB = b.createdAt?.toMillis?.() || 0;
+              return timeA - timeB;
+            });
+            sorted.forEach((r, index) => {
+              message += `  ${index + 1}. ${r.bandName}\n`;
+            });
+          } else {
+            // orderがない場合: createdAt順
+            const sorted = reservations.sort((a, b) => {
+              const timeA = a.createdAt?.toMillis?.() || 0;
+              const timeB = b.createdAt?.toMillis?.() || 0;
+              return timeA - timeB;
+            });
+            sorted.forEach((r, index) => {
+              message += `  ${index + 1}. ${r.bandName}\n`;
+            });
+          }
         } else {
           // 抽選前: 順番なしで表示
           reservations.forEach((r) => {
