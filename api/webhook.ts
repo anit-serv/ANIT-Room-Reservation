@@ -1412,7 +1412,10 @@ async function getAvailableDateList(includeToday: boolean = false): Promise<{ la
   const results: { label: string; value: string }[] = [];
   const weekDays = ['日', '月', '火', '水', '木', '金', '土'];
 
-  for (let i = 0; i < 7; i++) {
+  // 21時以降の全登録表示では8日分表示（翌日の抽選日+7日間）
+  const daysToCheck = (includeToday && currentHour >= 21) ? 8 : 7;
+
+  for (let i = 0; i < daysToCheck; i++) {
     const targetDate = new Date(startDate);
     targetDate.setUTCDate(startDate.getUTCDate() + i);
 
