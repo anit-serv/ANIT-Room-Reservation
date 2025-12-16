@@ -353,7 +353,8 @@ async function handleCancelRequest(event: line.MessageEvent, userId: string) {
 
 // 全登録表示リクエストの処理
 async function handleViewAllRequest(event: line.MessageEvent, userId: string) {
-  const availableDates = await getAvailableDateList();
+  // 全登録表示では当日も含める
+  const availableDates = await getAvailableDateList(true);
 
   if (availableDates.length === 0) {
     return client.replyMessage(event.replyToken, {
@@ -872,9 +873,9 @@ async function handleViewReservations(event: line.PostbackEvent, data: string) {
       });
     }
 
-    // 時間帯ごとに整理
+    // 時間帯ごとに整理（抽選済みの場合は順番を保持）
     const timeSlotOrder = ['09:00-10:00', '10:00-12:00', '12:00-14:00', '14:00-16:00', '16:00-18:00', '18:00-20:00'];
-    const reservationsByTime: { [key: string]: string[] } = {};
+    const reservationsByTime: { [key: string]: Array<{ bandName: string; status: string; order?: number; createdAt: any }> } = {};
 
     snapshot.forEach((doc) => {
       const data = doc.data();
@@ -884,7 +885,12 @@ async function handleViewReservations(event: line.PostbackEvent, data: string) {
       if (!reservationsByTime[timeSlot]) {
         reservationsByTime[timeSlot] = [];
       }
-      reservationsByTime[timeSlot].push(bandName);
+      reservationsByTime[timeSlot].push({
+        bandName,
+        status: data.status,
+        order: data.order,
+        createdAt: data.createdAt,
+      });
     });
 
     // メッセージを組み立て
@@ -892,12 +898,35 @@ async function handleViewReservations(event: line.PostbackEvent, data: string) {
     let message = `📅 ${dateLabel} の登録状況\n${'─'.repeat(15)}\n`;
 
     for (const timeSlot of timeSlotOrder) {
-      const bands = reservationsByTime[timeSlot];
-      if (bands && bands.length > 0) {
+      const reservations = reservationsByTime[timeSlot];
+      if (reservations && reservations.length > 0) {
         message += `\n🕐 ${timeSlot}\n`;
-        bands.forEach((band, index) => {
-          message += `  ${index + 1}. ${band}\n`;
-        });
+        
+        // 抽選済みかどうかをチェック（全てconfirmedならソート）
+        const allConfirmed = reservations.every(r => r.status === 'confirmed');
+        
+        if (allConfirmed && reservations[0].order !== undefined) {
+          // 抽選済み: order順でソート（orderがある場合）
+          const sorted = reservations.sort((a, b) => (a.order || 0) - (b.order || 0));
+          sorted.forEach((r, index) => {
+            message += `  ${index + 1}. ${r.bandName}\n`;
+          });
+        } else if (allConfirmed) {
+          // 抽選済みだがorderがない場合: createdAt順
+          const sorted = reservations.sort((a, b) => {
+            const timeA = a.createdAt?.toMillis?.() || 0;
+            const timeB = b.createdAt?.toMillis?.() || 0;
+            return timeA - timeB;
+          });
+          sorted.forEach((r, index) => {
+            message += `  ${index + 1}. ${r.bandName}\n`;
+          });
+        } else {
+          // 抽選前: 順番なしで表示
+          reservations.forEach((r) => {
+            message += `  ・${r.bandName}\n`;
+          });
+        }
       }
     }
 
@@ -1284,13 +1313,23 @@ async function isLotteryTime(): Promise<boolean> {
   return availableDays.includes(tomorrowDayIndex);
 }
 
-async function getAvailableDateList(): Promise<{ label: string; value: string }[]> {
+async function getAvailableDateList(includeToday: boolean = false): Promise<{ label: string; value: string }[]> {
   const now = new Date();
   const jstOffset = 9 * 60 * 60 * 1000;
   const nowJST = new Date(now.getTime() + jstOffset);
   const currentHour = nowJST.getUTCHours();
 
-  let daysToAdd = currentHour >= 21 ? 2 : 1;
+  const availableDays = await getAvailableDays();
+
+  // includeTodayがtrueの場合、当日が登録可能日かチェック
+  let daysToAdd: number;
+  if (includeToday) {
+    const todayDayIndex = nowJST.getUTCDay();
+    // 当日が登録可能日であれば0から、そうでなければ通常通り
+    daysToAdd = availableDays.includes(todayDayIndex) ? 0 : (currentHour >= 21 ? 2 : 1);
+  } else {
+    daysToAdd = currentHour >= 21 ? 2 : 1;
+  }
   
   const startDate = new Date(nowJST);
   startDate.setUTCDate(startDate.getUTCDate() + daysToAdd);
@@ -1298,8 +1337,6 @@ async function getAvailableDateList(): Promise<{ label: string; value: string }[
 
   const results: { label: string; value: string }[] = [];
   const weekDays = ['日', '月', '火', '水', '木', '金', '土'];
-
-  const availableDays = await getAvailableDays();
 
   for (let i = 0; i < 7; i++) {
     const targetDate = new Date(startDate);
