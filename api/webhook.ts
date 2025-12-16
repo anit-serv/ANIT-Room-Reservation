@@ -757,6 +757,7 @@ async function handleSelectDate(event: line.PostbackEvent, data: string) {
 
   const dateObj = new Date(selectedDate!);
   const dateLabel = `${dateObj.getMonth() + 1}/${dateObj.getDate()}`;
+  const userId = event.source.userId!;
 
   // 時間枠をFirestoreから取得
   const timeSlots = await getTimeSlots();
@@ -771,6 +772,12 @@ async function handleSelectDate(event: line.PostbackEvent, data: string) {
       data: `action=finalize&date=${selectedDate}&time=${slot.value}&band=${bandName}&start=${startTime}`,
     },
   }));
+
+  // 時間選択のクイックリプライ情報を保存
+  await db.collection('states').doc(userId).set({
+    pendingQuickReply: quickReplyItems,
+    quickReplyStartTime: Number(startTime),
+  }, { merge: true });
 
   return client.replyMessage(event.replyToken, {
     type: 'text',
@@ -810,6 +817,9 @@ async function handleFinalize(event: line.PostbackEvent, data: string) {
       status: 'pending',
       createdAt: new Date(),
     });
+
+    // 予約完了後、statesを完全に削除（クイックリプライが再表示されないように）
+    await db.collection('states').doc(userId!).delete();
 
     return client.replyMessage(event.replyToken, {
       type: 'text',
