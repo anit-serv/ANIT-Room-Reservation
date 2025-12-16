@@ -72,7 +72,43 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(200).json({ status: 'skipped', message: 'No entries found.' });
     }
 
-    // 3. 投稿メッセージを作成
+    // 3. 抽選された予約の状態を更新（status: 'pending' → 'confirmed'）
+    let updatedCount = 0;
+    const timeSlots = Object.keys(results);
+
+    for (const timeSlot of timeSlots) {
+      const slotData = results[timeSlot];
+      const bands: string[] = slotData.order || [];
+      
+      if (bands.length > 0) {
+        const dateTime = `${targetDateStr}T${timeSlot}`;
+        
+        // 該当する日時の予約を取得
+        const snapshot = await db.collection('reservations')
+          .where('date', '==', dateTime)
+          .get();
+        
+        // バンド名でマッチングして更新
+        for (const doc of snapshot.docs) {
+          const data = doc.data();
+          const bandName = data.bandName || '';
+          
+          // 抽選結果に含まれているバンドなら確定状態に更新
+          if (bands.includes(bandName) && data.status !== 'confirmed') {
+            const bandIndex = bands.indexOf(bandName);
+            await db.collection('reservations').doc(doc.id).update({
+              status: 'confirmed',
+              order: bandIndex // 順番も記録
+            });
+            updatedCount++;
+          }
+        }
+      }
+    }
+
+    console.log(`Updated ${updatedCount} reservations to confirmed status.`);
+
+    // 4. 投稿メッセージを作成
     const displayDate = targetDateStr.replace(/-/g, '/').slice(5); // 12/21
     const weekDays = ['日', '月', '火', '水', '木', '金', '土'];
     const dateObj = new Date(targetDateStr);
@@ -80,12 +116,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     let message = `📢 【部屋取り抽選結果】＜${displayDate}(${wd})＞\n\n`;
     
-    // 抽選結果から時間帯を取得してソート
-    const timeSlots = Object.keys(results).sort();
+    // 時間帯リストをソート（既に取得済み）
+    const sortedTimeSlots = timeSlots.sort();
 
     let hasContent = false;
 
-    for (const timeSlot of timeSlots) {
+    for (const timeSlot of sortedTimeSlots) {
       const slotData = results[timeSlot];
       const bands: string[] = slotData.order || [];
       
@@ -106,7 +142,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     message += `------------------\n`;
     message += `※詳細はLINE ANIT部屋取りシステム【全登録一覧】からも確認できます。`;
 
-    // 4. BAND APIに投稿
+    // 5. BAND APIに投稿
     const bandAccessToken = process.env.BAND_ACCESS_TOKEN;
     const bandKey = process.env.BAND_KEY;
 
@@ -133,6 +169,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(200).json({
       status: 'success',
       message: 'Posted to BAND successfully.',
+      updatedReservations: updatedCount,
       content: message
     });
 
