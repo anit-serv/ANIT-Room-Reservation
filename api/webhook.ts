@@ -456,12 +456,19 @@ async function handleViewMyReservations(event: line.MessageEvent | line.Postback
       const [datePart, timePart] = dateTime.split('T');
       const displayDate = datePart.replace(/-/g, '/').slice(5); // "12/20"
       const status = data.status === 'confirmed' ? '✅確定' : '⏳抽選待ち';
+      const isConfirmed = data.status === 'confirmed';
 
-      // 抽選時間中はボタンなし（閲覧専用）
+      // 抽選時間中または抽選済みはボタンなし（閲覧専用）
       const actions: line.Action[] = isLottery
         ? [
             { type: 'postback' as const, label: '─', data: 'action=noop' },
             { type: 'postback' as const, label: '🔒 抽選中', data: 'action=noop' },
+            { type: 'postback' as const, label: '─', data: 'action=noop' },
+          ]
+        : isConfirmed
+        ? [
+            { type: 'postback' as const, label: '─', data: 'action=noop' },
+            { type: 'postback' as const, label: '🔒 抽選済み', data: 'action=noop' },
             { type: 'postback' as const, label: '─', data: 'action=noop' },
           ]
         : [
