@@ -580,7 +580,12 @@ async function handleOtherInput(
 
     const bandName = userText;
     const startTime = stateData.createdAt.toDate().getTime(); // 開始時刻を取得
-    await db.collection('states').doc(userId).delete();
+    
+    // 状態の特定フィールドのみ削除（lastButtonPressTsは保持して元のカルーセルのボタンを無効に保つ）
+    await db.collection('states').doc(userId).set({
+      status: admin.firestore.FieldValue.delete(),
+      createdAt: admin.firestore.FieldValue.delete(),
+    }, { merge: true });
 
     const availableDates = await getAvailableDateList();
 
