@@ -80,24 +80,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     let message = `📢 【部屋取り抽選結果】\n\n対象日: ${displayDate}(${wd})\n\n`;
     
-    // 時間帯順に並べるためのリスト
-    const timeOrder = ['09:00-10:00', '10:00-12:00', '12:00-14:00', '14:00-16:00', '16:00-18:00', '18:00-20:00'];
+    // 抽選結果から時間帯を取得してソート
+    const timeSlots = Object.keys(results).sort();
 
     let hasContent = false;
 
-    for (const timeSlot of timeOrder) {
-      if (results[timeSlot]) {
-        const slotData = results[timeSlot];
-        const bands: string[] = slotData.order || [];
-        
-        if (bands.length > 0) {
-          hasContent = true;
-          message += `■ ${timeSlot}\n`;
-          bands.forEach((bandName, index) => {
-            message += `${index + 1}位: ${bandName}\n`;
-          });
-          message += `\n`;
-        }
+    for (const timeSlot of timeSlots) {
+      const slotData = results[timeSlot];
+      const bands: string[] = slotData.order || [];
+      
+      if (bands.length > 0) {
+        hasContent = true;
+        message += `■ ${timeSlot}\n`;
+        bands.forEach((bandName, index) => {
+          message += `${index + 1}位: ${bandName}\n`;
+        });
+        message += `\n`;
       }
     }
 
