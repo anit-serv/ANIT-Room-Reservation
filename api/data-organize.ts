@@ -127,6 +127,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // ---------------------------------------------------------
     // 3. 古いユーザー状態を削除（states）
     //    実行時より5分以上前の操作を含むものを削除
+    //    ※ ボタンの有効期限が5分なので、5分以上前の履歴は全て不要
     // ---------------------------------------------------------
     const fiveMinutesAgo = Date.now() - (5 * 60 * 1000); // 5分前のタイムスタンプ
     const statesSnapshot = await db.collection('states').get();
@@ -138,25 +139,30 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     statesSnapshot.forEach((doc) => {
       const data = doc.data();
-      let shouldDelete = false;
+      
+      // 全てのタイムスタンプフィールドをチェック
+      const timestamps: number[] = [];
 
-      // createdAt（Timestamp型）をチェック
+      // createdAt（Timestamp型）
       if (data.createdAt) {
-        const createdAtMs = data.createdAt.toMillis();
-        if (createdAtMs < fiveMinutesAgo) {
-          shouldDelete = true;
-        }
+        timestamps.push(data.createdAt.toMillis());
       }
 
-      // quickReplyStartTime（number型）をチェック
-      if (!shouldDelete && data.quickReplyStartTime && typeof data.quickReplyStartTime === 'number') {
-        if (data.quickReplyStartTime < fiveMinutesAgo) {
-          shouldDelete = true;
-        }
+      // number型のタイムスタンプフィールド
+      if (data.quickReplyStartTime && typeof data.quickReplyStartTime === 'number') {
+        timestamps.push(data.quickReplyStartTime);
+      }
+      if (data.lastButtonPressTs && typeof data.lastButtonPressTs === 'number') {
+        timestamps.push(data.lastButtonPressTs);
+      }
+      if (data.lastViewMyCarouselTs && typeof data.lastViewMyCarouselTs === 'number') {
+        timestamps.push(data.lastViewMyCarouselTs);
       }
 
-      // 削除対象の場合
-      if (shouldDelete) {
+      // 全てのタイムスタンプが5分以上前（または存在しない）なら削除
+      const hasRecentActivity = timestamps.some(ts => ts >= fiveMinutesAgo);
+
+      if (!hasRecentActivity) {
         statesBatch.delete(doc.ref);
         statesOperationCount++;
         deletedStates++;
