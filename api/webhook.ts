@@ -1369,8 +1369,18 @@ async function getAvailableDateList(includeToday: boolean = false): Promise<{ la
   let daysToAdd: number;
   if (includeToday) {
     const todayDayIndex = nowJST.getUTCDay();
-    // 当日が登録可能日であれば0から、そうでなければ通常通り
-    daysToAdd = availableDays.includes(todayDayIndex) ? 0 : (currentHour >= 21 ? 2 : 1);
+    // 全登録表示では、21時以降でも翌日から表示（新規登録は明後日から）
+    // 当日が登録可能日であれば0から、そうでなければ翌日から
+    if (currentHour >= 21) {
+      // 21時以降: 翌日が登録可能日なら1、そうでなければ2
+      const tomorrow = new Date(nowJST);
+      tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+      const tomorrowDayIndex = tomorrow.getUTCDay();
+      daysToAdd = availableDays.includes(tomorrowDayIndex) ? 1 : 2;
+    } else {
+      // 21時前: 当日が登録可能日なら0、そうでなければ1
+      daysToAdd = availableDays.includes(todayDayIndex) ? 0 : 1;
+    }
   } else {
     daysToAdd = currentHour >= 21 ? 2 : 1;
   }
