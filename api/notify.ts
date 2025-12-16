@@ -78,7 +78,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const dateObj = new Date(targetDateStr);
     const wd = weekDays[dateObj.getDay()];
 
-    let message = `📢 【部屋取り抽選結果】<${displayDate}(${wd})>\n\n`;
+    let message = `📢 【部屋取り抽選結果】＜${displayDate}(${wd})＞\n\n`;
     
     // 抽選結果から時間帯を取得してソート
     const timeSlots = Object.keys(results).sort();
