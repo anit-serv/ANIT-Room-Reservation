@@ -1,6 +1,7 @@
 import { VercelRequest, VercelResponse } from '@vercel/node';
 import * as admin from 'firebase-admin';
 import axios from 'axios'; // BAND APIを叩くために必要
+import { updateReservationStatus } from '../lib/update-reservation-status';
 import 'dotenv/config';
 
 // ---------------------------------------------------------
@@ -73,42 +74,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     // 3. 抽選された予約の状態を更新（status: 'pending' → 'confirmed'）
-    let updatedCount = 0;
-    const timeSlots = Object.keys(results);
-
-    for (const timeSlot of timeSlots) {
-      const slotData = results[timeSlot];
-      const bands: string[] = slotData.order || [];
-      
-      if (bands.length > 0) {
-        const dateTime = `${targetDateStr}T${timeSlot}`;
-        
-        // 該当する日時の予約を取得
-        const snapshot = await db.collection('reservations')
-          .where('date', '==', dateTime)
-          .get();
-        
-        // バンド名でマッチングして更新
-        for (const doc of snapshot.docs) {
-          const data = doc.data();
-          const bandName = data.bandName || '';
-          
-          // 抽選結果に含まれているバンドなら確定状態に更新
-          if (bands.includes(bandName) && data.status !== 'confirmed') {
-            const bandIndex = bands.indexOf(bandName);
-            await db.collection('reservations').doc(doc.id).update({
-              status: 'confirmed',
-              order: bandIndex // 順番も記録
-            });
-            updatedCount++;
-          }
-        }
-      }
-    }
-
-    console.log(`Updated ${updatedCount} reservations to confirmed status.`);
+    const updatedCount = await updateReservationStatus(targetDateStr, db);
 
     // 4. 投稿メッセージを作成
+    const timeSlots = Object.keys(results);
     const displayDate = targetDateStr.replace(/-/g, '/').slice(5); // 12/21
     const weekDays = ['日', '月', '火', '水', '木', '金', '土'];
     const dateObj = new Date(targetDateStr);
