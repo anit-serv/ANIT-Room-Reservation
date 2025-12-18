@@ -423,12 +423,31 @@ async function handleViewMyReservations(event: line.MessageEvent | line.Postback
       });
     }
 
-    // 日付でソート
-    const sortedDocs = snapshot.docs.sort((a, b) => {
-      const dateA = a.data().date || '';
-      const dateB = b.data().date || '';
-      return dateA.localeCompare(dateB);
-    });
+    // 今日の日付を取得（JST）
+    const now = new Date();
+    const jstOffset = 9 * 60 * 60 * 1000;
+    const nowJST = new Date(now.getTime() + jstOffset);
+    const todayStr = `${nowJST.getUTCFullYear()}-${('0' + (nowJST.getUTCMonth() + 1)).slice(-2)}-${('0' + nowJST.getUTCDate()).slice(-2)}`;
+
+    // 今日以降の予約のみフィルタリングして日付でソート
+    const sortedDocs = snapshot.docs
+      .filter((doc) => {
+        const date = doc.data().date || '';
+        const datePart = date.split('T')[0]; // "2023-12-20"
+        return datePart >= todayStr;
+      })
+      .sort((a, b) => {
+        const dateA = a.data().date || '';
+        const dateB = b.data().date || '';
+        return dateA.localeCompare(dateB);
+      });
+
+    if (sortedDocs.length === 0) {
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: '📝 あなたの登録はまだありません。',
+      });
+    }
 
     const totalCount = sortedDocs.length;
     const startIndex = page * 9; // 9件ずつ表示（さらに表示ボタン用に1枠確保）
