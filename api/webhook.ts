@@ -480,17 +480,17 @@ async function handleViewMyReservations(event: line.MessageEvent | line.Postback
       // 抽選時間中または抽選済みはボタンなし（閲覧専用）
       const actions: line.Action[] = isLottery
         ? [
-            { type: 'postback' as const, label: '─', data: 'action=noop' },
-            { type: 'postback' as const, label: '🔒 抽選中', data: 'action=noop' },
-            { type: 'postback' as const, label: '─', data: 'action=noop' },
-          ]
+          { type: 'postback' as const, label: '─', data: 'action=noop' },
+          { type: 'postback' as const, label: '🔒 抽選中', data: 'action=noop' },
+          { type: 'postback' as const, label: '─', data: 'action=noop' },
+        ]
         : isConfirmed
-        ? [
+          ? [
             { type: 'postback' as const, label: '─', data: 'action=noop' },
             { type: 'postback' as const, label: '🔒 抽選済み', data: 'action=noop' },
             { type: 'postback' as const, label: '─', data: 'action=noop' },
           ]
-        : [
+          : [
             {
               type: 'postback' as const,
               label: '✏️ バンド名を編集',
@@ -633,7 +633,7 @@ async function handleOtherInput(
 
     const bandName = userText;
     const startTime = stateData.createdAt.toDate().getTime(); // 開始時刻を取得
-    
+
     const availableDates = await getAvailableDateList();
 
     if (availableDates.length === 0) {
@@ -682,7 +682,7 @@ async function handleOtherInput(
 
     const newBandName = userText;
     const docId = stateData.editingDocId;
-    
+
     // 状態の特定フィールドのみ削除（lastButtonPressTsは保持して元のカルーセルのボタンを無効に保つ）
     await db.collection('states').doc(userId).set({
       status: admin.firestore.FieldValue.delete(),
@@ -730,7 +730,7 @@ async function handleOtherInput(
 // 5. ボタン操作への返信 (バンド名を持ち回る)
 // ---------------------------------------------------------
 async function handlePostbackEvent(event: line.PostbackEvent) {
-  const data = event.postback.data; 
+  const data = event.postback.data;
 
   // パターンA: 日付が選ばれたら → 「時間」を聞く
   if (data.startsWith('action=select_date')) {
@@ -964,14 +964,14 @@ async function handleViewReservations(event: line.PostbackEvent, data: string) {
       const reservations = reservationsByTime[timeSlot];
       if (reservations && reservations.length > 0) {
         message += `\n🕐 ${timeSlot}\n`;
-        
+
         // 抽選済みかどうかをチェック（全てconfirmedならソート）
         const allConfirmed = reservations.every(r => r.status === 'confirmed');
-        
+
         if (allConfirmed) {
           // 抽選済み: orderがあるものを優先的にソート
           const hasAnyOrder = reservations.some(r => r.order !== undefined);
-          
+
           if (hasAnyOrder) {
             // orderがある場合: order順でソート（orderがないものは最後に配置）
             const sorted = reservations.sort((a, b) => {
@@ -1423,7 +1423,7 @@ async function getAvailableDateList(includeToday: boolean = false): Promise<{ la
   } else {
     daysToAdd = currentHour >= 21 ? 2 : 1;
   }
-  
+
   const startDate = new Date(nowJST);
   startDate.setUTCDate(startDate.getUTCDate() + daysToAdd);
   startDate.setUTCHours(0, 0, 0, 0);
@@ -1432,14 +1432,14 @@ async function getAvailableDateList(includeToday: boolean = false): Promise<{ la
   const weekDays = ['日', '月', '火', '水', '木', '金', '土'];
 
   // 21時以降の全登録表示では8日分表示（翌日の抽選日+7日間）
-  const daysToCheck = (includeToday && currentHour >= 21) ? 8 : 7;
+  const daysToCheck = 7;
 
   for (let i = 0; i < daysToCheck; i++) {
     const targetDate = new Date(startDate);
     targetDate.setUTCDate(startDate.getUTCDate() + i);
 
     const dayIndex = targetDate.getUTCDay();
-    
+
     if (availableDays.includes(dayIndex)) {
       const m = targetDate.getUTCMonth() + 1;
       const d = targetDate.getUTCDate();
