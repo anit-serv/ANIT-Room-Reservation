@@ -7,3 +7,7 @@ anit-room-reservation-firebase-adminsdk-*.json
 developers.band.us
 
 scripts
+
+.log
+
+.claude/
