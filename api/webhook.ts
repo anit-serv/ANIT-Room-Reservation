@@ -332,16 +332,16 @@ async function handleTextEvent(event: line.MessageEvent) {
   }
 
   // 状態がない場合のみ予約語をトリガーとして処理
-  if (TRIGGER_WORDS.REGISTER.includes(userText)) {
-    return handleRegisterRequest(event, userId);
-  }
+  const isReservationTrigger =
+    TRIGGER_WORDS.REGISTER.includes(userText) ||
+    TRIGGER_WORDS.VIEW_ALL.includes(userText) ||
+    TRIGGER_WORDS.VIEW_MY.includes(userText);
 
-  if (TRIGGER_WORDS.VIEW_ALL.includes(userText)) {
-    return handleViewAllRequest(event, userId);
-  }
-
-  if (TRIGGER_WORDS.VIEW_MY.includes(userText)) {
-    return handleViewMyReservations(event, userId);
+  if (isReservationTrigger) {
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: `こちらから予約・確認ができます👇\n${process.env.LINE_LIFF_URL}`,
+    });
   }
 
   // それ以外（状態なし＆予約語でもない）
