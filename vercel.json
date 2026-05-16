@@ -2,6 +2,8 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "rewrites": [
+    { "source": "/api/admin/:path*", "destination": "/api/admin?_path=:path*" },
+    { "source": "/api/reservations/:path*", "destination": "/api/reservations?_path=:path*" },
     { "source": "/admin", "destination": "/index.html" },
     { "source": "/admin/:path*", "destination": "/index.html" }
   ]

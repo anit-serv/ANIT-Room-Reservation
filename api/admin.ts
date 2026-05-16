@@ -2,7 +2,7 @@ import { VercelRequest, VercelResponse } from '@vercel/node'
 import * as admin from 'firebase-admin'
 import * as crypto from 'crypto'
 import axios from 'axios'
-import { verifyAdmin } from '../../lib/verifyAdmin'
+import { verifyAdmin } from '../lib/verifyAdmin'
 import 'dotenv/config'
 
 const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n')
@@ -28,8 +28,7 @@ function parseCookies(header: string | undefined): Record<string, string> {
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  const slug = (req.query.slug as string[] | undefined) ?? []
-  const path = slug.join('/')
+  const path = (req.query._path as string) ?? ''
 
   switch (path) {
     case 'auth/start':    return handleAuthStart(req, res)
