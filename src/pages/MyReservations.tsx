@@ -64,7 +64,7 @@ export default function MyReservations({ profile }: Props) {
   if (reservations.length === 0) {
     return (
       <div className="empty-state">
-        <span className="empty-icon">📭</span>
+        <span className="icon icon-xl" style={{ color: 'var(--text-pale)' }}>event_busy</span>
         <span className="empty-text">予約はまだありません</span>
       </div>
     )
@@ -90,9 +90,13 @@ export default function MyReservations({ profile }: Props) {
             <div className={`accent ${r.status}`} />
             <div className="card-body">
               <div className="card-band">{r.bandName}</div>
-              <div className="card-date">📅 {displayDate}　🕐 {timePart}</div>
+              <div className="card-date" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <span className="icon icon-sm" style={{ color: 'var(--text-pale)' }}>calendar_month</span>{displayDate}
+                <span className="icon icon-sm" style={{ color: 'var(--text-pale)' }}>schedule</span>{timePart}
+              </div>
               <span className={`badge ${r.status}`}>
-                {isConfirmed ? '✅ 抽選確定' : '⏳ 抽選待ち'}
+                <span className="icon icon-sm">{isConfirmed ? 'check_circle' : 'hourglass_empty'}</span>
+                {isConfirmed ? '抽選確定' : '抽選待ち'}
               </span>
             </div>
             {!isConfirmed && (

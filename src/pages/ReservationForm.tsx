@@ -83,7 +83,7 @@ export default function ReservationForm({ profile }: Props) {
             <span className="step-badge">1</span>
             バンド名
           </span>
-          {bandName.trim() && <span className="check-icon">✓</span>}
+          {bandName.trim() && <span className="icon icon-sm" style={{ color: 'var(--green)' }}>check_circle</span>}
         </div>
         <input
           className="text-input"
@@ -101,7 +101,7 @@ export default function ReservationForm({ profile }: Props) {
             <span className="step-badge">2</span>
             日付
           </span>
-          {selectedDate && <span className="check-icon">✓</span>}
+          {selectedDate && <span className="icon icon-sm" style={{ color: 'var(--green)' }}>check_circle</span>}
         </div>
         <div className="select-grid cols-3">
           {dates.map((d) => (
@@ -123,7 +123,7 @@ export default function ReservationForm({ profile }: Props) {
             <span className="step-badge">3</span>
             時間帯
           </span>
-          {selectedTime && <span className="check-icon">✓</span>}
+          {selectedTime && <span className="icon icon-sm" style={{ color: 'var(--green)' }}>check_circle</span>}
         </div>
         <div className="select-grid">
           {timeSlots.map((t) => (

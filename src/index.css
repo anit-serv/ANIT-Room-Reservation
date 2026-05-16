@@ -98,7 +98,7 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 
-.tab-bar button .tab-icon { font-size: 1.3rem; line-height: 1; }
+.tab-bar button .tab-icon { font-size: 22px; }
 
 .tab-bar button.active {
   color: var(--green);
@@ -490,6 +490,30 @@ body {
   color: var(--red);
   border: 1px solid rgba(229,62,62,.3);
 }
+
+/* ── Material Symbols ────────────────────────────── */
+.icon {
+  font-family: 'Material Symbols Outlined';
+  font-weight: normal;
+  font-style: normal;
+  font-size: 20px;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  -webkit-font-smoothing: antialiased;
+  font-variation-settings: 'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 24;
+  user-select: none;
+}
+
+.icon-sm  { font-size: 16px; }
+.icon-md  { font-size: 20px; }
+.icon-lg  { font-size: 24px; }
+.icon-xl  { font-size: 32px; }
+.icon-filled { font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
 
 /* ── ユーティリティ ───────────────────────────────── */
 .mt-sm { margin-top: 0.5rem; }

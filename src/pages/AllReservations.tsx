@@ -75,14 +75,14 @@ export default function AllReservations() {
         activeSlots.length === 0
           ? (
             <div className="empty-state">
-              <span className="empty-icon">📭</span>
+              <span className="icon icon-xl" style={{ color: 'var(--text-pale)' }}>event_busy</span>
               <span className="empty-text">この日の登録はまだありません</span>
             </div>
           )
           : activeSlots.map((ts) => (
             <div key={ts} className="time-section">
               <div className="time-header">
-                <span>🕐</span>
+                <span className="icon icon-sm">schedule</span>
                 <span>{ts}</span>
                 <span style={{ marginLeft: 'auto', color: 'var(--text-pale)', fontWeight: 400 }}>
                   {slotMap[ts].length}件
@@ -104,7 +104,7 @@ export default function AllReservations() {
       {/* 日付未選択 */}
       {!selectedDate && !loading && (
         <div className="empty-state">
-          <span className="empty-icon">📅</span>
+          <span className="icon icon-xl" style={{ color: 'var(--text-pale)' }}>calendar_month</span>
           <span className="empty-text">日付を選択してください</span>
         </div>
       )}

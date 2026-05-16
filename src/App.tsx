@@ -13,9 +13,9 @@ export type LiffProfile = {
 }
 
 const TABS: { id: Tab; icon: string; label: string }[] = [
-  { id: 'register', icon: '✏️', label: '予約登録' },
-  { id: 'my',       icon: '📋', label: '自分の予約' },
-  { id: 'all',      icon: '👥', label: '全登録表示' },
+  { id: 'register', icon: 'edit_calendar', label: '予約登録' },
+  { id: 'my',       icon: 'event_note',    label: '自分の予約' },
+  { id: 'all',      icon: 'group',         label: '全登録表示' },
 ]
 
 function App() {
@@ -36,7 +36,7 @@ function App() {
       .catch((err: Error) => setError(err.message))
   }, [])
 
-  if (error) return <div className="error-splash">⚠️ 初期化エラー<br />{error}</div>
+  if (error) return <div className="error-splash"><span className="icon icon-xl">error</span><br />{error}</div>
   if (!profile) return (
     <div className="splash">
       <div className="spinner" />
@@ -53,7 +53,7 @@ function App() {
             className={activeTab === id ? 'active' : ''}
             onClick={() => setActiveTab(id)}
           >
-            <span className="tab-icon">{icon}</span>
+            <span className="icon tab-icon">{icon}</span>
             {label}
           </button>
         ))}
