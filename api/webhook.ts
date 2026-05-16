@@ -1396,63 +1396,34 @@ async function isLotteryTime(): Promise<boolean> {
   return availableDays.includes(tomorrowDayIndex);
 }
 
-async function getAvailableDateList(includeToday: boolean = false): Promise<{ label: string; value: string }[]> {
+async function getAvailableDateList(_includeToday: boolean = false): Promise<{ label: string; value: string }[]> {
   const now = new Date();
   const jstOffset = 9 * 60 * 60 * 1000;
   const nowJST = new Date(now.getTime() + jstOffset);
-  const currentHour = nowJST.getUTCHours();
+  const h = nowJST.getUTCHours();
+  const mi = nowJST.getUTCMinutes();
+  const afterLotteryPrep = h > 20 || (h === 20 && mi >= 50);
 
   const availableDays = await getAvailableDays();
-
-  // includeTodayがtrueの場合、当日が登録可能日かチェック
-  let daysToAdd: number;
-  if (includeToday) {
-    const todayDayIndex = nowJST.getUTCDay();
-    // 全登録表示では、21時以降でも翌日から表示（新規登録は明後日から）
-    // 当日が登録可能日であれば0から、そうでなければ翌日から
-    if (currentHour >= 21) {
-      // 21時以降: 翌日が登録可能日なら1、そうでなければ2
-      const tomorrow = new Date(nowJST);
-      tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
-      const tomorrowDayIndex = tomorrow.getUTCDay();
-      daysToAdd = availableDays.includes(tomorrowDayIndex) ? 1 : 2;
-    } else {
-      // 21時前: 当日が登録可能日なら0、そうでなければ1
-      daysToAdd = availableDays.includes(todayDayIndex) ? 0 : 1;
-    }
-  } else {
-    daysToAdd = currentHour >= 21 ? 2 : 1;
-  }
-
-  const startDate = new Date(nowJST);
-  startDate.setUTCDate(startDate.getUTCDate() + daysToAdd);
-  startDate.setUTCHours(0, 0, 0, 0);
-
   const results: { label: string; value: string }[] = [];
   const weekDays = ['日', '月', '火', '水', '木', '金', '土'];
 
-  // 21時以降の全登録表示では8日分表示（翌日の抽選日+7日間）
-  const daysToCheck = 7;
+  for (let i = 0; i < 7; i++) {
+    const targetDate = new Date(nowJST);
+    targetDate.setUTCDate(nowJST.getUTCDate() + i);
+    targetDate.setUTCHours(0, 0, 0, 0);
 
-  for (let i = 0; i < daysToCheck; i++) {
-    const targetDate = new Date(startDate);
-    targetDate.setUTCDate(startDate.getUTCDate() + i);
+    if (!availableDays.includes(targetDate.getUTCDay())) continue;
+    if (i === 0 && afterLotteryPrep) continue;  // 20:50以降は今日を除外
+    if (i === 1 && afterLotteryPrep) continue;  // 20:50以降は翌日も除外（抽選中・締め切り）
 
-    const dayIndex = targetDate.getUTCDay();
-
-    if (availableDays.includes(dayIndex)) {
-      const m = targetDate.getUTCMonth() + 1;
-      const d = targetDate.getUTCDate();
-      const wd = weekDays[dayIndex];
-      const yyyy = targetDate.getUTCFullYear();
-      const mm = ('0' + m).slice(-2);
-      const dd = ('0' + d).slice(-2);
-
-      results.push({
-        label: `${m}/${d}(${wd})`,
-        value: `${yyyy}-${mm}-${dd}`
-      });
-    }
+    const m = targetDate.getUTCMonth() + 1;
+    const d = targetDate.getUTCDate();
+    const wd = weekDays[targetDate.getUTCDay()];
+    const yyyy = targetDate.getUTCFullYear();
+    const mm = ('0' + m).slice(-2);
+    const dd = ('0' + d).slice(-2);
+    results.push({ label: `${m}/${d}(${wd})`, value: `${yyyy}-${mm}-${dd}` });
   }
   return results;
 }

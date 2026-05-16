@@ -12,8 +12,9 @@ type Reservation = {
 
 export default function MyReservations({ profile }: Props) {
   const [reservations, setReservations] = useState<Reservation[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [loading,      setLoading]      = useState(true)
+  const [error,        setError]        = useState<string | null>(null)
+  const [deleting,     setDeleting]     = useState<string | null>(null)
 
   const fetchReservations = useCallback(async () => {
     setLoading(true)
@@ -22,7 +23,7 @@ export default function MyReservations({ profile }: Props) {
       const res = await fetch('/api/reservations/my', {
         headers: { Authorization: `Bearer ${profile.idToken}` },
       })
-      if (!res.ok) throw new Error('取得に失敗しました')
+      if (!res.ok) throw new Error()
       const data = await res.json()
       setReservations(data.reservations ?? [])
     } catch {
@@ -36,6 +37,7 @@ export default function MyReservations({ profile }: Props) {
 
   async function handleDelete(id: string, bandName: string) {
     if (!confirm(`「${bandName}」の登録を削除しますか？`)) return
+    setDeleting(id)
     try {
       const res = await fetch(`/api/reservations/${id}`, {
         method: 'DELETE',
@@ -45,36 +47,62 @@ export default function MyReservations({ profile }: Props) {
       setReservations((prev) => prev.filter((r) => r.id !== id))
     } catch {
       alert('削除に失敗しました')
+    } finally {
+      setDeleting(null)
     }
   }
 
-  if (loading) return <div className="loading">読み込み中...</div>
-  if (error) return <div className="error" style={{ height: 'auto', padding: '1rem' }}>{error}</div>
+  if (loading) return (
+    <div className="splash">
+      <div className="spinner" />
+      <span>読み込み中...</span>
+    </div>
+  )
+
+  if (error) return <div className="banner error" style={{ marginTop: '1rem' }}>{error}</div>
 
   if (reservations.length === 0) {
-    return <div className="empty-state">予約はまだありません</div>
+    return (
+      <div className="empty-state">
+        <span className="empty-icon">📭</span>
+        <span className="empty-text">予約はまだありません</span>
+      </div>
+    )
   }
 
   return (
     <div>
-      <p className="section-title">自分の予約 ({reservations.length}件)</p>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
+        <p className="page-title" style={{ margin: 0 }}>自分の予約</p>
+        <span style={{ fontSize: '0.8rem', color: 'var(--text-sub)', background: 'var(--bg)', padding: '0.2rem 0.6rem', borderRadius: '20px' }}>
+          {reservations.length}件
+        </span>
+      </div>
+
       {reservations.map((r) => {
         const [datePart, timePart] = r.date.split('T')
         const displayDate = datePart.slice(5).replace('-', '/')
         const isConfirmed = r.status === 'confirmed'
+        const isDeleting  = deleting === r.id
+
         return (
           <div key={r.id} className="reservation-card">
-            <div className="band-name">{r.bandName}</div>
-            <div className="date-time">📅 {displayDate} {timePart}</div>
-            <span className={`status ${r.status}`}>
-              {isConfirmed ? '✅ 抽選確定' : '⏳ 抽選待ち'}
-            </span>
+            <div className={`accent ${r.status}`} />
+            <div className="card-body">
+              <div className="card-band">{r.bandName}</div>
+              <div className="card-date">📅 {displayDate}　🕐 {timePart}</div>
+              <span className={`badge ${r.status}`}>
+                {isConfirmed ? '✅ 抽選確定' : '⏳ 抽選待ち'}
+              </span>
+            </div>
             {!isConfirmed && (
-              <div className="card-actions">
-                <button className="btn-delete" onClick={() => handleDelete(r.id, r.bandName)}>
-                  削除
-                </button>
-              </div>
+              <button
+                className="btn-danger"
+                onClick={() => handleDelete(r.id, r.bandName)}
+                disabled={isDeleting}
+              >
+                {isDeleting ? '...' : '削除'}
+              </button>
             )}
           </div>
         )

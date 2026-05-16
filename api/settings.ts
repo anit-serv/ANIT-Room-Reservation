@@ -25,35 +25,24 @@ const DEFAULT_TIME_SLOTS = [
 const DEFAULT_AVAILABLE_DAYS = [3, 4, 6]
 const WEEK_DAYS = ['日', '月', '火', '水', '木', '金', '土']
 
-function buildDateList(availableDays: number[], includeToday: boolean): { label: string; value: string }[] {
-  const now = new Date()
-  const jstOffset = 9 * 60 * 60 * 1000
-  const nowJST = new Date(now.getTime() + jstOffset)
-  const currentHour = nowJST.getUTCHours()
-
-  let daysToAdd: number
-  if (includeToday) {
-    const todayIdx = nowJST.getUTCDay()
-    if (currentHour >= 21) {
-      const tomorrow = new Date(nowJST)
-      tomorrow.setUTCDate(tomorrow.getUTCDate() + 1)
-      daysToAdd = availableDays.includes(tomorrow.getUTCDay()) ? 1 : 2
-    } else {
-      daysToAdd = availableDays.includes(todayIdx) ? 0 : 1
-    }
-  } else {
-    daysToAdd = currentHour >= 21 ? 2 : 1
-  }
-
-  const start = new Date(nowJST)
-  start.setUTCDate(start.getUTCDate() + daysToAdd)
-  start.setUTCHours(0, 0, 0, 0)
+// forView=false（登録用）: 20:50以降は今日・翌日を除外 → 明後日以降のみ
+// forView=true（全登録表示用）: 20:50以降は今日のみ除外、翌日は含む（抽選結果確認のため）
+function buildDateList(availableDays: number[], forView: boolean): { label: string; value: string }[] {
+  const nowJST = new Date(Date.now() + 9 * 60 * 60 * 1000)
+  const h = nowJST.getUTCHours()
+  const mi = nowJST.getUTCMinutes()
+  const afterLotteryPrep = h > 20 || (h === 20 && mi >= 50)
 
   const results: { label: string; value: string }[] = []
   for (let i = 0; i < 7; i++) {
-    const d = new Date(start)
-    d.setUTCDate(start.getUTCDate() + i)
+    const d = new Date(nowJST)
+    d.setUTCDate(nowJST.getUTCDate() + i)
+    d.setUTCHours(0, 0, 0, 0)
+
     if (!availableDays.includes(d.getUTCDay())) continue
+    if (i === 0 && afterLotteryPrep) continue              // 今日: 20:50以降は常に除外
+    if (i === 1 && afterLotteryPrep && !forView) continue  // 翌日: 登録は20:50以降除外、表示は含む
+
     const m = d.getUTCMonth() + 1
     const day = d.getUTCDate()
     const wd = WEEK_DAYS[d.getUTCDay()]

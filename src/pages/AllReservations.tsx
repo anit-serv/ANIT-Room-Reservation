@@ -1,24 +1,20 @@
 import { useState, useEffect } from 'react'
 
-type DateOption = { label: string; value: string }
-type ReservationEntry = { bandName: string; status: string; order?: number }
-type TimeSlotMap = { [timeSlot: string]: ReservationEntry[] }
+type DateOption    = { label: string; value: string }
+type SlotEntry     = { bandName: string; status: string; order?: number }
+type TimeSlotMap   = { [timeSlot: string]: SlotEntry[] }
 
 const TIME_SLOT_ORDER = [
-  '09:00-10:00',
-  '10:00-12:00',
-  '12:00-14:00',
-  '14:00-16:00',
-  '16:00-18:00',
-  '18:00-20:00',
+  '09:00-10:00', '10:00-12:00', '12:00-14:00',
+  '14:00-16:00', '16:00-18:00', '18:00-20:00',
 ]
 
 export default function AllReservations() {
-  const [dates, setDates] = useState<DateOption[]>([])
+  const [dates,        setDates]        = useState<DateOption[]>([])
   const [selectedDate, setSelectedDate] = useState('')
-  const [slotMap, setSlotMap] = useState<TimeSlotMap | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [slotMap,      setSlotMap]      = useState<TimeSlotMap | null>(null)
+  const [loading,      setLoading]      = useState(false)
+  const [error,        setError]        = useState<string | null>(null)
 
   useEffect(() => {
     fetch('/api/settings')
@@ -44,48 +40,72 @@ export default function AllReservations() {
     }
   }
 
+  const activeSlots = slotMap
+    ? TIME_SLOT_ORDER.filter((ts) => slotMap[ts]?.length)
+    : []
+
   return (
     <div>
-      <p className="section-title">全登録表示</p>
+      <p className="page-title">全登録表示</p>
 
-      {error && <div className="error" style={{ height: 'auto', padding: '0.75rem', marginBottom: '1rem' }}>{error}</div>}
+      {error && <div className="banner error">{error}</div>}
 
-      <div className="form-group">
-        <label>日付を選択</label>
-        <div className="select-grid">
-          {dates.map((d) => (
-            <button
-              key={d.value}
-              className={selectedDate === d.value ? 'selected' : ''}
-              onClick={() => handleDateSelect(d.value)}
-            >
-              {d.label}
-            </button>
-          ))}
-        </div>
+      {/* 日付チップ（横スクロール） */}
+      <div className="date-scroll">
+        {dates.map((d) => (
+          <button
+            key={d.value}
+            className={`date-chip ${selectedDate === d.value ? 'selected' : ''}`}
+            onClick={() => handleDateSelect(d.value)}
+          >
+            {d.label}
+          </button>
+        ))}
       </div>
 
-      {loading && <div className="loading" style={{ height: 'auto', padding: '2rem' }}>読み込み中...</div>}
+      {/* ローディング */}
+      {loading && (
+        <div className="splash" style={{ height: 'auto', padding: '2.5rem 0' }}>
+          <div className="spinner" />
+        </div>
+      )}
 
-      {slotMap && (
-        <div>
-          {TIME_SLOT_ORDER.filter((ts) => slotMap[ts]?.length).map((ts) => (
-            <div key={ts} style={{ marginBottom: '1rem' }}>
-              <div style={{ fontWeight: 600, fontSize: '0.875rem', color: '#555', marginBottom: '0.4rem' }}>
-                🕐 {ts}
+      {/* 結果 */}
+      {slotMap && !loading && (
+        activeSlots.length === 0
+          ? (
+            <div className="empty-state">
+              <span className="empty-icon">📭</span>
+              <span className="empty-text">この日の登録はまだありません</span>
+            </div>
+          )
+          : activeSlots.map((ts) => (
+            <div key={ts} className="time-section">
+              <div className="time-header">
+                <span>🕐</span>
+                <span>{ts}</span>
+                <span style={{ marginLeft: 'auto', color: 'var(--text-pale)', fontWeight: 400 }}>
+                  {slotMap[ts].length}件
+                </span>
               </div>
-              {slotMap[ts].map((r, i) => (
-                <div key={i} className="reservation-card" style={{ marginBottom: '0.4rem', padding: '0.6rem 1rem' }}>
-                  <div className="band-name" style={{ fontSize: '0.9rem' }}>
-                    {r.status === 'confirmed' ? `${i + 1}. ` : '・'}{r.bandName}
-                  </div>
+              {slotMap[ts].map((entry, i) => (
+                <div key={i} className="slot-item">
+                  {entry.status === 'confirmed'
+                    ? <div className="slot-rank">{i + 1}</div>
+                    : <div className="slot-dot" />
+                  }
+                  <span className="slot-name">{entry.bandName}</span>
                 </div>
               ))}
             </div>
-          ))}
-          {TIME_SLOT_ORDER.every((ts) => !slotMap[ts]?.length) && (
-            <div className="empty-state">この日の登録はまだありません</div>
-          )}
+          ))
+      )}
+
+      {/* 日付未選択 */}
+      {!selectedDate && !loading && (
+        <div className="empty-state">
+          <span className="empty-icon">📅</span>
+          <span className="empty-text">日付を選択してください</span>
         </div>
       )}
     </div>
