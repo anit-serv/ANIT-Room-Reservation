@@ -30,6 +30,10 @@ body {
 }
 
 #root {
+  min-height: 100dvh;
+}
+
+.liff-shell {
   max-width: 480px;
   margin: 0 auto;
   min-height: 100dvh;
@@ -490,6 +494,177 @@ body {
   color: var(--red);
   border: 1px solid rgba(229,62,62,.3);
 }
+
+/* ── 管理画面（デスクトップレイアウト） ──────────── */
+.admin-shell {
+  display: flex;
+  min-height: 100dvh;
+}
+
+.admin-sidebar {
+  width: 240px;
+  background: var(--card);
+  border-right: 1px solid var(--border);
+  padding: 1.25rem 0.75rem;
+  display: flex;
+  flex-direction: column;
+  position: sticky;
+  top: 0;
+  height: 100dvh;
+}
+
+.admin-brand {
+  font-size: 1rem;
+  font-weight: 700;
+  padding: 0.5rem 0.75rem 1rem;
+  color: var(--text);
+}
+
+.admin-sidebar nav {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  flex: 1;
+}
+
+.admin-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.65rem 0.75rem;
+  border-radius: 8px;
+  color: var(--text-sub);
+  text-decoration: none;
+  font-size: 0.9rem;
+  font-weight: 500;
+  transition: background 0.15s, color 0.15s;
+}
+
+.admin-nav-item:hover {
+  background: var(--bg);
+  color: var(--text);
+}
+
+.admin-nav-item.active {
+  background: var(--green-light);
+  color: var(--green-dark);
+  font-weight: 600;
+}
+
+.admin-user {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.65rem 0.75rem;
+  font-size: 0.85rem;
+  color: var(--text-sub);
+  border-top: 1px solid var(--border);
+  margin-top: 0.5rem;
+}
+
+.admin-user-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-logout {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.65rem 0.75rem;
+  border-radius: 8px;
+  border: none;
+  background: none;
+  color: var(--text-sub);
+  cursor: pointer;
+  font-size: 0.9rem;
+  text-align: left;
+}
+
+.admin-logout:hover { background: var(--bg); color: var(--red); }
+
+.admin-main {
+  flex: 1;
+  padding: 2rem 2.5rem;
+  background: var(--bg);
+  overflow-x: auto;
+}
+
+.admin-page-title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin-bottom: 1.5rem;
+}
+
+@media (max-width: 768px) {
+  .admin-shell { flex-direction: column; }
+  .admin-sidebar {
+    width: 100%;
+    height: auto;
+    position: static;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    padding: 0.75rem;
+  }
+  .admin-sidebar nav { flex-direction: row; overflow-x: auto; }
+  .admin-nav-item { flex-shrink: 0; }
+  .admin-logout { display: none; }
+  .admin-main { padding: 1.25rem; }
+}
+
+/* ── 管理画面ログイン ─────────────────────────────── */
+.login-screen {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100dvh;
+  padding: 1rem;
+  background: var(--bg);
+}
+
+.login-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 2rem;
+  box-shadow: var(--shadow);
+  max-width: 360px;
+  width: 100%;
+}
+
+.login-title {
+  font-size: 1.3rem;
+  font-weight: 700;
+  margin-bottom: 0.5rem;
+  text-align: center;
+}
+
+.login-sub {
+  font-size: 0.9rem;
+  color: var(--text-sub);
+  text-align: center;
+  margin-bottom: 1.5rem;
+}
+
+.line-login-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.9rem;
+  background: var(--green);
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.line-login-btn:hover { background: var(--green-dark); }
 
 /* ── Material Symbols ────────────────────────────── */
 .icon {

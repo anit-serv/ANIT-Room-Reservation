@@ -1,0 +1,77 @@
+import { useEffect, useState } from 'react'
+import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { getAdminToken, clearAdminToken, adminFetch } from './auth'
+
+const NAV = [
+  { to: '/admin',              label: 'ダッシュボード', icon: 'dashboard',     end: true },
+  { to: '/admin/reservations', label: '予約管理',       icon: 'event_note' },
+  { to: '/admin/settings',     label: '設定',           icon: 'settings' },
+  { to: '/admin/users',        label: 'ユーザー',       icon: 'group' },
+  { to: '/admin/admins',       label: '管理者',         icon: 'shield_person' },
+]
+
+type AdminMe = { userId: string; displayName: string }
+
+export default function AdminLayout() {
+  const navigate = useNavigate()
+  const [me, setMe] = useState<AdminMe | null>(null)
+
+  useEffect(() => {
+    const token = getAdminToken()
+    if (!token) {
+      navigate('/admin/login', { replace: true })
+      return
+    }
+    adminFetch('/api/admin/auth/me')
+      .then(async (r) => {
+        if (!r.ok) {
+          clearAdminToken()
+          navigate('/admin/login', { replace: true })
+          return
+        }
+        setMe(await r.json())
+      })
+      .catch(() => {
+        clearAdminToken()
+        navigate('/admin/login', { replace: true })
+      })
+  }, [navigate])
+
+  function handleLogout() {
+    clearAdminToken()
+    navigate('/admin/login', { replace: true })
+  }
+
+  if (!me) return <div className="splash"><div className="spinner" /></div>
+
+  return (
+    <div className="admin-shell">
+      <aside className="admin-sidebar">
+        <div className="admin-brand">部屋予約 管理</div>
+        <nav>
+          {NAV.map((n) => (
+            <NavLink
+              key={n.to}
+              to={n.to}
+              end={n.end}
+              className={({ isActive }) => 'admin-nav-item' + (isActive ? ' active' : '')}
+            >
+              <span className="icon">{n.icon}</span>
+              <span>{n.label}</span>
+            </NavLink>
+          ))}
+        </nav>
+        <div className="admin-user">
+          <span className="icon">account_circle</span>
+          <span className="admin-user-name">{me.displayName}</span>
+        </div>
+        <button className="admin-logout" onClick={handleLogout}>
+          <span className="icon">logout</span>ログアウト
+        </button>
+      </aside>
+      <main className="admin-main">
+        <Outlet />
+      </main>
+    </div>
+  )
+}

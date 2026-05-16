@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import type { LiffProfile } from '../App'
+import type { LiffProfile } from '../LiffApp'
 
 type Props = { profile: LiffProfile }
 

@@ -45,7 +45,7 @@ function App() {
   )
 
   return (
-    <>
+    <div className="liff-shell">
       <nav className="tab-bar">
         {TABS.map(({ id, icon, label }) => (
           <button
@@ -63,7 +63,7 @@ function App() {
         {activeTab === 'my'       && <MyReservations  profile={profile} />}
         {activeTab === 'all'      && <AllReservations />}
       </main>
-    </>
+    </div>
   )
 }
 
