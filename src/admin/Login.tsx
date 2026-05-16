@@ -33,11 +33,12 @@ export default function Login() {
         <p className="login-sub">LINE アカウントでログインしてください</p>
         {error && (
           <div className="banner error" style={{ marginBottom: '1rem' }}>
-            {error === 'not_admin'
-              ? '管理者として登録されていません'
-              : error === 'invalid'
-                ? '認証に失敗しました'
-                : 'ログインに失敗しました'}
+            {error === 'not_admin'           ? '管理者として登録されていません'
+            : error === 'invitation_expired' ? '招待リンクの有効期限が切れています'
+            : error === 'invitation_used'    ? 'この招待リンクは既に使用されています'
+            : error === 'invalid_invitation' ? '無効な招待リンクです'
+            : error === 'invalid'            ? '認証に失敗しました'
+            : 'ログインに失敗しました'}
           </div>
         )}
         <button className="line-login-btn" onClick={handleLogin}>

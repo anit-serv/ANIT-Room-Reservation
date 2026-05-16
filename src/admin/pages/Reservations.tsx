@@ -1,8 +1,236 @@
+import { useEffect, useState, useCallback } from 'react'
+import { adminFetch } from '../auth'
+
+type Reservation = {
+  id: string
+  userId: string
+  bandName: string
+  date: string
+  status: 'pending' | 'confirmed'
+  order?: number
+  createdAt: number | null
+}
+
 export default function Reservations() {
+  const [reservations, setReservations] = useState<Reservation[]>([])
+  const [loading, setLoading]           = useState(true)
+  const [error, setError]               = useState<string | null>(null)
+  const [dateFilter, setDateFilter]     = useState('')
+  const [statusFilter, setStatusFilter] = useState<'' | 'pending' | 'confirmed'>('')
+  const [search, setSearch]             = useState('')
+  const [editing, setEditing]           = useState<Reservation | null>(null)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const params = new URLSearchParams()
+      if (dateFilter)   params.set('date', dateFilter)
+      if (statusFilter) params.set('status', statusFilter)
+      if (search)       params.set('q', search)
+      const res = await adminFetch(`/api/admin/reservations?${params}`)
+      if (!res.ok) throw new Error('取得に失敗しました')
+      const data = await res.json()
+      setReservations(data.reservations)
+    } catch (err: any) {
+      setError(err.message)
+    } finally {
+      setLoading(false)
+    }
+  }, [dateFilter, statusFilter, search])
+
+  useEffect(() => { load() }, [load])
+
+  async function handleDelete(r: Reservation) {
+    if (!confirm(`「${r.bandName}」(${r.date}) を削除しますか？\nこの操作は取り消せません。`)) return
+    const res = await adminFetch(`/api/admin/reservations/${r.id}`, { method: 'DELETE' })
+    if (res.ok) {
+      setReservations((prev) => prev.filter((x) => x.id !== r.id))
+    } else {
+      alert('削除に失敗しました')
+    }
+  }
+
   return (
     <div>
       <h1 className="admin-page-title">予約管理</h1>
-      <p style={{ color: 'var(--text-pale)' }}>準備中</p>
+
+      <div className="admin-card">
+        <div className="filter-row">
+          <input
+            type="date"
+            className="text-input"
+            value={dateFilter}
+            onChange={(e) => setDateFilter(e.target.value)}
+            style={{ width: 'auto' }}
+          />
+          <select
+            className="text-input"
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value as any)}
+            style={{ width: 'auto' }}
+          >
+            <option value="">全ステータス</option>
+            <option value="pending">抽選待ち</option>
+            <option value="confirmed">抽選確定</option>
+          </select>
+          <input
+            type="text"
+            className="text-input"
+            placeholder="バンド名で検索"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            style={{ flex: 1 }}
+          />
+          <button
+            className="btn-outline"
+            style={{ width: 'auto', padding: '0.5rem 0.8rem' }}
+            onClick={() => { setDateFilter(''); setStatusFilter(''); setSearch('') }}
+          >
+            クリア
+          </button>
+        </div>
+      </div>
+
+      {error && <div className="banner error" style={{ marginBottom: '1rem' }}>{error}</div>}
+      {loading ? (
+        <div className="splash" style={{ height: 'auto', padding: '3rem 0' }}>
+          <div className="spinner" />
+        </div>
+      ) : reservations.length === 0 ? (
+        <div className="empty-state">
+          <span className="icon icon-xl" style={{ color: 'var(--text-pale)' }}>event_busy</span>
+          <span className="empty-text">該当する予約がありません</span>
+        </div>
+      ) : (
+        <div className="admin-card" style={{ padding: 0, overflow: 'hidden' }}>
+          <table className="admin-table">
+            <thead>
+              <tr>
+                <th>日時</th>
+                <th>バンド名</th>
+                <th>ステータス</th>
+                <th>順位</th>
+                <th style={{ width: '120px' }}>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {reservations.map((r) => {
+                const [datePart, timePart] = r.date.split('T')
+                return (
+                  <tr key={r.id}>
+                    <td>
+                      <div>{datePart}</div>
+                      <div style={{ fontSize: '0.8rem', color: 'var(--text-sub)' }}>{timePart}</div>
+                    </td>
+                    <td>{r.bandName}</td>
+                    <td>
+                      <span className={`badge ${r.status}`}>
+                        <span className="icon icon-sm">
+                          {r.status === 'confirmed' ? 'check_circle' : 'hourglass_empty'}
+                        </span>
+                        {r.status === 'confirmed' ? '確定' : '抽選待ち'}
+                      </span>
+                    </td>
+                    <td>{r.order ?? '-'}</td>
+                    <td>
+                      <div style={{ display: 'flex', gap: '0.4rem' }}>
+                        <button className="btn-icon" onClick={() => setEditing(r)}>
+                          <span className="icon">edit</span>
+                        </button>
+                        <button className="btn-icon" onClick={() => handleDelete(r)}>
+                          <span className="icon">delete</span>
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {editing && (
+        <EditModal
+          reservation={editing}
+          onClose={() => setEditing(null)}
+          onSaved={() => { setEditing(null); load() }}
+        />
+      )}
+    </div>
+  )
+}
+
+function EditModal({
+  reservation, onClose, onSaved,
+}: {
+  reservation: Reservation
+  onClose: () => void
+  onSaved: () => void
+}) {
+  const [bandName, setBandName] = useState(reservation.bandName)
+  const [datePart, timePart] = reservation.date.split('T')
+  const [date, setDate] = useState(datePart)
+  const [time, setTime] = useState(timePart)
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  async function save() {
+    setSaving(true)
+    setErr(null)
+    try {
+      const res = await adminFetch(`/api/admin/reservations/${reservation.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bandName, date: `${date}T${time}` }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error ?? '保存に失敗しました')
+      onSaved()
+    } catch (e: any) {
+      setErr(e.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+        <h2 className="admin-card-title">予約を編集</h2>
+        {err && <div className="banner error" style={{ marginBottom: '0.75rem' }}>{err}</div>}
+        <div className="form-row">
+          <label>バンド名</label>
+          <input
+            className="text-input"
+            value={bandName}
+            onChange={(e) => setBandName(e.target.value)}
+          />
+        </div>
+        <div className="form-row">
+          <label>日付</label>
+          <input
+            type="date"
+            className="text-input"
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+          />
+        </div>
+        <div className="form-row">
+          <label>時間帯 (例: 09:00-10:00)</label>
+          <input
+            className="text-input"
+            value={time}
+            onChange={(e) => setTime(e.target.value)}
+          />
+        </div>
+        <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
+          <button className="btn-outline" style={{ flex: 1 }} onClick={onClose}>キャンセル</button>
+          <button className="btn-primary" style={{ flex: 1 }} onClick={save} disabled={saving}>
+            {saving ? '保存中...' : '保存'}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }

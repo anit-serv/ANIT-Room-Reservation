@@ -38,8 +38,17 @@ async function handleCreate(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method Not Allowed' })
   try {
     const userId = await verifyLineToken(req.headers.authorization)
-    const { bandName, date } = req.body as { bandName: string; date: string }
+    const { bandName, date, displayName, pictureUrl } = req.body as {
+      bandName: string; date: string; displayName?: string; pictureUrl?: string
+    }
     if (!bandName || !date) return res.status(400).json({ error: 'bandName と date は必須です' })
+
+    // BAN チェック
+    const userRef = db.collection('users').doc(userId)
+    const userDoc = await userRef.get()
+    if (userDoc.exists && userDoc.data()?.banned === true) {
+      return res.status(403).json({ error: '予約機能の利用が停止されています' })
+    }
 
     // 抽選時間中（20:50〜21:00）は今日・翌日の登録不可
     const nowJST = new Date(Date.now() + 9 * 60 * 60 * 1000)
@@ -56,6 +65,13 @@ async function handleCreate(req: VercelRequest, res: VercelResponse) {
         return res.status(400).json({ error: '抽選時間中のため本日・翌日の登録はできません' })
       }
     }
+
+    // ユーザー情報を保存/更新
+    const userUpdate: Record<string, any> = { lastReservedAt: new Date() }
+    if (displayName) userUpdate.displayName = displayName
+    if (pictureUrl)  userUpdate.pictureUrl  = pictureUrl
+    if (!userDoc.exists) userUpdate.banned = false
+    await userRef.set(userUpdate, { merge: true })
 
     await db.collection('reservations').add({
       userId,

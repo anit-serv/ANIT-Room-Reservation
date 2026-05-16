@@ -9,6 +9,7 @@ type Tab = 'register' | 'my' | 'all'
 export type LiffProfile = {
   userId: string
   displayName: string
+  pictureUrl?: string
   idToken: string
 }
 
@@ -31,7 +32,12 @@ function App() {
         const lineProfile = await liff.getProfile()
         const idToken = liff.getIDToken()
         if (!idToken) throw new Error('IDトークンの取得に失敗しました')
-        setProfile({ userId: lineProfile.userId, displayName: lineProfile.displayName, idToken })
+        setProfile({
+          userId: lineProfile.userId,
+          displayName: lineProfile.displayName,
+          pictureUrl: lineProfile.pictureUrl,
+          idToken,
+        })
       })
       .catch((err: Error) => setError(err.message))
   }, [])
