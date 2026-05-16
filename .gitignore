@@ -1,4 +1,5 @@
 node_modules
+dist
 .env
 
 anit-room-reservation-firebase-adminsdk-*.json
