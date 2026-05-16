@@ -31,10 +31,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const path = (req.query._path as string) ?? ''
 
   switch (path) {
-    case 'auth/start':    return handleAuthStart(req, res)
-    case 'auth/callback': return handleAuthCallback(req, res)
-    case 'auth/me':       return handleAuthMe(req, res)
-    default:              return res.status(404).json({ error: 'Not Found' })
+    case 'auth/start':         return handleAuthStart(req, res)
+    case 'auth/callback':      return handleAuthCallback(req, res)
+    case 'auth/me':            return handleAuthMe(req, res)
+    case 'settings':           return handleSettings(req, res)
+    case 'settings/scheduled': return handleSettingsScheduled(req, res)
+    default:                   return res.status(404).json({ error: 'Not Found' })
   }
 }
 
@@ -117,4 +119,97 @@ async function handleAuthMe(req: VercelRequest, res: VercelResponse) {
     const status = err.message === 'Forbidden' ? 403 : 401
     return res.status(status).json({ error: err.message })
   }
+}
+
+// ─── 設定の取得・更新 ─────────────────────────────────
+type TimeSlot = { label: string; value: string }
+type Settings = {
+  availableDays: number[]
+  timeSlots: TimeSlot[]
+  nextChange?: { availableDays: number[]; timeSlots: TimeSlot[]; effectiveFrom: string }
+}
+
+function todayJST(): string {
+  return new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10)
+}
+
+function isValidDate(s: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) && !isNaN(Date.parse(s))
+}
+
+function validateSettings(body: any): { availableDays: number[]; timeSlots: TimeSlot[] } | null {
+  if (!body) return null
+  const { availableDays, timeSlots } = body
+  if (!Array.isArray(availableDays)) return null
+  if (!availableDays.every((d) => Number.isInteger(d) && d >= 0 && d <= 6)) return null
+  if (!Array.isArray(timeSlots) || timeSlots.length === 0) return null
+  if (!timeSlots.every((t) => t && typeof t.label === 'string' && typeof t.value === 'string')) return null
+  const values = timeSlots.map((t) => t.value)
+  if (new Set(values).size !== values.length) return null  // 重複チェック
+  return { availableDays, timeSlots }
+}
+
+async function handleSettings(req: VercelRequest, res: VercelResponse) {
+  try {
+    await verifyAdmin(req.headers.authorization)
+  } catch (err: any) {
+    const status = err.message === 'Forbidden' ? 403 : 401
+    return res.status(status).json({ error: err.message })
+  }
+
+  const docRef = db.collection('settings').doc('reservation')
+
+  if (req.method === 'GET') {
+    const doc = await docRef.get()
+    const data = (doc.exists ? doc.data() : {}) as Settings
+    return res.status(200).json({
+      availableDays: data.availableDays ?? [3, 4, 6],
+      timeSlots: data.timeSlots ?? [],
+      nextChange: data.nextChange ?? null,
+    })
+  }
+
+  if (req.method === 'PUT') {
+    const validated = validateSettings(req.body)
+    if (!validated) return res.status(400).json({ error: '不正なリクエストです' })
+
+    const { effectiveFrom, applyNow } = (req.body ?? {}) as { effectiveFrom?: string; applyNow?: boolean }
+    const today = todayJST()
+
+    // 即時適用、または effectiveFrom が今日以前の場合
+    if (applyNow || !effectiveFrom || effectiveFrom <= today) {
+      await docRef.set({
+        availableDays: validated.availableDays,
+        timeSlots: validated.timeSlots,
+        nextChange: admin.firestore.FieldValue.delete(),
+      }, { merge: true })
+      return res.status(200).json({ applied: 'now' })
+    }
+
+    // 未来日付として予約
+    if (!isValidDate(effectiveFrom)) {
+      return res.status(400).json({ error: '不正な日付形式です' })
+    }
+    await docRef.set({
+      nextChange: { ...validated, effectiveFrom },
+    }, { merge: true })
+    return res.status(200).json({ applied: 'scheduled', effectiveFrom })
+  }
+
+  return res.status(405).json({ error: 'Method Not Allowed' })
+}
+
+// ─── 予約済みの設定変更をキャンセル ────────────────────
+async function handleSettingsScheduled(req: VercelRequest, res: VercelResponse) {
+  if (req.method !== 'DELETE') return res.status(405).json({ error: 'Method Not Allowed' })
+  try {
+    await verifyAdmin(req.headers.authorization)
+  } catch (err: any) {
+    const status = err.message === 'Forbidden' ? 403 : 401
+    return res.status(status).json({ error: err.message })
+  }
+  await db.collection('settings').doc('reservation').set({
+    nextChange: admin.firestore.FieldValue.delete(),
+  }, { merge: true })
+  return res.status(200).json({ success: true })
 }

@@ -54,12 +54,32 @@ function buildDateList(availableDays: number[], forView: boolean): { label: stri
   return results
 }
 
+function todayJST(): string {
+  return new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10)
+}
+
 export default async function handler(_req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*')
 
   try {
-    const doc = await db.collection('settings').doc('reservation').get()
-    const data = doc.exists ? doc.data()! : {}
+    const docRef = db.collection('settings').doc('reservation')
+    let doc = await docRef.get()
+    let data = doc.exists ? doc.data()! : {}
+
+    // 予約済み設定変更が今日以前なら即座に適用
+    const nextChange = data.nextChange
+    if (nextChange && nextChange.effectiveFrom && nextChange.effectiveFrom <= todayJST()) {
+      await docRef.set({
+        availableDays: nextChange.availableDays,
+        timeSlots: nextChange.timeSlots,
+        nextChange: admin.firestore.FieldValue.delete(),
+      }, { merge: true })
+      data = {
+        availableDays: nextChange.availableDays,
+        timeSlots: nextChange.timeSlots,
+      }
+    }
+
     const availableDays: number[] = data.availableDays ?? DEFAULT_AVAILABLE_DAYS
     const timeSlots = data.timeSlots ?? DEFAULT_TIME_SLOTS
 

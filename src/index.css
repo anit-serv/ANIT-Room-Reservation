@@ -613,6 +613,111 @@ body {
   .admin-main { padding: 1.25rem; }
 }
 
+/* ── 管理画面 共通カード ──────────────────────────── */
+.admin-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.25rem;
+  margin-bottom: 1rem;
+  box-shadow: var(--shadow-sm);
+}
+
+.admin-card-title {
+  font-size: 1rem;
+  font-weight: 700;
+  margin-bottom: 0.75rem;
+  color: var(--text);
+}
+
+/* 曜日チップ */
+.day-grid {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.day-chip {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  background: #fafafa;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+  user-select: none;
+}
+
+.day-chip:hover { border-color: var(--green); }
+
+.day-chip input { display: none; }
+
+.day-chip.selected {
+  background: var(--green);
+  border-color: var(--green);
+  color: #fff;
+}
+
+/* 時間枠リスト */
+.slot-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.slot-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.btn-icon {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: #fff;
+  color: var(--text-pale);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.btn-icon:hover {
+  color: var(--red);
+  border-color: var(--red);
+  background: var(--red-light);
+}
+
+/* ラジオリスト */
+.radio-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.radio-item {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  cursor: pointer;
+  font-size: 0.95rem;
+}
+
+.radio-item input[type="radio"] {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  accent-color: var(--green);
+}
+
 /* ── 管理画面ログイン ─────────────────────────────── */
 .login-screen {
   display: flex;
