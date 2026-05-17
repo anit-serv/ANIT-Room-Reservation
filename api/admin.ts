@@ -1030,6 +1030,23 @@ async function handleReservationById(req: VercelRequest, res: VercelResponse, id
     if (Object.keys(update).length === 0) {
       return res.status(400).json({ error: '更新項目がありません' })
     }
+
+    // 編集後の bandName と date を確定し、同日同名の重複チェック（自分自身は除外）
+    const finalBandName = (update.bandName ?? before.bandName) as string
+    const finalDate     = (update.date     ?? before.date)     as string
+    const finalDateOnly = finalDate.split('T')[0]
+    const dupSnap = await db.collection('reservations')
+      .where('bandName', '==', finalBandName)
+      .where('date', '>=', `${finalDateOnly}T00:00`)
+      .where('date', '<=', `${finalDateOnly}T23:59`)
+      .get()
+    const conflict = dupSnap.docs.find((d) => d.id !== id)
+    if (conflict) {
+      return res.status(400).json({
+        error: `${finalDateOnly} には「${finalBandName}」が既に登録されています`,
+      })
+    }
+
     await docRef.update(update)
     await audit(me, 'reservation.update', {
       targetType: 'reservation', targetId: id, targetLabel: before.bandName,

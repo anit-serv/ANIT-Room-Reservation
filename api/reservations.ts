@@ -71,6 +71,20 @@ async function handleCreate(req: VercelRequest, res: VercelResponse) {
       return res.status(403).json({ error: '予約機能の利用が停止されています' })
     }
 
+    // 同日に同名バンドが既に登録されていないかチェック
+    const trimmedBandName = bandName.trim()
+    const dateOnly = date.split('T')[0]
+    const dupSnap = await db.collection('reservations')
+      .where('bandName', '==', trimmedBandName)
+      .where('date', '>=', `${dateOnly}T00:00`)
+      .where('date', '<=', `${dateOnly}T23:59`)
+      .get()
+    if (!dupSnap.empty) {
+      return res.status(400).json({
+        error: `${dateOnly} には「${trimmedBandName}」が既に登録されています（時間枠が違っても同名のバンドは1日1回まで）`,
+      })
+    }
+
     // 抽選時間中（20:50〜21:00）は今日・翌日の登録不可
     const nowJST = new Date(Date.now() + 9 * 60 * 60 * 1000)
     const h = nowJST.getUTCHours()
