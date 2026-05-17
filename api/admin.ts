@@ -160,6 +160,19 @@ async function handleAuthCallback(req: VercelRequest, res: VercelResponse) {
       { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
     )
     const userId: string = verifyRes.data.sub
+    const lineName: string | undefined = verifyRes.data.name
+    const linePicture: string | undefined = verifyRes.data.picture
+
+    // users コレクションにも同期（管理者ログイン時）
+    if (lineName || linePicture) {
+      const userRef = db.collection('users').doc(userId)
+      const userDoc = await userRef.get()
+      const update: Record<string, any> = {}
+      if (lineName)    update.displayName = lineName
+      if (linePicture) update.pictureUrl  = linePicture
+      if (!userDoc.exists) update.banned = false
+      await userRef.set(update, { merge: true })
+    }
 
     // 招待トークンがあれば管理者として登録
     const invitationToken = cookies.admin_invitation

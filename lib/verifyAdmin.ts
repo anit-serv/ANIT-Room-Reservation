@@ -13,7 +13,7 @@ export type AdminInfo = {
  * 未登録または検証失敗時は Error を throw。
  */
 export async function verifyAdmin(authHeader: string | undefined): Promise<AdminInfo> {
-  const userId = await verifyLineToken(authHeader)
+  const { userId } = await verifyLineToken(authHeader)
   const db = admin.firestore()
   const doc = await db.collection('admins').doc(userId).get()
   if (!doc.exists) {

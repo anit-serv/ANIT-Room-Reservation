@@ -1,6 +1,12 @@
 import axios from 'axios'
 
-export async function verifyLineToken(authHeader: string | undefined): Promise<string> {
+export type LineTokenInfo = {
+  userId: string
+  name?: string
+  picture?: string
+}
+
+export async function verifyLineToken(authHeader: string | undefined): Promise<LineTokenInfo> {
   if (!authHeader?.startsWith('Bearer ')) {
     throw new Error('Unauthorized')
   }
@@ -17,5 +23,9 @@ export async function verifyLineToken(authHeader: string | undefined): Promise<s
     { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
   )
 
-  return res.data.sub as string // LINE userId
+  return {
+    userId: res.data.sub as string,
+    name: res.data.name as string | undefined,
+    picture: res.data.picture as string | undefined,
+  }
 }

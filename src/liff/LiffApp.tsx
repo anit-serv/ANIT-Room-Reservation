@@ -39,6 +39,11 @@ function App() {
           pictureUrl: lineProfile.pictureUrl,
           idToken,
         })
+        // ユーザー情報を users コレクションに同期（失敗しても無視）
+        fetch('/api/reservations/sync', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${idToken}` },
+        }).catch(() => {})
       })
       .catch((err: Error) => setError(err.message))
   }, [])

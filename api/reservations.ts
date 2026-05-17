@@ -23,6 +23,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const path = (req.query._path as string) ?? ''
 
+  // /api/reservations/sync - LIFF 起動時にユーザー情報を同期
+  if (path === 'sync') return handleSync(req, res)
   // /api/reservations/my
   if (path === 'my')  return handleMy(req, res)
   // /api/reservations/all
@@ -33,14 +35,33 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   return handleCreate(req, res)
 }
 
+// ─── ユーザー情報の同期 ───────────────────────────────
+async function handleSync(req: VercelRequest, res: VercelResponse) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method Not Allowed' })
+  try {
+    const { userId, name, picture } = await verifyLineToken(req.headers.authorization)
+    const userRef = db.collection('users').doc(userId)
+    const userDoc = await userRef.get()
+    const update: Record<string, any> = {}
+    if (name)    update.displayName = name
+    if (picture) update.pictureUrl  = picture
+    if (!userDoc.exists) update.banned = false
+    if (Object.keys(update).length > 0) {
+      await userRef.set(update, { merge: true })
+    }
+    return res.status(200).json({ success: true })
+  } catch (err: any) {
+    const status = err.message === 'Unauthorized' ? 401 : 500
+    return res.status(status).json({ error: err.message })
+  }
+}
+
 // ─── 新規予約 ─────────────────────────────────────────
 async function handleCreate(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method Not Allowed' })
   try {
-    const userId = await verifyLineToken(req.headers.authorization)
-    const { bandName, date, displayName, pictureUrl } = req.body as {
-      bandName: string; date: string; displayName?: string; pictureUrl?: string
-    }
+    const { userId, name, picture } = await verifyLineToken(req.headers.authorization)
+    const { bandName, date } = req.body as { bandName: string; date: string }
     if (!bandName || !date) return res.status(400).json({ error: 'bandName と date は必須です' })
 
     // BAN チェック
@@ -66,10 +87,10 @@ async function handleCreate(req: VercelRequest, res: VercelResponse) {
       }
     }
 
-    // ユーザー情報を保存/更新
+    // ユーザー情報を更新（lastReservedAt とトークン由来の最新プロフィール）
     const userUpdate: Record<string, any> = { lastReservedAt: new Date() }
-    if (displayName) userUpdate.displayName = displayName
-    if (pictureUrl)  userUpdate.pictureUrl  = pictureUrl
+    if (name)    userUpdate.displayName = name
+    if (picture) userUpdate.pictureUrl  = picture
     if (!userDoc.exists) userUpdate.banned = false
     await userRef.set(userUpdate, { merge: true })
 
@@ -91,7 +112,7 @@ async function handleCreate(req: VercelRequest, res: VercelResponse) {
 async function handleMy(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method Not Allowed' })
   try {
-    const userId = await verifyLineToken(req.headers.authorization)
+    const { userId } = await verifyLineToken(req.headers.authorization)
     const nowJST = new Date(Date.now() + 9 * 60 * 60 * 1000)
     const todayStr = nowJST.toISOString().slice(0, 10)
     const snapshot = await db.collection('reservations').where('userId', '==', userId).get()
@@ -149,7 +170,7 @@ async function handleAll(req: VercelRequest, res: VercelResponse) {
 async function handleById(req: VercelRequest, res: VercelResponse, docId: string) {
   if (req.method !== 'DELETE') return res.status(405).json({ error: 'Method Not Allowed' })
   try {
-    const userId = await verifyLineToken(req.headers.authorization)
+    const { userId } = await verifyLineToken(req.headers.authorization)
     const docRef = db.collection('reservations').doc(docId)
     const doc = await docRef.get()
     if (!doc.exists) return res.status(404).json({ error: '予約が見つかりません' })

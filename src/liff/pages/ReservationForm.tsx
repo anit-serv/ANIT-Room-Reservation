@@ -52,8 +52,6 @@ export default function ReservationForm({ profile }: Props) {
         body: JSON.stringify({
           bandName: bandName.trim(),
           date: `${selectedDate}T${selectedTime}`,
-          displayName: profile.displayName,
-          pictureUrl: profile.pictureUrl,
         }),
       })
       if (!res.ok) throw new Error((await res.json()).error ?? '登録に失敗しました')
