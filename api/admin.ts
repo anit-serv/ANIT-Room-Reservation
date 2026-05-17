@@ -96,6 +96,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
   if (path === 'invite') return handleInviteAccept(req, res)
 
+  // 時間枠プリセット
+  if (segments[0] === 'time-slot-presets') {
+    if (segments.length === 1) return handleTimeSlotPresets(req, res)
+    if (segments.length === 2) return handleTimeSlotPresetById(req, res, segments[1])
+  }
+
   // 監査ログ
   if (path === 'logs') return handleLogs(req, res)
 
@@ -654,6 +660,65 @@ async function handleInvitationById(req: VercelRequest, res: VercelResponse, tok
   }
   await db.collection('invitations').doc(token).delete()
   await audit(me, 'invitation.revoke', { targetType: 'invitation', targetId: token })
+  return res.status(200).json({ success: true })
+}
+
+// ─── 時間枠プリセット ─────────────────────────────────
+async function handleTimeSlotPresets(req: VercelRequest, res: VercelResponse) {
+  let me: AuditActor
+  try {
+    me = await verifyAdmin(req.headers.authorization)
+  } catch (err: any) {
+    const status = err.message === 'Forbidden' ? 403 : 401
+    return res.status(status).json({ error: err.message })
+  }
+
+  if (req.method === 'GET') {
+    const snapshot = await db.collection('timeSlotPresets').orderBy('createdAt', 'desc').get()
+    const presets = snapshot.docs.map((d) => {
+      const data = d.data()
+      return {
+        id: d.id,
+        name: data.name,
+        timeSlots: data.timeSlots,
+        createdAt: data.createdAt?.toMillis?.() ?? null,
+      }
+    })
+    return res.status(200).json({ presets })
+  }
+
+  if (req.method === 'POST') {
+    const { name, timeSlots } = (req.body ?? {}) as { name?: string; timeSlots?: any }
+    if (!name || !name.trim()) return res.status(400).json({ error: '名前を入力してください' })
+    const validated = validateTimeSlots(timeSlots, 'プリセットの')
+    if (typeof validated === 'string') return res.status(400).json({ error: validated })
+
+    const docRef = await db.collection('timeSlotPresets').add({
+      name: name.trim(),
+      timeSlots: validated,
+      createdAt: new Date(),
+      createdBy: me.userId,
+    })
+    await audit(me, 'preset.create', { targetType: 'preset', targetId: docRef.id, targetLabel: name.trim() })
+    return res.status(201).json({ id: docRef.id })
+  }
+
+  return res.status(405).json({ error: 'Method Not Allowed' })
+}
+
+async function handleTimeSlotPresetById(req: VercelRequest, res: VercelResponse, id: string) {
+  if (req.method !== 'DELETE') return res.status(405).json({ error: 'Method Not Allowed' })
+  let me: AuditActor
+  try {
+    me = await verifyAdmin(req.headers.authorization)
+  } catch (err: any) {
+    const status = err.message === 'Forbidden' ? 403 : 401
+    return res.status(status).json({ error: err.message })
+  }
+  const doc = await db.collection('timeSlotPresets').doc(id).get()
+  const label = doc.exists ? (doc.data()?.name ?? '') : ''
+  await db.collection('timeSlotPresets').doc(id).delete()
+  await audit(me, 'preset.delete', { targetType: 'preset', targetId: id, targetLabel: label })
   return res.status(200).json({ success: true })
 }
 

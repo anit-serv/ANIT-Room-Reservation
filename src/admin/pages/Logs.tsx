@@ -27,6 +27,8 @@ const ACTION_LABELS: Record<string, { label: string; icon: string; color: string
   'admin.super.transfer':    { label: 'スーパー管理者移譲', icon: 'star',           color: '#b86200' },
   'invitation.create':       { label: '招待発行',          icon: 'add_link',       color: 'var(--green)' },
   'invitation.revoke':       { label: '招待取消',          icon: 'link_off',       color: 'var(--text-sub)' },
+  'preset.create':           { label: 'プリセット作成',    icon: 'bookmark_add',   color: 'var(--green)' },
+  'preset.delete':           { label: 'プリセット削除',    icon: 'bookmark_remove', color: 'var(--red)' },
 }
 
 const ACTION_OPTIONS = Object.keys(ACTION_LABELS)

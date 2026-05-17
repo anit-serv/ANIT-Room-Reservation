@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import TimeSlotsEditor, { type TimeSlot, findConflicts } from './TimeSlotsEditor'
+import TimeSlotsEditor, { type TimeSlot, type TimeSlotPreset, findConflicts } from './TimeSlotsEditor'
 
 const WEEK_DAYS = ['日', '月', '火', '水', '木', '金', '土']
 
@@ -14,6 +14,9 @@ type Props = {
   onChange: (s: PerDaySchedule) => void
   availableDays: number[]   // 通常曜日
   extraDates: string[]       // 追加日（オーバーライド対象候補）
+  presets?: TimeSlotPreset[]
+  onSavePreset?: (name: string, slots: TimeSlot[]) => Promise<void> | void
+  onDeletePreset?: (id: string) => Promise<void> | void
 }
 
 export function findAllConflicts(s: PerDaySchedule): boolean {
@@ -28,7 +31,9 @@ export function findAllConflicts(s: PerDaySchedule): boolean {
   return false
 }
 
-export default function PerDayScheduleEditor({ schedule, onChange, availableDays, extraDates }: Props) {
+export default function PerDayScheduleEditor({
+  schedule, onChange, availableDays, extraDates, presets, onSavePreset, onDeletePreset,
+}: Props) {
   const [pickWeekday, setPickWeekday] = useState<string>('')
   const [pickDate, setPickDate]       = useState<string>('')
 
@@ -101,7 +106,8 @@ export default function PerDayScheduleEditor({ schedule, onChange, availableDays
                     <span className="icon">delete</span>
                   </button>
                 </div>
-                <TimeSlotsEditor slots={slots} onChange={(s) => updateWeekday(day, s)} />
+                <TimeSlotsEditor slots={slots} onChange={(s) => updateWeekday(day, s)}
+                  presets={presets} onSavePreset={onSavePreset} onDeletePreset={onDeletePreset} />
               </div>
             ))}
             {weekdayOptions.length > 0 && (
@@ -135,7 +141,8 @@ export default function PerDayScheduleEditor({ schedule, onChange, availableDays
                     <span className="icon">delete</span>
                   </button>
                 </div>
-                <TimeSlotsEditor slots={slots} onChange={(s) => updateDate(date, s)} />
+                <TimeSlotsEditor slots={slots} onChange={(s) => updateDate(date, s)}
+                  presets={presets} onSavePreset={onSavePreset} onDeletePreset={onDeletePreset} />
               </div>
             ))}
             {dateOptions.length > 0 ? (

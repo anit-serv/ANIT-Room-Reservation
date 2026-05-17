@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { adminFetch } from '../auth'
-import TimeSlotsEditor, { findConflicts, toMinutes, type TimeSlot } from '../components/TimeSlotsEditor'
+import TimeSlotsEditor, { findConflicts, toMinutes, type TimeSlot, type TimeSlotPreset } from '../components/TimeSlotsEditor'
 import DateListEditor from '../components/DateListEditor'
 import PerDayScheduleEditor, { findAllConflicts, type PerDaySchedule } from '../components/PerDayScheduleEditor'
 import Skeleton from '../../components/Skeleton'
@@ -46,8 +46,35 @@ export default function Settings() {
   const [editingScheduled, setEditingScheduled] = useState(false)
   const [saving, setSaving]               = useState(false)
   const [message, setMessage]             = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [presets, setPresets]             = useState<TimeSlotPreset[]>([])
 
-  useEffect(() => { load() }, [])
+  useEffect(() => { load(); loadPresets() }, [])
+
+  async function loadPresets() {
+    try {
+      const res = await adminFetch('/api/admin/time-slot-presets')
+      if (res.ok) setPresets((await res.json()).presets ?? [])
+    } catch { /* ignore */ }
+  }
+
+  async function savePreset(name: string, slots: TimeSlot[]) {
+    const res = await adminFetch('/api/admin/time-slot-presets', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, timeSlots: slots }),
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      alert(err.error ?? 'プリセットの保存に失敗しました')
+      return
+    }
+    await loadPresets()
+  }
+
+  async function deletePreset(id: string) {
+    const res = await adminFetch(`/api/admin/time-slot-presets/${id}`, { method: 'DELETE' })
+    if (res.ok) await loadPresets()
+  }
 
   // 日付が変わったときに min を更新し、effectiveFrom が古ければ繰り上げる
   useEffect(() => {
@@ -297,7 +324,14 @@ export default function Settings() {
         <p style={{ fontSize: '0.85rem', color: 'var(--text-sub)', marginBottom: '0.75rem' }}>
           全ての日で使用される基本の時間枠です。曜日や日付別に上書きする場合は下の設定で。
         </p>
-        <TimeSlotsEditor slots={timeSlots} onChange={setTimeSlots} conflictSet={defaultConflicts} />
+        <TimeSlotsEditor
+          slots={timeSlots}
+          onChange={setTimeSlots}
+          conflictSet={defaultConflicts}
+          presets={presets}
+          onSavePreset={savePreset}
+          onDeletePreset={deletePreset}
+        />
         {defaultConflicts.size > 0 && (
           <div style={{ marginTop: '0.5rem', color: 'var(--red)', fontSize: '0.85rem' }}>
             <span className="icon icon-sm" style={{ verticalAlign: 'middle' }}>warning</span>
@@ -314,6 +348,9 @@ export default function Settings() {
           onChange={setPerDaySchedule}
           availableDays={availableDays}
           extraDates={extraDates}
+          presets={presets}
+          onSavePreset={savePreset}
+          onDeletePreset={deletePreset}
         />
       </div>
 

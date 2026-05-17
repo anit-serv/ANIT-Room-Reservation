@@ -1104,6 +1104,85 @@ body {
   margin-bottom: 0.5rem;
 }
 
+/* ── プリセットUI ─────────────────────────────────── */
+.preset-bar {
+  position: relative;
+  display: inline-block;
+  margin-bottom: 0.5rem;
+}
+
+.preset-toggle {
+  width: auto;
+  padding: 0.35rem 0.7rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.85rem;
+  margin-top: 0;
+}
+
+.preset-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 240px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 6px 20px rgba(0,0,0,.1);
+  padding: 0.35rem;
+  z-index: 50;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.preset-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.55rem 0.6rem;
+  border-radius: 6px;
+  cursor: pointer;
+  border: none;
+  background: none;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  transition: background 0.15s;
+}
+
+.preset-item:hover:not(:disabled) { background: var(--bg); }
+.preset-item:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.preset-item-body { flex: 1; min-width: 0; }
+.preset-item-name { font-size: 0.9rem; font-weight: 500; }
+.preset-item-desc { font-size: 0.75rem; color: var(--text-pale); }
+
+.preset-item-delete {
+  color: var(--text-pale);
+  padding: 0.2rem;
+  border-radius: 4px;
+  display: inline-flex;
+}
+.preset-item-delete:hover { color: var(--red); background: var(--red-light); }
+
+.preset-item-add {
+  border-top: 1px solid var(--border);
+  margin-top: 0.25rem;
+  padding-top: 0.55rem;
+  color: var(--green);
+  font-weight: 600;
+}
+
+.preset-empty {
+  padding: 0.75rem 0.6rem;
+  font-size: 0.85rem;
+  color: var(--text-pale);
+  text-align: center;
+}
+
 /* ── 招待リンク結果 ───────────────────────────────── */
 .invite-result {
   margin-top: 0.75rem;
