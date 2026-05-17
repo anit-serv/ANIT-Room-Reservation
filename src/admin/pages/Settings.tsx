@@ -42,11 +42,32 @@ export default function Settings() {
   const [excludedDates, setExcludedDates] = useState<string[]>([])
   const [perDaySchedule, setPerDaySchedule] = useState<PerDaySchedule>(emptySchedule())
   const [effectiveFrom, setEffectiveFrom] = useState<string>(minEffectiveDate())
+  const [minDate, setMinDate]             = useState<string>(minEffectiveDate())
   const [editingScheduled, setEditingScheduled] = useState(false)
   const [saving, setSaving]               = useState(false)
   const [message, setMessage]             = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   useEffect(() => { load() }, [])
+
+  // 日付が変わったときに min を更新し、effectiveFrom が古ければ繰り上げる
+  useEffect(() => {
+    function refresh() {
+      const newMin = minEffectiveDate()
+      setMinDate((prev) => prev !== newMin ? newMin : prev)
+      setEffectiveFrom((prev) => prev < newMin ? newMin : prev)
+    }
+    // タブ復帰時
+    const visHandler = () => { if (document.visibilityState === 'visible') refresh() }
+    document.addEventListener('visibilitychange', visHandler)
+    window.addEventListener('focus', refresh)
+    // 1分ごとにも確認（日付跨ぎを検知）
+    const id = setInterval(refresh, 60_000)
+    return () => {
+      document.removeEventListener('visibilitychange', visHandler)
+      window.removeEventListener('focus', refresh)
+      clearInterval(id)
+    }
+  }, [])
 
   function applyToForm(s: SettingsCore) {
     setAvailableDays(s.availableDays)
@@ -118,8 +139,14 @@ export default function Settings() {
       setMessage({ type: 'error', text: '同じ日付が追加日と除外日の両方に指定されています' })
       return
     }
-    if (effectiveFrom < minEffectiveDate()) {
-      setMessage({ type: 'error', text: `適用日は${minEffectiveDate()}以降を指定してください` })
+    // 保存直前に min を再計算（日付跨ぎ対策）。古ければ自動繰り上げ
+    const currentMin = minEffectiveDate()
+    let finalEffective = effectiveFrom
+    if (finalEffective < currentMin) {
+      finalEffective = currentMin
+      setEffectiveFrom(currentMin)
+      setMinDate(currentMin)
+      setMessage({ type: 'error', text: `日付が変わったため適用日を ${currentMin} に繰り上げました。問題なければもう一度保存してください` })
       return
     }
 
@@ -127,7 +154,7 @@ export default function Settings() {
     try {
       const body = {
         availableDays, timeSlots, extraDates, excludedDates, perDaySchedule,
-        effectiveFrom,
+        effectiveFrom: finalEffective,
       }
       const res = await adminFetch('/api/admin/settings', {
         method: 'PUT',
@@ -295,14 +322,14 @@ export default function Settings() {
         <h2 className="admin-card-title">適用日</h2>
         <p style={{ fontSize: '0.85rem', color: 'var(--text-sub)', marginBottom: '0.75rem' }}>
           現在表示中の予約期間（今日含め7日間）との競合を避けるため、
-          <strong>{minEffectiveDate()}</strong> 以降の日付を指定してください。
+          <strong>{minDate}</strong> 以降の日付を指定してください。
         </p>
         <input
           type="date"
           className="text-input"
           style={{ width: 'auto' }}
           value={effectiveFrom}
-          min={minEffectiveDate()}
+          min={minDate}
           onChange={(e) => setEffectiveFrom(e.target.value)}
         />
       </div>
