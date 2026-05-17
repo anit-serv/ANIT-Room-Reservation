@@ -194,15 +194,42 @@ function isValidDate(s: string): boolean {
   return /^\d{4}-\d{2}-\d{2}$/.test(s) && !isNaN(Date.parse(s))
 }
 
-function validateSettings(body: any): { availableDays: number[]; timeSlots: TimeSlot[] } | null {
-  if (!body) return null
+function toMinutes(t: string): number {
+  const [h, m] = t.split(':').map(Number)
+  return h * 60 + m
+}
+
+function validateSettings(body: any): { availableDays: number[]; timeSlots: TimeSlot[] } | string {
+  if (!body) return '不正なリクエストです'
   const { availableDays, timeSlots } = body
-  if (!Array.isArray(availableDays)) return null
-  if (!availableDays.every((d) => Number.isInteger(d) && d >= 0 && d <= 6)) return null
-  if (!Array.isArray(timeSlots) || timeSlots.length === 0) return null
-  if (!timeSlots.every((t) => t && typeof t.label === 'string' && typeof t.value === 'string')) return null
-  const values = timeSlots.map((t) => t.value)
-  if (new Set(values).size !== values.length) return null  // 重複チェック
+  if (!Array.isArray(availableDays)) return '不正なリクエストです'
+  if (!availableDays.every((d) => Number.isInteger(d) && d >= 0 && d <= 6)) return '不正な曜日が含まれています'
+  if (!Array.isArray(timeSlots) || timeSlots.length === 0) return '時間枠が必要です'
+  if (!timeSlots.every((t) => t && typeof t.label === 'string' && typeof t.value === 'string')) {
+    return '時間枠の形式が不正です'
+  }
+
+  // 各 value は "HH:MM-HH:MM" 形式かチェック
+  const parsed: { start: number; end: number }[] = []
+  for (const t of timeSlots) {
+    const m = /^(\d{2}:\d{2})-(\d{2}:\d{2})$/.exec(t.value)
+    if (!m) return `時間枠の形式が不正です: ${t.value}`
+    const start = toMinutes(m[1])
+    const end = toMinutes(m[2])
+    if (start >= end) return `開始時刻は終了時刻より前にしてください: ${t.value}`
+    parsed.push({ start, end })
+  }
+
+  // 重複チェック（半開区間として）
+  for (let i = 0; i < parsed.length; i++) {
+    for (let j = i + 1; j < parsed.length; j++) {
+      const a = parsed[i], b = parsed[j]
+      if (a.start < b.end && b.start < a.end) {
+        return `時間枠が重複しています: ${timeSlots[i].value} と ${timeSlots[j].value}`
+      }
+    }
+  }
+
   return { availableDays, timeSlots }
 }
 
@@ -228,7 +255,7 @@ async function handleSettings(req: VercelRequest, res: VercelResponse) {
 
   if (req.method === 'PUT') {
     const validated = validateSettings(req.body)
-    if (!validated) return res.status(400).json({ error: '不正なリクエストです' })
+    if (typeof validated === 'string') return res.status(400).json({ error: validated })
 
     const { effectiveFrom, applyNow } = (req.body ?? {}) as { effectiveFrom?: string; applyNow?: boolean }
     const today = todayJST()

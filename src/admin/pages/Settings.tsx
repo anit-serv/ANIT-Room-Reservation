@@ -13,6 +13,33 @@ function valueToLabel(value: string): string {
   return `${fmt(s)}~${fmt(e)}`
 }
 
+// "HH:MM" → 分
+function toMinutes(t: string): number {
+  const [h, m] = t.split(':').map(Number)
+  return h * 60 + m
+}
+
+// 時間枠の重複チェック。境界一致（end == start）は許可
+function findOverlaps(slots: TimeSlot[]): { i: number; j: number }[] {
+  const ranges = slots.map((s) => {
+    const [start, end] = (s.value ?? '').split('-')
+    if (!start || !end) return null
+    return { start: toMinutes(start), end: toMinutes(end) }
+  })
+  const conflicts: { i: number; j: number }[] = []
+  for (let i = 0; i < ranges.length; i++) {
+    const a = ranges[i]
+    if (!a || a.end <= a.start) continue
+    for (let j = i + 1; j < ranges.length; j++) {
+      const b = ranges[j]
+      if (!b || b.end <= b.start) continue
+      // 半開区間 [start, end) として重なり判定
+      if (a.start < b.end && b.start < a.end) conflicts.push({ i, j })
+    }
+  }
+  return conflicts
+}
+
 type TimeSlot = { label: string; value: string }
 type NextChange = {
   availableDays: number[]
@@ -33,13 +60,14 @@ function todayJST(): string {
 }
 
 export default function Settings() {
-  const [current, setCurrent]           = useState<SettingsResponse | null>(null)
+  const [current, setCurrent]             = useState<SettingsResponse | null>(null)
   const [availableDays, setAvailableDays] = useState<number[]>([])
-  const [timeSlots, setTimeSlots]       = useState<TimeSlot[]>([])
-  const [applyMode, setApplyMode]       = useState<'now' | 'scheduled'>('now')
+  const [timeSlots, setTimeSlots]         = useState<TimeSlot[]>([])
+  const [applyMode, setApplyMode]         = useState<'now' | 'scheduled'>('now')
   const [effectiveFrom, setEffectiveFrom] = useState<string>(todayJST())
-  const [saving, setSaving]             = useState(false)
-  const [message, setMessage]           = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [editingScheduled, setEditingScheduled] = useState(false)
+  const [saving, setSaving]               = useState(false)
+  const [message, setMessage]             = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   useEffect(() => { load() }, [])
 
@@ -51,8 +79,30 @@ export default function Settings() {
     }
     const data = (await res.json()) as SettingsResponse
     setCurrent(data)
-    setAvailableDays(data.availableDays)
-    setTimeSlots(data.timeSlots)
+    // 編集中でなければフォームを現在値で初期化
+    if (!editingScheduled) {
+      setAvailableDays(data.availableDays)
+      setTimeSlots(data.timeSlots)
+    }
+  }
+
+  function loadScheduledForEdit() {
+    if (!current?.nextChange) return
+    setAvailableDays(current.nextChange.availableDays)
+    setTimeSlots(current.nextChange.timeSlots)
+    setApplyMode('scheduled')
+    setEffectiveFrom(current.nextChange.effectiveFrom)
+    setEditingScheduled(true)
+    setMessage(null)
+  }
+
+  function cancelEditScheduled() {
+    if (!current) return
+    setAvailableDays(current.availableDays)
+    setTimeSlots(current.timeSlots)
+    setApplyMode('now')
+    setEffectiveFrom(todayJST())
+    setEditingScheduled(false)
   }
 
   function toggleDay(d: number) {
@@ -75,6 +125,11 @@ export default function Settings() {
     setTimeSlots((prev) => prev.filter((_, idx) => idx !== i))
   }
 
+  // 重複しているスロットのインデックスを Set で持つ（リアルタイム表示用）
+  const conflictPairs = findOverlaps(timeSlots)
+  const conflictSet = new Set<number>()
+  conflictPairs.forEach(({ i, j }) => { conflictSet.add(i); conflictSet.add(j) })
+
   async function save() {
     setMessage(null)
     if (availableDays.length === 0) {
@@ -82,7 +137,18 @@ export default function Settings() {
       return
     }
     if (timeSlots.length === 0 || timeSlots.some((s) => !s.label.trim() || !s.value.trim())) {
-      setMessage({ type: 'error', text: '時間枠のラベルと値を全て入力してください' })
+      setMessage({ type: 'error', text: '時間枠を全て入力してください' })
+      return
+    }
+    if (timeSlots.some((s) => {
+      const [a, b] = (s.value ?? '').split('-')
+      return !a || !b || toMinutes(a) >= toMinutes(b)
+    })) {
+      setMessage({ type: 'error', text: '開始時刻は終了時刻より前にしてください' })
+      return
+    }
+    if (conflictPairs.length > 0) {
+      setMessage({ type: 'error', text: '時間枠が重複しています（赤枠の枠を修正してください）' })
       return
     }
     setSaving(true)
@@ -102,6 +168,7 @@ export default function Settings() {
         type: 'success',
         text: result.applied === 'now' ? '即時適用しました' : `${result.effectiveFrom} から適用予定で保存しました`,
       })
+      setEditingScheduled(false)
       load()
     } catch (err: any) {
       setMessage({ type: 'error', text: err.message })
@@ -115,6 +182,7 @@ export default function Settings() {
     const res = await adminFetch('/api/admin/settings/scheduled', { method: 'DELETE' })
     if (res.ok) {
       setMessage({ type: 'success', text: '予約済みの変更を取り消しました' })
+      setEditingScheduled(false)
       load()
     } else {
       setMessage({ type: 'error', text: '取り消しに失敗しました' })
@@ -133,17 +201,38 @@ export default function Settings() {
         </div>
       )}
 
+      {/* 編集中バナー */}
+      {editingScheduled && (
+        <div className="banner" style={{ background: 'var(--orange-light)', color: 'var(--orange)', borderColor: 'var(--orange)', marginBottom: '1rem' }}>
+          <span className="icon icon-sm" style={{ verticalAlign: 'middle' }}>edit</span>
+          {' '}適用予定の変更を編集中（保存すると上書きされます）
+          <button className="btn-outline" style={{ width: 'auto', padding: '0.3rem 0.7rem', marginLeft: '0.75rem', fontSize: '0.8rem' }}
+            onClick={cancelEditScheduled}>
+            編集をやめる
+          </button>
+        </div>
+      )}
+
       {/* 予約済み変更の通知 */}
-      {current.nextChange && (
+      {current.nextChange && !editingScheduled && (
         <div className="admin-card" style={{ background: 'var(--orange-light)', borderColor: 'var(--orange)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
             <strong style={{ color: 'var(--orange)' }}>
               <span className="icon" style={{ verticalAlign: 'middle' }}>schedule</span> 適用予定の変更
             </strong>
-            <button className="btn-danger" onClick={cancelScheduled}>取り消し</button>
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <button className="btn-outline" style={{ width: 'auto', padding: '0.4rem 0.8rem' }} onClick={loadScheduledForEdit}>
+                <span className="icon icon-sm">edit</span> 編集
+              </button>
+              <button className="btn-danger" onClick={cancelScheduled}>取り消し</button>
+            </div>
           </div>
           <div style={{ fontSize: '0.9rem', color: 'var(--text-sub)' }}>
             適用日: <strong>{current.nextChange.effectiveFrom}</strong>
+            {' / '}
+            曜日: <strong>{current.nextChange.availableDays.map((d) => WEEK_DAYS[d]).join('・')}</strong>
+            {' / '}
+            時間枠: <strong>{current.nextChange.timeSlots.length}件</strong>
           </div>
         </div>
       )}
@@ -175,7 +264,7 @@ export default function Settings() {
         </div>
         <div className="slot-list">
           {timeSlots.map((s, i) => (
-            <div key={i} className="slot-row slot-row-time">
+            <div key={i} className={`slot-row slot-row-time${conflictSet.has(i) ? ' has-conflict' : ''}`}>
               <TimeRangeInput value={s.value} onChange={(v) => updateSlotValue(i, v)} />
               <span style={{ fontSize: '0.8rem', color: 'var(--text-pale)', minWidth: '100px' }}>
                 {s.label || '未設定'}
@@ -186,6 +275,12 @@ export default function Settings() {
             </div>
           ))}
         </div>
+        {conflictPairs.length > 0 && (
+          <div style={{ marginTop: '0.5rem', color: 'var(--red)', fontSize: '0.85rem' }}>
+            <span className="icon icon-sm" style={{ verticalAlign: 'middle' }}>warning</span>
+            {' '}時間枠が重複しています
+          </div>
+        )}
       </div>
 
       {/* 適用タイミング */}
@@ -221,7 +316,7 @@ export default function Settings() {
       </div>
 
       <button className="btn-primary" style={{ maxWidth: '300px' }} onClick={save} disabled={saving}>
-        {saving ? '保存中...' : '保存'}
+        {saving ? '保存中...' : editingScheduled ? '上書き保存' : '保存'}
       </button>
     </div>
   )
