@@ -14,7 +14,21 @@ if (!admin.apps.length) {
 }
 const db = admin.firestore()
 
-const DEFAULT_TIME_SLOTS = [
+type TimeSlot = { label: string; value: string }
+type Settings = {
+  availableDays?: number[]
+  timeSlots?: TimeSlot[]
+  extraDates?: string[]
+  excludedDates?: string[]
+  perDaySchedule?: {
+    enabled?: boolean
+    byWeekday?: { [day: string]: TimeSlot[] }
+    byDate?:    { [date: string]: TimeSlot[] }
+  }
+  nextChange?: any
+}
+
+const DEFAULT_TIME_SLOTS: TimeSlot[] = [
   { label: '9:00~10:00', value: '09:00-10:00' },
   { label: '10:00~12:00', value: '10:00-12:00' },
   { label: '12:00~14:00', value: '12:00-14:00' },
@@ -25,37 +39,70 @@ const DEFAULT_TIME_SLOTS = [
 const DEFAULT_AVAILABLE_DAYS = [3, 4, 6]
 const WEEK_DAYS = ['日', '月', '火', '水', '木', '金', '土']
 
-// forView=false（登録用）: 20:50以降は今日・翌日を除外 → 明後日以降のみ
-// forView=true（全登録表示用）: 20:50以降は今日のみ除外、翌日は含む（抽選結果確認のため）
-function buildDateList(availableDays: number[], forView: boolean): { label: string; value: string }[] {
+function todayJST(): string {
+  return new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10)
+}
+
+function pickTimeSlotsForDate(date: string, settings: Settings): TimeSlot[] {
+  const sched = settings.perDaySchedule
+  const defaultSlots = settings.timeSlots ?? DEFAULT_TIME_SLOTS
+  if (!sched?.enabled) return defaultSlots
+  if (sched.byDate && sched.byDate[date]) return sched.byDate[date]
+  const weekday = new Date(date + 'T00:00:00Z').getUTCDay()
+  if (sched.byWeekday && sched.byWeekday[String(weekday)]) return sched.byWeekday[String(weekday)]
+  return defaultSlots
+}
+
+type DateEntry = { label: string; value: string; timeSlots: TimeSlot[] }
+
+// 14日先まで見て、availableDays に該当 + extraDates - excludedDates の日付を集める
+// forView=false（登録用）: 20:50以降は今日・翌日を除外
+// forView=true（全登録表示用）: 20:50以降は今日のみ除外、翌日は含む
+function buildDateList(settings: Settings, forView: boolean): DateEntry[] {
   const nowJST = new Date(Date.now() + 9 * 60 * 60 * 1000)
   const h = nowJST.getUTCHours()
   const mi = nowJST.getUTCMinutes()
   const afterLotteryPrep = h > 20 || (h === 20 && mi >= 50)
 
-  const results: { label: string; value: string }[] = []
+  const availableDays = settings.availableDays ?? DEFAULT_AVAILABLE_DAYS
+  const extraSet = new Set(settings.extraDates ?? [])
+  const excludedSet = new Set(settings.excludedDates ?? [])
+
+  // 当該7日間に表示する日のセットを作る
+  const candidates = new Set<string>()
   for (let i = 0; i < 7; i++) {
     const d = new Date(nowJST)
     d.setUTCDate(nowJST.getUTCDate() + i)
     d.setUTCHours(0, 0, 0, 0)
+    const dateStr = d.toISOString().slice(0, 10)
+    const wd = d.getUTCDay()
+    const inWeekly = availableDays.includes(wd) && !excludedSet.has(dateStr)
+    const inExtra = extraSet.has(dateStr)
+    if ((inWeekly || inExtra)) candidates.add(dateStr)
+  }
 
-    if (!availableDays.includes(d.getUTCDay())) continue
-    if (i === 0 && afterLotteryPrep) continue              // 今日: 20:50以降は常に除外
-    if (i === 1 && afterLotteryPrep && !forView) continue  // 翌日: 登録は20:50以降除外、表示は含む
+  // 範囲外の extraDates も 7 日以内なら追加（上で網羅済みだが念のため）
+  // 今日(i=0)・翌日(i=1)の制約
+  const todayStr = todayJST()
+  const tomorrowDate = new Date(nowJST); tomorrowDate.setUTCDate(nowJST.getUTCDate() + 1)
+  const tomorrowStr = tomorrowDate.toISOString().slice(0, 10)
 
-    const m = d.getUTCMonth() + 1
-    const day = d.getUTCDate()
-    const wd = WEEK_DAYS[d.getUTCDay()]
-    const yyyy = d.getUTCFullYear()
-    const mm = ('0' + m).slice(-2)
-    const dd = ('0' + day).slice(-2)
-    results.push({ label: `${m}/${day}(${wd})`, value: `${yyyy}-${mm}-${dd}` })
+  const results: DateEntry[] = []
+  for (const dateStr of Array.from(candidates).sort()) {
+    if (dateStr === todayStr && afterLotteryPrep) continue
+    if (dateStr === tomorrowStr && afterLotteryPrep && !forView) continue
+
+    const dObj = new Date(dateStr + 'T00:00:00Z')
+    const m = dObj.getUTCMonth() + 1
+    const day = dObj.getUTCDate()
+    const wd = WEEK_DAYS[dObj.getUTCDay()]
+    results.push({
+      label: `${m}/${day}(${wd})`,
+      value: dateStr,
+      timeSlots: pickTimeSlotsForDate(dateStr, settings),
+    })
   }
   return results
-}
-
-function todayJST(): string {
-  return new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10)
 }
 
 export default async function handler(_req: VercelRequest, res: VercelResponse) {
@@ -64,29 +111,24 @@ export default async function handler(_req: VercelRequest, res: VercelResponse) 
   try {
     const docRef = db.collection('settings').doc('reservation')
     let doc = await docRef.get()
-    let data = doc.exists ? doc.data()! : {}
+    let data = (doc.exists ? doc.data()! : {}) as Settings
 
     // 予約済み設定変更が今日以前なら即座に適用
     const nextChange = data.nextChange
     if (nextChange && nextChange.effectiveFrom && nextChange.effectiveFrom <= todayJST()) {
+      const { effectiveFrom, ...rest } = nextChange as any
       await docRef.set({
-        availableDays: nextChange.availableDays,
-        timeSlots: nextChange.timeSlots,
+        ...rest,
         nextChange: admin.firestore.FieldValue.delete(),
       }, { merge: true })
-      data = {
-        availableDays: nextChange.availableDays,
-        timeSlots: nextChange.timeSlots,
-      }
+      data = rest
     }
 
-    const availableDays: number[] = data.availableDays ?? DEFAULT_AVAILABLE_DAYS
-    const timeSlots = data.timeSlots ?? DEFAULT_TIME_SLOTS
-
     return res.status(200).json({
-      availableDates: buildDateList(availableDays, false),
-      availableDatesWithToday: buildDateList(availableDays, true),
-      timeSlots,
+      availableDates:          buildDateList(data, false),
+      availableDatesWithToday: buildDateList(data, true),
+      // 後方互換のため timeSlots（デフォルト）も返す
+      timeSlots: data.timeSlots ?? DEFAULT_TIME_SLOTS,
     })
   } catch (err: any) {
     return res.status(500).json({ error: err.message })

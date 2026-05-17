@@ -2,13 +2,12 @@ import { useState, useEffect } from 'react'
 import type { LiffProfile } from '../LiffApp'
 
 type Props = { profile: LiffProfile }
-type DateOption = { label: string; value: string }
-type TimeSlot   = { label: string; value: string }
+type TimeSlot  = { label: string; value: string }
+type DateEntry = { label: string; value: string; timeSlots: TimeSlot[] }
 
 export default function ReservationForm({ profile }: Props) {
   const [bandName,     setBandName]     = useState('')
-  const [dates,        setDates]        = useState<DateOption[]>([])
-  const [timeSlots,    setTimeSlots]    = useState<TimeSlot[]>([])
+  const [dates,        setDates]        = useState<DateEntry[]>([])
   const [selectedDate, setSelectedDate] = useState('')
   const [selectedTime, setSelectedTime] = useState('')
   const [submitting,   setSubmitting]   = useState(false)
@@ -18,12 +17,21 @@ export default function ReservationForm({ profile }: Props) {
   useEffect(() => {
     fetch('/api/settings')
       .then((r) => r.json())
-      .then((data) => {
-        setDates(data.availableDates ?? [])
-        setTimeSlots(data.timeSlots ?? [])
-      })
+      .then((data) => setDates(data.availableDates ?? []))
       .catch(() => setError('設定の取得に失敗しました'))
   }, [])
+
+  const selectedDateEntry = dates.find((d) => d.value === selectedDate)
+  const timeSlots = selectedDateEntry?.timeSlots ?? []
+
+  // 日付を変更したとき、新しい日付に存在しない時間枠が選ばれていたらクリア
+  function handleSelectDate(value: string) {
+    setSelectedDate(value)
+    const newEntry = dates.find((d) => d.value === value)
+    if (newEntry && !newEntry.timeSlots.some((t) => t.value === selectedTime)) {
+      setSelectedTime('')
+    }
+  }
 
   const canSubmit = bandName.trim() && selectedDate && selectedTime && !submitting
 
@@ -113,7 +121,7 @@ export default function ReservationForm({ profile }: Props) {
             <button
               key={d.value}
               className={`select-btn ${selectedDate === d.value ? 'selected' : ''}`}
-              onClick={() => setSelectedDate(d.value)}
+              onClick={() => handleSelectDate(d.value)}
             >
               {d.label}
             </button>

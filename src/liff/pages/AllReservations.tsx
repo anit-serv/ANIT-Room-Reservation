@@ -1,16 +1,12 @@
 import { useState, useEffect } from 'react'
 
-type DateOption    = { label: string; value: string }
-type SlotEntry     = { bandName: string; status: string; order?: number }
-type TimeSlotMap   = { [timeSlot: string]: SlotEntry[] }
-
-const TIME_SLOT_ORDER = [
-  '09:00-10:00', '10:00-12:00', '12:00-14:00',
-  '14:00-16:00', '16:00-18:00', '18:00-20:00',
-]
+type TimeSlot    = { label: string; value: string }
+type DateEntry   = { label: string; value: string; timeSlots: TimeSlot[] }
+type SlotEntry   = { bandName: string; status: string; order?: number }
+type TimeSlotMap = { [timeSlot: string]: SlotEntry[] }
 
 export default function AllReservations() {
-  const [dates,        setDates]        = useState<DateOption[]>([])
+  const [dates,        setDates]        = useState<DateEntry[]>([])
   const [selectedDate, setSelectedDate] = useState('')
   const [slotMap,      setSlotMap]      = useState<TimeSlotMap | null>(null)
   const [loading,      setLoading]      = useState(false)
@@ -22,6 +18,9 @@ export default function AllReservations() {
       .then((data) => setDates(data.availableDatesWithToday ?? []))
       .catch(() => setError('設定の取得に失敗しました'))
   }, [])
+
+  const selectedDateEntry = dates.find((d) => d.value === selectedDate)
+  const timeSlotOrder = (selectedDateEntry?.timeSlots ?? []).map((t) => t.value)
 
   async function handleDateSelect(date: string) {
     setSelectedDate(date)
@@ -40,8 +39,13 @@ export default function AllReservations() {
     }
   }
 
+  // 選択日付の時間枠順で並べる。順序にないものは末尾に補う。
   const activeSlots = slotMap
-    ? TIME_SLOT_ORDER.filter((ts) => slotMap[ts]?.length)
+    ? (() => {
+        const known = timeSlotOrder.filter((ts) => slotMap[ts]?.length)
+        const extra = Object.keys(slotMap).filter((ts) => !timeSlotOrder.includes(ts) && slotMap[ts]?.length).sort()
+        return [...known, ...extra]
+      })()
     : []
 
   return (

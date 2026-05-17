@@ -180,10 +180,20 @@ async function handleAuthMe(req: VercelRequest, res: VercelResponse) {
 
 // ─── 設定の取得・更新 ─────────────────────────────────
 type TimeSlot = { label: string; value: string }
-type Settings = {
+type PerDaySchedule = {
+  enabled: boolean
+  byWeekday: { [day: string]: TimeSlot[] }
+  byDate:    { [date: string]: TimeSlot[] }
+}
+type SettingsCore = {
   availableDays: number[]
   timeSlots: TimeSlot[]
-  nextChange?: { availableDays: number[]; timeSlots: TimeSlot[]; effectiveFrom: string }
+  extraDates: string[]
+  excludedDates: string[]
+  perDaySchedule: PerDaySchedule
+}
+type Settings = SettingsCore & {
+  nextChange?: SettingsCore & { effectiveFrom: string }
 }
 
 function todayJST(): string {
@@ -199,38 +209,93 @@ function toMinutes(t: string): number {
   return h * 60 + m
 }
 
-function validateSettings(body: any): { availableDays: number[]; timeSlots: TimeSlot[] } | string {
-  if (!body) return '不正なリクエストです'
-  const { availableDays, timeSlots } = body
-  if (!Array.isArray(availableDays)) return '不正なリクエストです'
-  if (!availableDays.every((d) => Number.isInteger(d) && d >= 0 && d <= 6)) return '不正な曜日が含まれています'
-  if (!Array.isArray(timeSlots) || timeSlots.length === 0) return '時間枠が必要です'
-  if (!timeSlots.every((t) => t && typeof t.label === 'string' && typeof t.value === 'string')) {
-    return '時間枠の形式が不正です'
-  }
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
-  // 各 value は "HH:MM-HH:MM" 形式かチェック
+// 単一の時間枠配列のバリデーション（形式・順序・重複）
+function validateTimeSlots(timeSlots: any, contextLabel = ''): TimeSlot[] | string {
+  if (!Array.isArray(timeSlots) || timeSlots.length === 0) {
+    return `${contextLabel}時間枠が必要です`
+  }
+  if (!timeSlots.every((t: any) => t && typeof t.label === 'string' && typeof t.value === 'string')) {
+    return `${contextLabel}時間枠の形式が不正です`
+  }
   const parsed: { start: number; end: number }[] = []
   for (const t of timeSlots) {
     const m = /^(\d{2}:\d{2})-(\d{2}:\d{2})$/.exec(t.value)
-    if (!m) return `時間枠の形式が不正です: ${t.value}`
+    if (!m) return `${contextLabel}時間枠の形式が不正です: ${t.value}`
     const start = toMinutes(m[1])
     const end = toMinutes(m[2])
-    if (start >= end) return `開始時刻は終了時刻より前にしてください: ${t.value}`
+    if (start >= end) return `${contextLabel}開始時刻は終了時刻より前にしてください: ${t.value}`
     parsed.push({ start, end })
   }
-
-  // 重複チェック（半開区間として）
   for (let i = 0; i < parsed.length; i++) {
     for (let j = i + 1; j < parsed.length; j++) {
       const a = parsed[i], b = parsed[j]
       if (a.start < b.end && b.start < a.end) {
-        return `時間枠が重複しています: ${timeSlots[i].value} と ${timeSlots[j].value}`
+        return `${contextLabel}時間枠が重複: ${timeSlots[i].value} と ${timeSlots[j].value}`
       }
     }
   }
+  return timeSlots
+}
 
-  return { availableDays, timeSlots }
+function validateSettings(body: any): SettingsCore | string {
+  if (!body) return '不正なリクエストです'
+  const { availableDays, timeSlots, extraDates, excludedDates, perDaySchedule } = body
+
+  if (!Array.isArray(availableDays)) return '不正なリクエストです'
+  if (!availableDays.every((d: any) => Number.isInteger(d) && d >= 0 && d <= 6)) {
+    return '不正な曜日が含まれています'
+  }
+
+  const validatedDefault = validateTimeSlots(timeSlots, 'デフォルト')
+  if (typeof validatedDefault === 'string') return validatedDefault
+
+  // 追加日・除外日
+  const validatedExtra: string[] = []
+  for (const d of extraDates ?? []) {
+    if (typeof d !== 'string' || !DATE_RE.test(d)) return `追加日の形式が不正: ${d}`
+    validatedExtra.push(d)
+  }
+  const validatedExcluded: string[] = []
+  for (const d of excludedDates ?? []) {
+    if (typeof d !== 'string' || !DATE_RE.test(d)) return `除外日の形式が不正: ${d}`
+    validatedExcluded.push(d)
+  }
+  // 追加日と除外日の重複は無効
+  for (const d of validatedExtra) {
+    if (validatedExcluded.includes(d)) return `${d} は追加日と除外日の両方に指定されています`
+  }
+
+  // 曜日/日付別スケジュール
+  const sched: PerDaySchedule = {
+    enabled: !!perDaySchedule?.enabled,
+    byWeekday: {},
+    byDate: {},
+  }
+  if (sched.enabled) {
+    for (const [k, v] of Object.entries(perDaySchedule?.byWeekday ?? {})) {
+      const day = Number(k)
+      if (!Number.isInteger(day) || day < 0 || day > 6) return `不正な曜日キー: ${k}`
+      const result = validateTimeSlots(v, `${['日','月','火','水','木','金','土'][day]}曜の`)
+      if (typeof result === 'string') return result
+      sched.byWeekday[String(day)] = result
+    }
+    for (const [date, v] of Object.entries(perDaySchedule?.byDate ?? {})) {
+      if (!DATE_RE.test(date)) return `不正な日付キー: ${date}`
+      const result = validateTimeSlots(v, `${date}の`)
+      if (typeof result === 'string') return result
+      sched.byDate[date] = result
+    }
+  }
+
+  return {
+    availableDays,
+    timeSlots: validatedDefault,
+    extraDates: validatedExtra,
+    excludedDates: validatedExcluded,
+    perDaySchedule: sched,
+  }
 }
 
 async function handleSettings(req: VercelRequest, res: VercelResponse) {
@@ -247,9 +312,12 @@ async function handleSettings(req: VercelRequest, res: VercelResponse) {
     const doc = await docRef.get()
     const data = (doc.exists ? doc.data() : {}) as Settings
     return res.status(200).json({
-      availableDays: data.availableDays ?? [3, 4, 6],
-      timeSlots: data.timeSlots ?? [],
-      nextChange: data.nextChange ?? null,
+      availableDays:  data.availableDays  ?? [3, 4, 6],
+      timeSlots:      data.timeSlots      ?? [],
+      extraDates:     data.extraDates     ?? [],
+      excludedDates:  data.excludedDates  ?? [],
+      perDaySchedule: data.perDaySchedule ?? { enabled: false, byWeekday: {}, byDate: {} },
+      nextChange:     data.nextChange     ?? null,
     })
   }
 
@@ -263,8 +331,7 @@ async function handleSettings(req: VercelRequest, res: VercelResponse) {
     // 即時適用、または effectiveFrom が今日以前の場合
     if (applyNow || !effectiveFrom || effectiveFrom <= today) {
       await docRef.set({
-        availableDays: validated.availableDays,
-        timeSlots: validated.timeSlots,
+        ...validated,
         nextChange: admin.firestore.FieldValue.delete(),
       }, { merge: true })
       return res.status(200).json({ applied: 'now' })

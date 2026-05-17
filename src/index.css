@@ -756,6 +756,59 @@ body {
   align-items: center;
 }
 
+/* ── 日付ピル（追加日・除外日リスト） ───────────── */
+.date-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 0.3rem 0.5rem 0.3rem 0.75rem;
+  font-size: 0.85rem;
+}
+
+.btn-pill-close {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-pale);
+  display: inline-flex;
+  padding: 0.1rem;
+  border-radius: 50%;
+}
+
+.btn-pill-close:hover { color: var(--red); background: var(--red-light); }
+
+/* ── オーバーライドセクション ─────────────────────── */
+.override-section {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.override-header {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-sub);
+  margin-bottom: 0.5rem;
+}
+
+.override-card {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.override-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
 /* ── 招待リンク結果 ───────────────────────────────── */
 .invite-result {
   margin-top: 0.75rem;

@@ -1,56 +1,19 @@
 import { useEffect, useState } from 'react'
 import { adminFetch } from '../auth'
-import TimeRangeInput from '../components/TimeRangeInput'
+import TimeSlotsEditor, { findConflicts, toMinutes, type TimeSlot } from '../components/TimeSlotsEditor'
+import DateListEditor from '../components/DateListEditor'
+import PerDayScheduleEditor, { findAllConflicts, type PerDaySchedule } from '../components/PerDayScheduleEditor'
 
-// "09:00-10:00" → "9:00~10:00"
-function valueToLabel(value: string): string {
-  const [s, e] = value.split('-')
-  if (!s || !e) return ''
-  const fmt = (t: string) => {
-    const [h, m] = t.split(':')
-    return `${parseInt(h, 10)}:${m}`
-  }
-  return `${fmt(s)}~${fmt(e)}`
-}
-
-// "HH:MM" → 分
-function toMinutes(t: string): number {
-  const [h, m] = t.split(':').map(Number)
-  return h * 60 + m
-}
-
-// 時間枠の重複チェック。境界一致（end == start）は許可
-function findOverlaps(slots: TimeSlot[]): { i: number; j: number }[] {
-  const ranges = slots.map((s) => {
-    const [start, end] = (s.value ?? '').split('-')
-    if (!start || !end) return null
-    return { start: toMinutes(start), end: toMinutes(end) }
-  })
-  const conflicts: { i: number; j: number }[] = []
-  for (let i = 0; i < ranges.length; i++) {
-    const a = ranges[i]
-    if (!a || a.end <= a.start) continue
-    for (let j = i + 1; j < ranges.length; j++) {
-      const b = ranges[j]
-      if (!b || b.end <= b.start) continue
-      // 半開区間 [start, end) として重なり判定
-      if (a.start < b.end && b.start < a.end) conflicts.push({ i, j })
-    }
-  }
-  return conflicts
-}
-
-type TimeSlot = { label: string; value: string }
-type NextChange = {
+type SettingsCore = {
   availableDays: number[]
   timeSlots: TimeSlot[]
-  effectiveFrom: string
-} | null
+  extraDates: string[]
+  excludedDates: string[]
+  perDaySchedule: PerDaySchedule
+}
 
-type SettingsResponse = {
-  availableDays: number[]
-  timeSlots: TimeSlot[]
-  nextChange: NextChange
+type SettingsResponse = SettingsCore & {
+  nextChange: (SettingsCore & { effectiveFrom: string }) | null
 }
 
 const WEEK_DAYS = ['日', '月', '火', '水', '木', '金', '土']
@@ -59,10 +22,17 @@ function todayJST(): string {
   return new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10)
 }
 
+function emptySchedule(): PerDaySchedule {
+  return { enabled: false, byWeekday: {}, byDate: {} }
+}
+
 export default function Settings() {
   const [current, setCurrent]             = useState<SettingsResponse | null>(null)
   const [availableDays, setAvailableDays] = useState<number[]>([])
   const [timeSlots, setTimeSlots]         = useState<TimeSlot[]>([])
+  const [extraDates, setExtraDates]       = useState<string[]>([])
+  const [excludedDates, setExcludedDates] = useState<string[]>([])
+  const [perDaySchedule, setPerDaySchedule] = useState<PerDaySchedule>(emptySchedule())
   const [applyMode, setApplyMode]         = useState<'now' | 'scheduled'>('now')
   const [effectiveFrom, setEffectiveFrom] = useState<string>(todayJST())
   const [editingScheduled, setEditingScheduled] = useState(false)
@@ -71,25 +41,25 @@ export default function Settings() {
 
   useEffect(() => { load() }, [])
 
+  function applyToForm(s: SettingsCore) {
+    setAvailableDays(s.availableDays)
+    setTimeSlots(s.timeSlots)
+    setExtraDates(s.extraDates ?? [])
+    setExcludedDates(s.excludedDates ?? [])
+    setPerDaySchedule(s.perDaySchedule ?? emptySchedule())
+  }
+
   async function load() {
     const res = await adminFetch('/api/admin/settings')
-    if (!res.ok) {
-      setMessage({ type: 'error', text: '設定の取得に失敗しました' })
-      return
-    }
+    if (!res.ok) { setMessage({ type: 'error', text: '設定の取得に失敗しました' }); return }
     const data = (await res.json()) as SettingsResponse
     setCurrent(data)
-    // 編集中でなければフォームを現在値で初期化
-    if (!editingScheduled) {
-      setAvailableDays(data.availableDays)
-      setTimeSlots(data.timeSlots)
-    }
+    if (!editingScheduled) applyToForm(data)
   }
 
   function loadScheduledForEdit() {
     if (!current?.nextChange) return
-    setAvailableDays(current.nextChange.availableDays)
-    setTimeSlots(current.nextChange.timeSlots)
+    applyToForm(current.nextChange)
     setApplyMode('scheduled')
     setEffectiveFrom(current.nextChange.effectiveFrom)
     setEditingScheduled(true)
@@ -98,8 +68,7 @@ export default function Settings() {
 
   function cancelEditScheduled() {
     if (!current) return
-    setAvailableDays(current.availableDays)
-    setTimeSlots(current.timeSlots)
+    applyToForm(current)
     setApplyMode('now')
     setEffectiveFrom(todayJST())
     setEditingScheduled(false)
@@ -111,33 +80,18 @@ export default function Settings() {
     )
   }
 
-  function updateSlotValue(i: number, value: string) {
-    setTimeSlots((prev) => prev.map((s, idx) =>
-      idx === i ? { value, label: valueToLabel(value) } : s
-    ))
-  }
-
-  function addSlot() {
-    setTimeSlots((prev) => [...prev, { label: '', value: '' }])
-  }
-
-  function removeSlot(i: number) {
-    setTimeSlots((prev) => prev.filter((_, idx) => idx !== i))
-  }
-
-  // 重複しているスロットのインデックスを Set で持つ（リアルタイム表示用）
-  const conflictPairs = findOverlaps(timeSlots)
-  const conflictSet = new Set<number>()
-  conflictPairs.forEach(({ i, j }) => { conflictSet.add(i); conflictSet.add(j) })
+  const defaultConflicts = findConflicts(timeSlots)
+  const hasOverrideConflict = findAllConflicts(perDaySchedule)
+  const hasDateOverlap = extraDates.some((d) => excludedDates.includes(d))
 
   async function save() {
     setMessage(null)
-    if (availableDays.length === 0) {
-      setMessage({ type: 'error', text: '登録可能曜日を1つ以上選択してください' })
+    if (availableDays.length === 0 && extraDates.length === 0) {
+      setMessage({ type: 'error', text: '登録可能曜日か追加日を1つ以上指定してください' })
       return
     }
     if (timeSlots.length === 0 || timeSlots.some((s) => !s.label.trim() || !s.value.trim())) {
-      setMessage({ type: 'error', text: '時間枠を全て入力してください' })
+      setMessage({ type: 'error', text: 'デフォルト時間枠を全て入力してください' })
       return
     }
     if (timeSlots.some((s) => {
@@ -147,13 +101,24 @@ export default function Settings() {
       setMessage({ type: 'error', text: '開始時刻は終了時刻より前にしてください' })
       return
     }
-    if (conflictPairs.length > 0) {
-      setMessage({ type: 'error', text: '時間枠が重複しています（赤枠の枠を修正してください）' })
+    if (defaultConflicts.size > 0) {
+      setMessage({ type: 'error', text: 'デフォルト時間枠が重複しています' })
       return
     }
+    if (hasOverrideConflict) {
+      setMessage({ type: 'error', text: '曜日/日付別の時間枠に未入力または重複があります' })
+      return
+    }
+    if (hasDateOverlap) {
+      setMessage({ type: 'error', text: '同じ日付が追加日と除外日の両方に指定されています' })
+      return
+    }
+
     setSaving(true)
     try {
-      const body: any = { availableDays, timeSlots }
+      const body: any = {
+        availableDays, timeSlots, extraDates, excludedDates, perDaySchedule,
+      }
       if (applyMode === 'scheduled') body.effectiveFrom = effectiveFrom
       else body.applyNow = true
 
@@ -201,7 +166,6 @@ export default function Settings() {
         </div>
       )}
 
-      {/* 編集中バナー */}
       {editingScheduled && (
         <div className="banner" style={{ background: 'var(--orange-light)', color: 'var(--orange)', borderColor: 'var(--orange)', marginBottom: '1rem' }}>
           <span className="icon icon-sm" style={{ verticalAlign: 'middle' }}>edit</span>
@@ -213,7 +177,6 @@ export default function Settings() {
         </div>
       )}
 
-      {/* 予約済み変更の通知 */}
       {current.nextChange && !editingScheduled && (
         <div className="admin-card" style={{ background: 'var(--orange-light)', borderColor: 'var(--orange)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
@@ -230,9 +193,11 @@ export default function Settings() {
           <div style={{ fontSize: '0.9rem', color: 'var(--text-sub)' }}>
             適用日: <strong>{current.nextChange.effectiveFrom}</strong>
             {' / '}
-            曜日: <strong>{current.nextChange.availableDays.map((d) => WEEK_DAYS[d]).join('・')}</strong>
+            曜日: <strong>{current.nextChange.availableDays.map((d) => WEEK_DAYS[d]).join('・') || 'なし'}</strong>
             {' / '}
-            時間枠: <strong>{current.nextChange.timeSlots.length}件</strong>
+            追加日: <strong>{current.nextChange.extraDates?.length ?? 0}件</strong>
+            {' / '}
+            除外日: <strong>{current.nextChange.excludedDates?.length ?? 0}件</strong>
           </div>
         </div>
       )}
@@ -254,28 +219,42 @@ export default function Settings() {
         </div>
       </div>
 
-      {/* 時間枠 */}
+      {/* 追加日 */}
       <div className="admin-card">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
-          <h2 className="admin-card-title" style={{ margin: 0 }}>時間枠</h2>
-          <button className="btn-outline" style={{ width: 'auto', padding: '0.4rem 0.8rem' }} onClick={addSlot}>
-            <span className="icon icon-sm">add</span> 追加
-          </button>
-        </div>
-        <div className="slot-list">
-          {timeSlots.map((s, i) => (
-            <div key={i} className={`slot-row slot-row-time${conflictSet.has(i) ? ' has-conflict' : ''}`}>
-              <TimeRangeInput value={s.value} onChange={(v) => updateSlotValue(i, v)} />
-              <span style={{ fontSize: '0.8rem', color: 'var(--text-pale)', minWidth: '100px' }}>
-                {s.label || '未設定'}
-              </span>
-              <button className="btn-icon" onClick={() => removeSlot(i)}>
-                <span className="icon">delete</span>
-              </button>
-            </div>
-          ))}
-        </div>
-        {conflictPairs.length > 0 && (
+        <h2 className="admin-card-title">追加日</h2>
+        <p style={{ fontSize: '0.85rem', color: 'var(--text-sub)', marginBottom: '0.75rem' }}>
+          上記の曜日に該当しない日でも、ここに追加した日は予約可能になります。
+        </p>
+        <DateListEditor
+          dates={extraDates}
+          onChange={setExtraDates}
+          min={todayJST()}
+          emptyText="追加日なし"
+        />
+      </div>
+
+      {/* 除外日 */}
+      <div className="admin-card">
+        <h2 className="admin-card-title">除外日</h2>
+        <p style={{ fontSize: '0.85rem', color: 'var(--text-sub)', marginBottom: '0.75rem' }}>
+          通常は予約可能曜日でも、ここに登録した日は予約できなくなります（祝日や臨時休業など）。
+        </p>
+        <DateListEditor
+          dates={excludedDates}
+          onChange={setExcludedDates}
+          min={todayJST()}
+          emptyText="除外日なし"
+        />
+      </div>
+
+      {/* デフォルト時間枠 */}
+      <div className="admin-card">
+        <h2 className="admin-card-title">デフォルト時間枠</h2>
+        <p style={{ fontSize: '0.85rem', color: 'var(--text-sub)', marginBottom: '0.75rem' }}>
+          全ての日で使用される基本の時間枠です。曜日や日付別に上書きする場合は下の設定で。
+        </p>
+        <TimeSlotsEditor slots={timeSlots} onChange={setTimeSlots} conflictSet={defaultConflicts} />
+        {defaultConflicts.size > 0 && (
           <div style={{ marginTop: '0.5rem', color: 'var(--red)', fontSize: '0.85rem' }}>
             <span className="icon icon-sm" style={{ verticalAlign: 'middle' }}>warning</span>
             {' '}時間枠が重複しています
@@ -283,24 +262,27 @@ export default function Settings() {
         )}
       </div>
 
+      {/* 曜日・日付別オーバーライド */}
+      <div className="admin-card">
+        <h2 className="admin-card-title">曜日・日付別の時間枠</h2>
+        <PerDayScheduleEditor
+          schedule={perDaySchedule}
+          onChange={setPerDaySchedule}
+          availableDays={availableDays}
+          extraDates={extraDates}
+        />
+      </div>
+
       {/* 適用タイミング */}
       <div className="admin-card">
         <h2 className="admin-card-title">適用タイミング</h2>
         <div className="radio-list">
           <label className="radio-item">
-            <input
-              type="radio"
-              checked={applyMode === 'now'}
-              onChange={() => setApplyMode('now')}
-            />
+            <input type="radio" checked={applyMode === 'now'} onChange={() => setApplyMode('now')} />
             <span>即時適用</span>
           </label>
           <label className="radio-item">
-            <input
-              type="radio"
-              checked={applyMode === 'scheduled'}
-              onChange={() => setApplyMode('scheduled')}
-            />
+            <input type="radio" checked={applyMode === 'scheduled'} onChange={() => setApplyMode('scheduled')} />
             <span>指定日から適用</span>
             <input
               type="date"
