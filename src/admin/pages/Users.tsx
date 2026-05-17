@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { adminFetch } from '../auth'
 
 type User = {
@@ -165,8 +166,14 @@ function UserDetail({
   onClose: () => void
   onUpdated: () => void
 }) {
+  const navigate = useNavigate()
   const [data, setData] = useState<{ user: User; reservations: Reservation[] } | null>(null)
   const [working, setWorking] = useState(false)
+
+  function jumpToReservation(id: string) {
+    onClose()
+    navigate(`/admin/reservations?focus=${id}`)
+  }
 
   useEffect(() => {
     adminFetch(`/api/admin/users/${userId}`)
@@ -239,7 +246,12 @@ function UserDetail({
             ) : (
               <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
                 {data.reservations.map((r) => (
-                  <div key={r.id} className="reservation-card">
+                  <button
+                    key={r.id}
+                    className="reservation-card reservation-card-clickable"
+                    onClick={() => jumpToReservation(r.id)}
+                    title="予約管理で開く"
+                  >
                     <div className={`accent ${r.status}`} />
                     <div className="card-body">
                       <div className="card-band">{r.bandName}</div>
@@ -251,7 +263,8 @@ function UserDetail({
                         {r.status === 'confirmed' ? `確定 (${r.order ?? '-'})` : '抽選待ち'}
                       </span>
                     </div>
-                  </div>
+                    <span className="icon icon-sm" style={{ color: 'var(--text-pale)' }}>arrow_forward</span>
+                  </button>
                 ))}
               </div>
             )}

@@ -756,6 +756,32 @@ body {
   align-items: center;
 }
 
+/* ── テーブル行ハイライト ─────────────────────────── */
+@keyframes row-flash {
+  0%   { background: var(--green-light); }
+  100% { background: transparent; }
+}
+
+.admin-table tbody tr.row-highlight {
+  animation: row-flash 3s ease-out;
+}
+
+/* ── クリック可能な予約カード ─────────────────────── */
+.reservation-card-clickable {
+  width: 100%;
+  border: 1px solid var(--border);
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.reservation-card-clickable:hover {
+  background: var(--bg);
+  border-color: var(--green);
+}
+
 /* ── 管理画面 タブ ────────────────────────────────── */
 .admin-tabs {
   display: flex;

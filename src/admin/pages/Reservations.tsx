@@ -1,4 +1,5 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { adminFetch } from '../auth'
 import TimeRangeInput from '../components/TimeRangeInput'
 
@@ -15,6 +16,10 @@ type Reservation = {
 }
 
 export default function Reservations() {
+  const [searchParams, setSearchParams] = useSearchParams()
+  const focusId = searchParams.get('focus')
+  const rowRefs = useRef<Record<string, HTMLTableRowElement | null>>({})
+
   const [reservations, setReservations] = useState<Reservation[]>([])
   const [loading, setLoading]           = useState(true)
   const [error, setError]               = useState<string | null>(null)
@@ -22,6 +27,7 @@ export default function Reservations() {
   const [statusFilter, setStatusFilter] = useState<'' | 'pending' | 'confirmed'>('')
   const [search, setSearch]             = useState('')
   const [editing, setEditing]           = useState<Reservation | null>(null)
+  const [highlightedId, setHighlightedId] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -43,6 +49,22 @@ export default function Reservations() {
   }, [dateFilter, statusFilter, search])
 
   useEffect(() => { load() }, [load])
+
+  // focus クエリ → 該当行へスクロール＋ハイライト
+  useEffect(() => {
+    if (!focusId || reservations.length === 0) return
+    const row = rowRefs.current[focusId]
+    if (row) {
+      row.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      setHighlightedId(focusId)
+      // 3秒後にクエリを消す（履歴汚染を防ぐ）と同時にハイライト解除
+      const t = setTimeout(() => {
+        setHighlightedId(null)
+        setSearchParams({}, { replace: true })
+      }, 3000)
+      return () => clearTimeout(t)
+    }
+  }, [focusId, reservations, setSearchParams])
 
   async function handleDelete(r: Reservation) {
     if (!confirm(`「${r.bandName}」(${r.date}) を削除しますか？\nこの操作は取り消せません。`)) return
@@ -122,7 +144,11 @@ export default function Reservations() {
               {reservations.map((r) => {
                 const [datePart, timePart] = r.date.split('T')
                 return (
-                  <tr key={r.id}>
+                  <tr
+                    key={r.id}
+                    ref={(el) => { rowRefs.current[r.id] = el }}
+                    className={highlightedId === r.id ? 'row-highlight' : ''}
+                  >
                     <td>
                       <div>{datePart}</div>
                       <div style={{ fontSize: '0.8rem', color: 'var(--text-sub)' }}>{timePart}</div>
