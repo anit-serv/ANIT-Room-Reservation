@@ -23,6 +23,7 @@ export default function Users() {
   const [loading, setLoading] = useState(true)
   const [error, setError]     = useState<string | null>(null)
   const [search, setSearch]   = useState('')
+  const [tab, setTab]         = useState<'all' | 'banned' | 'admin'>('all')
   const [selected, setSelected] = useState<string | null>(null)
 
   useEffect(() => { load() }, [])
@@ -40,13 +41,37 @@ export default function Users() {
     }
   }
 
-  const filtered = users.filter((u) =>
-    !search || u.displayName.toLowerCase().includes(search.toLowerCase())
-  )
+  const filtered = users
+    .filter((u) => {
+      if (tab === 'banned') return u.banned
+      if (tab === 'admin')  return u.isAdmin
+      return true
+    })
+    .filter((u) =>
+      !search || u.displayName.toLowerCase().includes(search.toLowerCase())
+    )
+
+  const counts = {
+    all: users.length,
+    banned: users.filter((u) => u.banned).length,
+    admin: users.filter((u) => u.isAdmin).length,
+  }
 
   return (
     <div>
       <h1 className="admin-page-title">ユーザー管理</h1>
+
+      <div className="admin-tabs">
+        <button className={`admin-tab ${tab === 'all'    ? 'active' : ''}`} onClick={() => setTab('all')}>
+          全員 <span className="admin-tab-count">{counts.all}</span>
+        </button>
+        <button className={`admin-tab ${tab === 'banned' ? 'active' : ''}`} onClick={() => setTab('banned')}>
+          BAN者 <span className="admin-tab-count">{counts.banned}</span>
+        </button>
+        <button className={`admin-tab ${tab === 'admin'  ? 'active' : ''}`} onClick={() => setTab('admin')}>
+          管理者 <span className="admin-tab-count">{counts.admin}</span>
+        </button>
+      </div>
 
       <div className="admin-card">
         <input

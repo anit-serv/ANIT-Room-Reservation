@@ -17,6 +17,34 @@ if (!admin.apps.length) {
 }
 const db = admin.firestore()
 
+// ─── 監査ログ ────────────────────────────────────────
+type AuditActor = { userId: string; displayName: string }
+
+async function audit(
+  actor: AuditActor,
+  action: string,
+  opts: { targetType?: string; targetId?: string; targetLabel?: string; details?: any } = {}
+): Promise<void> {
+  const now = new Date()
+  const expiresAt = new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000) // +1年
+  try {
+    await db.collection('auditLogs').add({
+      actorUserId: actor.userId,
+      actorDisplayName: actor.displayName,
+      action,
+      targetType: opts.targetType ?? null,
+      targetId: opts.targetId ?? null,
+      targetLabel: opts.targetLabel ?? null,
+      details: opts.details ?? null,
+      createdAt: now,
+      expiresAt,
+    })
+  } catch (err) {
+    // ログ書き込み失敗は本処理を止めない
+    console.error('audit log error:', err)
+  }
+}
+
 function parseCookies(header: string | undefined): Record<string, string> {
   if (!header) return {}
   const result: Record<string, string> = {}
@@ -64,6 +92,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (segments.length === 2) return handleInvitationById(req, res, segments[1])
   }
   if (path === 'invite') return handleInviteAccept(req, res)
+
+  // 監査ログ
+  if (path === 'logs') return handleLogs(req, res)
 
   return res.status(404).json({ error: 'Not Found' })
 }
@@ -150,6 +181,11 @@ async function handleAuthCallback(req: VercelRequest, res: VercelResponse) {
           addedBy: invData!.createdBy ?? null,
         })
         await invRef.update({ used: true, usedAt: new Date(), usedBy: userId })
+        await audit(
+          { userId, displayName },
+          'admin.add',
+          { targetType: 'admin', targetId: userId, targetLabel: displayName, details: { via: 'invitation', invitedBy: invData!.createdBy ?? null } }
+        )
         return res.redirect(302, `${loginUrl}?token=${encodeURIComponent(idToken)}`)
       }
       // 招待トークンが無効でも、既存管理者なら通常ログインさせる
@@ -299,8 +335,9 @@ function validateSettings(body: any): SettingsCore | string {
 }
 
 async function handleSettings(req: VercelRequest, res: VercelResponse) {
+  let me: AuditActor
   try {
-    await verifyAdmin(req.headers.authorization)
+    me = await verifyAdmin(req.headers.authorization)
   } catch (err: any) {
     const status = err.message === 'Forbidden' ? 403 : 401
     return res.status(status).json({ error: err.message })
@@ -334,6 +371,7 @@ async function handleSettings(req: VercelRequest, res: VercelResponse) {
         ...validated,
         nextChange: admin.firestore.FieldValue.delete(),
       }, { merge: true })
+      await audit(me, 'settings.update', { targetType: 'settings', details: validated })
       return res.status(200).json({ applied: 'now' })
     }
 
@@ -344,6 +382,7 @@ async function handleSettings(req: VercelRequest, res: VercelResponse) {
     await docRef.set({
       nextChange: { ...validated, effectiveFrom },
     }, { merge: true })
+    await audit(me, 'settings.schedule', { targetType: 'settings', details: { ...validated, effectiveFrom } })
     return res.status(200).json({ applied: 'scheduled', effectiveFrom })
   }
 
@@ -353,8 +392,9 @@ async function handleSettings(req: VercelRequest, res: VercelResponse) {
 // ─── 予約済みの設定変更をキャンセル ────────────────────
 async function handleSettingsScheduled(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'DELETE') return res.status(405).json({ error: 'Method Not Allowed' })
+  let me: AuditActor
   try {
-    await verifyAdmin(req.headers.authorization)
+    me = await verifyAdmin(req.headers.authorization)
   } catch (err: any) {
     const status = err.message === 'Forbidden' ? 403 : 401
     return res.status(status).json({ error: err.message })
@@ -362,6 +402,7 @@ async function handleSettingsScheduled(req: VercelRequest, res: VercelResponse) 
   await db.collection('settings').doc('reservation').set({
     nextChange: admin.firestore.FieldValue.delete(),
   }, { merge: true })
+  await audit(me, 'settings.scheduled.cancel', { targetType: 'settings' })
   return res.status(200).json({ success: true })
 }
 
@@ -463,7 +504,7 @@ async function handleAdminsList(req: VercelRequest, res: VercelResponse) {
 // ─── 管理者の削除 ─────────────────────────────────────
 async function handleAdminById(req: VercelRequest, res: VercelResponse, targetId: string) {
   if (req.method !== 'DELETE') return res.status(405).json({ error: 'Method Not Allowed' })
-  let me
+  let me: AuditActor
   try {
     me = await verifyAdmin(req.headers.authorization)
   } catch (err: any) {
@@ -473,13 +514,16 @@ async function handleAdminById(req: VercelRequest, res: VercelResponse, targetId
   if (me.userId === targetId) {
     return res.status(400).json({ error: '自分自身は削除できません' })
   }
+  const target = await db.collection('admins').doc(targetId).get()
+  const targetLabel = target.exists ? (target.data()?.displayName ?? '') : ''
   await db.collection('admins').doc(targetId).delete()
+  await audit(me, 'admin.remove', { targetType: 'admin', targetId, targetLabel })
   return res.status(200).json({ success: true })
 }
 
 // ─── 招待の発行・一覧 ─────────────────────────────────
 async function handleInvitations(req: VercelRequest, res: VercelResponse) {
-  let me
+  let me: AuditActor
   try {
     me = await verifyAdmin(req.headers.authorization)
   } catch (err: any) {
@@ -497,6 +541,7 @@ async function handleInvitations(req: VercelRequest, res: VercelResponse) {
       expiresAt,
       used: false,
     })
+    await audit(me, 'invitation.create', { targetType: 'invitation', targetId: token })
     const baseUrl = `https://${req.headers.host}`
     return res.status(201).json({
       token,
@@ -527,14 +572,70 @@ async function handleInvitations(req: VercelRequest, res: VercelResponse) {
 // ─── 招待の取消 ───────────────────────────────────────
 async function handleInvitationById(req: VercelRequest, res: VercelResponse, token: string) {
   if (req.method !== 'DELETE') return res.status(405).json({ error: 'Method Not Allowed' })
+  let me: AuditActor
+  try {
+    me = await verifyAdmin(req.headers.authorization)
+  } catch (err: any) {
+    const status = err.message === 'Forbidden' ? 403 : 401
+    return res.status(status).json({ error: err.message })
+  }
+  await db.collection('invitations').doc(token).delete()
+  await audit(me, 'invitation.revoke', { targetType: 'invitation', targetId: token })
+  return res.status(200).json({ success: true })
+}
+
+// ─── 監査ログ一覧（GET のみ。削除エンドポイントなし） ──
+async function handleLogs(req: VercelRequest, res: VercelResponse) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method Not Allowed' })
   try {
     await verifyAdmin(req.headers.authorization)
   } catch (err: any) {
     const status = err.message === 'Forbidden' ? 403 : 401
     return res.status(status).json({ error: err.message })
   }
-  await db.collection('invitations').doc(token).delete()
-  return res.status(200).json({ success: true })
+
+  const { action, actor, before, limit } = req.query as {
+    action?: string; actor?: string; before?: string; limit?: string
+  }
+  const pageSize = Math.min(Math.max(parseInt(limit ?? '50', 10) || 50, 1), 200)
+
+  try {
+    let query: FirebaseFirestore.Query = db.collection('auditLogs').orderBy('createdAt', 'desc')
+    if (action) query = query.where('action', '==', action)
+    if (actor)  query = query.where('actorUserId', '==', actor)
+    if (before) {
+      const beforeDate = new Date(Number(before))
+      if (!isNaN(beforeDate.getTime())) {
+        query = query.where('createdAt', '<', beforeDate)
+      }
+    }
+    const snapshot = await query.limit(pageSize + 1).get()
+    const docs = snapshot.docs.slice(0, pageSize)
+    const hasMore = snapshot.docs.length > pageSize
+
+    const logs = docs.map((d) => {
+      const data = d.data()
+      return {
+        id: d.id,
+        actorUserId: data.actorUserId,
+        actorDisplayName: data.actorDisplayName,
+        action: data.action,
+        targetType: data.targetType,
+        targetId: data.targetId,
+        targetLabel: data.targetLabel,
+        details: data.details,
+        createdAt: data.createdAt?.toMillis?.() ?? null,
+      }
+    })
+
+    return res.status(200).json({
+      logs,
+      hasMore,
+      nextBefore: hasMore && logs.length > 0 ? logs[logs.length - 1].createdAt : null,
+    })
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message })
+  }
 }
 
 // ─── 招待リンクからの参加（OAuth開始） ────────────────
@@ -608,8 +709,9 @@ async function handleUsersList(req: VercelRequest, res: VercelResponse) {
 
 // ─── ユーザー詳細＋予約履歴 / BAN更新 ────────────────
 async function handleUserById(req: VercelRequest, res: VercelResponse, userId: string) {
+  let me: AuditActor
   try {
-    await verifyAdmin(req.headers.authorization)
+    me = await verifyAdmin(req.headers.authorization)
   } catch (err: any) {
     const status = err.message === 'Forbidden' ? 403 : 401
     return res.status(status).json({ error: err.message })
@@ -653,7 +755,12 @@ async function handleUserById(req: VercelRequest, res: VercelResponse, userId: s
         return res.status(400).json({ error: '管理者はBANできません' })
       }
     }
+    const targetSnap = await userRef.get()
+    const targetLabel = targetSnap.exists ? (targetSnap.data()?.displayName ?? '') : ''
     await userRef.set({ banned }, { merge: true })
+    await audit(me, banned ? 'user.ban' : 'user.unban', {
+      targetType: 'user', targetId: userId, targetLabel,
+    })
     return res.status(200).json({ success: true })
   }
 
@@ -662,8 +769,9 @@ async function handleUserById(req: VercelRequest, res: VercelResponse, userId: s
 
 // ─── 予約の編集・削除 ─────────────────────────────────
 async function handleReservationById(req: VercelRequest, res: VercelResponse, id: string) {
+  let me: AuditActor
   try {
-    await verifyAdmin(req.headers.authorization)
+    me = await verifyAdmin(req.headers.authorization)
   } catch (err: any) {
     const status = err.message === 'Forbidden' ? 403 : 401
     return res.status(status).json({ error: err.message })
@@ -672,6 +780,7 @@ async function handleReservationById(req: VercelRequest, res: VercelResponse, id
   const docRef = db.collection('reservations').doc(id)
   const doc = await docRef.get()
   if (!doc.exists) return res.status(404).json({ error: '予約が見つかりません' })
+  const before = doc.data()!
 
   if (req.method === 'PUT') {
     const { bandName, date } = (req.body ?? {}) as { bandName?: string; date?: string }
@@ -684,11 +793,19 @@ async function handleReservationById(req: VercelRequest, res: VercelResponse, id
       return res.status(400).json({ error: '更新項目がありません' })
     }
     await docRef.update(update)
+    await audit(me, 'reservation.update', {
+      targetType: 'reservation', targetId: id, targetLabel: before.bandName,
+      details: { before: { bandName: before.bandName, date: before.date }, after: update },
+    })
     return res.status(200).json({ success: true })
   }
 
   if (req.method === 'DELETE') {
     await docRef.delete()
+    await audit(me, 'reservation.delete', {
+      targetType: 'reservation', targetId: id, targetLabel: before.bandName,
+      details: { bandName: before.bandName, date: before.date, userId: before.userId, status: before.status },
+    })
     return res.status(200).json({ success: true })
   }
 

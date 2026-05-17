@@ -756,6 +756,111 @@ body {
   align-items: center;
 }
 
+/* ── 管理画面 タブ ────────────────────────────────── */
+.admin-tabs {
+  display: flex;
+  gap: 0.25rem;
+  margin-bottom: 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.admin-tab {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.6rem 1rem;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  color: var(--text-sub);
+  font-size: 0.9rem;
+  font-weight: 500;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.admin-tab:hover { color: var(--text); }
+
+.admin-tab.active {
+  color: var(--green);
+  border-bottom-color: var(--green);
+  font-weight: 600;
+}
+
+.admin-tab-count {
+  background: var(--bg);
+  color: var(--text-sub);
+  font-size: 0.75rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: 20px;
+  font-weight: 600;
+}
+
+.admin-tab.active .admin-tab-count {
+  background: var(--green-light);
+  color: var(--green-dark);
+}
+
+/* ── ログ一覧 ─────────────────────────────────────── */
+.log-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.log-row {
+  display: grid;
+  grid-template-columns: 32px 1fr auto;
+  gap: 0.75rem;
+  align-items: start;
+  padding: 0.75rem 1rem;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow-sm);
+}
+
+.log-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+}
+
+.log-body { min-width: 0; }
+
+.log-headline {
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.log-time {
+  font-size: 0.75rem;
+  color: var(--text-pale);
+  white-space: nowrap;
+}
+
+.log-details {
+  margin-top: 0.4rem;
+  font-size: 0.8rem;
+}
+
+.log-details summary {
+  color: var(--text-pale);
+  cursor: pointer;
+}
+
+.log-details pre {
+  background: var(--bg);
+  padding: 0.5rem;
+  border-radius: 6px;
+  overflow-x: auto;
+  margin-top: 0.3rem;
+  font-size: 0.75rem;
+  white-space: pre-wrap;
+}
+
 /* ── 日付ピル（追加日・除外日リスト） ───────────── */
 .date-pill {
   display: inline-flex;

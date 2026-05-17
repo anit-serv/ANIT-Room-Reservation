@@ -186,6 +186,34 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       await batch.commit();
     }
 
+    // ---------------------------------------------------------
+    // 4. 期限切れ監査ログを削除（auditLogs）
+    //    expiresAt < now を削除（1年保持）
+    // ---------------------------------------------------------
+    const auditSnapshot = await db.collection('auditLogs')
+      .where('expiresAt', '<', new Date())
+      .get();
+
+    let deletedAuditLogs = 0;
+    if (!auditSnapshot.empty) {
+      const auditBatches: admin.firestore.WriteBatch[] = [];
+      let currentAuditBatch = db.batch();
+      let auditOpCount = 0;
+
+      auditSnapshot.forEach((doc) => {
+        currentAuditBatch.delete(doc.ref);
+        auditOpCount++;
+        if (auditOpCount === 500) {
+          auditBatches.push(currentAuditBatch);
+          currentAuditBatch = db.batch();
+          auditOpCount = 0;
+        }
+      });
+      if (auditOpCount > 0) auditBatches.push(currentAuditBatch);
+      for (const batch of auditBatches) await batch.commit();
+      deletedAuditLogs = auditSnapshot.size;
+    }
+
     return res.status(200).json({
       status: 'success',
       message: 'Data cleanup completed.',
@@ -194,7 +222,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         reservations: deletedReservations,
         lotteryResults: deletedLotteryResults,
         states: deletedStates,
-        total: deletedReservations + deletedLotteryResults + deletedStates
+        auditLogs: deletedAuditLogs,
+        total: deletedReservations + deletedLotteryResults + deletedStates + deletedAuditLogs
       }
     });
 

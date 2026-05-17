@@ -6,6 +6,7 @@ import Reservations from './pages/Reservations'
 import Settings from './pages/Settings'
 import Users from './pages/Users'
 import Admins from './pages/Admins'
+import Logs from './pages/Logs'
 
 export default function AdminApp() {
   return (
@@ -17,6 +18,7 @@ export default function AdminApp() {
         <Route path="settings" element={<Settings />} />
         <Route path="users" element={<Users />} />
         <Route path="admins" element={<Admins />} />
+        <Route path="logs" element={<Logs />} />
       </Route>
       <Route path="*" element={<Navigate to="/admin" replace />} />
     </Routes>

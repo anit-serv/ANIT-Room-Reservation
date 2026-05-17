@@ -8,6 +8,7 @@ const NAV = [
   { to: '/admin/settings',     label: '設定',           icon: 'settings' },
   { to: '/admin/users',        label: 'ユーザー',       icon: 'group' },
   { to: '/admin/admins',       label: '管理者',         icon: 'shield_person' },
+  { to: '/admin/logs',         label: '監査ログ',       icon: 'history' },
 ]
 
 type AdminMe = { userId: string; displayName: string }
