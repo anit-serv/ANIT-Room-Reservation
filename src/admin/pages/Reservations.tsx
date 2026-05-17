@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { adminFetch } from '../auth'
+import TimeRangeInput from '../components/TimeRangeInput'
 
 type Reservation = {
   id: string
@@ -217,12 +218,8 @@ function EditModal({
           />
         </div>
         <div className="form-row">
-          <label>時間帯 (例: 09:00-10:00)</label>
-          <input
-            className="text-input"
-            value={time}
-            onChange={(e) => setTime(e.target.value)}
-          />
+          <label>時間帯</label>
+          <TimeRangeInput value={time} onChange={setTime} />
         </div>
         <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
           <button className="btn-outline" style={{ flex: 1 }} onClick={onClose}>キャンセル</button>

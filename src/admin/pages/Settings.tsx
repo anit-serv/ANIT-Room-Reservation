@@ -1,5 +1,17 @@
 import { useEffect, useState } from 'react'
 import { adminFetch } from '../auth'
+import TimeRangeInput from '../components/TimeRangeInput'
+
+// "09:00-10:00" → "9:00~10:00"
+function valueToLabel(value: string): string {
+  const [s, e] = value.split('-')
+  if (!s || !e) return ''
+  const fmt = (t: string) => {
+    const [h, m] = t.split(':')
+    return `${parseInt(h, 10)}:${m}`
+  }
+  return `${fmt(s)}~${fmt(e)}`
+}
 
 type TimeSlot = { label: string; value: string }
 type NextChange = {
@@ -49,8 +61,10 @@ export default function Settings() {
     )
   }
 
-  function updateSlot(i: number, key: 'label' | 'value', val: string) {
-    setTimeSlots((prev) => prev.map((s, idx) => (idx === i ? { ...s, [key]: val } : s)))
+  function updateSlotValue(i: number, value: string) {
+    setTimeSlots((prev) => prev.map((s, idx) =>
+      idx === i ? { value, label: valueToLabel(value) } : s
+    ))
   }
 
   function addSlot() {
@@ -161,19 +175,11 @@ export default function Settings() {
         </div>
         <div className="slot-list">
           {timeSlots.map((s, i) => (
-            <div key={i} className="slot-row">
-              <input
-                className="text-input"
-                placeholder="表示ラベル（例: 9:00~10:00）"
-                value={s.label}
-                onChange={(e) => updateSlot(i, 'label', e.target.value)}
-              />
-              <input
-                className="text-input"
-                placeholder="値（例: 09:00-10:00）"
-                value={s.value}
-                onChange={(e) => updateSlot(i, 'value', e.target.value)}
-              />
+            <div key={i} className="slot-row slot-row-time">
+              <TimeRangeInput value={s.value} onChange={(v) => updateSlotValue(i, v)} />
+              <span style={{ fontSize: '0.8rem', color: 'var(--text-pale)', minWidth: '100px' }}>
+                {s.label || '未設定'}
+              </span>
               <button className="btn-icon" onClick={() => removeSlot(i)}>
                 <span className="icon">delete</span>
               </button>
