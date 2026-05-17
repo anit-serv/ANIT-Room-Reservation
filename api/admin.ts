@@ -583,14 +583,19 @@ async function handleUsersList(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    const snapshot = await db.collection('users').get()
-    const users = snapshot.docs.map((d) => {
+    const [usersSnap, adminsSnap] = await Promise.all([
+      db.collection('users').get(),
+      db.collection('admins').get(),
+    ])
+    const adminIds = new Set(adminsSnap.docs.map((d) => d.id))
+    const users = usersSnap.docs.map((d) => {
       const data = d.data()
       return {
         userId: d.id,
         displayName: data.displayName ?? '',
         pictureUrl: data.pictureUrl ?? null,
         banned: data.banned ?? false,
+        isAdmin: adminIds.has(d.id),
         lastReservedAt: data.lastReservedAt?.toMillis?.() ?? null,
       }
     })
@@ -613,9 +618,10 @@ async function handleUserById(req: VercelRequest, res: VercelResponse, userId: s
   const userRef = db.collection('users').doc(userId)
 
   if (req.method === 'GET') {
-    const [userDoc, resSnap] = await Promise.all([
+    const [userDoc, resSnap, adminDoc] = await Promise.all([
       userRef.get(),
       db.collection('reservations').where('userId', '==', userId).get(),
+      db.collection('admins').doc(userId).get(),
     ])
     if (!userDoc.exists) return res.status(404).json({ error: 'ユーザーが見つかりません' })
     const data = userDoc.data()!
@@ -631,6 +637,7 @@ async function handleUserById(req: VercelRequest, res: VercelResponse, userId: s
         displayName: data.displayName ?? '',
         pictureUrl: data.pictureUrl ?? null,
         banned: data.banned ?? false,
+        isAdmin: adminDoc.exists,
         lastReservedAt: data.lastReservedAt?.toMillis?.() ?? null,
       },
       reservations,
@@ -640,6 +647,12 @@ async function handleUserById(req: VercelRequest, res: VercelResponse, userId: s
   if (req.method === 'PUT') {
     const { banned } = (req.body ?? {}) as { banned?: boolean }
     if (typeof banned !== 'boolean') return res.status(400).json({ error: '不正なリクエスト' })
+    if (banned) {
+      const adminDoc = await db.collection('admins').doc(userId).get()
+      if (adminDoc.exists) {
+        return res.status(400).json({ error: '管理者はBANできません' })
+      }
+    }
     await userRef.set({ banned }, { merge: true })
     return res.status(200).json({ success: true })
   }

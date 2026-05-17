@@ -136,7 +136,6 @@ export default function Admins() {
               <tr key={a.userId}>
                 <td>
                   <div>{a.displayName || '(名前なし)'}</div>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--text-pale)' }}>{a.userId}</div>
                 </td>
                 <td style={{ fontSize: '0.85rem', color: 'var(--text-sub)' }}>
                   {a.addedAt ? new Date(a.addedAt).toLocaleDateString('ja-JP') : '-'}

@@ -6,6 +6,7 @@ type User = {
   displayName: string
   pictureUrl: string | null
   banned: boolean
+  isAdmin?: boolean
   lastReservedAt: number | null
 }
 
@@ -96,13 +97,17 @@ export default function Users() {
                       : '-'}
                   </td>
                   <td>
-                    {u.banned
-                      ? <span className="badge" style={{ background: 'var(--red-light)', color: 'var(--red)' }}>
-                          <span className="icon icon-sm">block</span>BAN中
+                    {u.isAdmin
+                      ? <span className="badge" style={{ background: '#e8f0fe', color: '#1a73e8' }}>
+                          <span className="icon icon-sm">shield_person</span>管理者
                         </span>
-                      : <span className="badge confirmed">
-                          <span className="icon icon-sm">check_circle</span>有効
-                        </span>}
+                      : u.banned
+                        ? <span className="badge" style={{ background: 'var(--red-light)', color: 'var(--red)' }}>
+                            <span className="icon icon-sm">block</span>BAN中
+                          </span>
+                        : <span className="badge confirmed">
+                            <span className="icon icon-sm">check_circle</span>有効
+                          </span>}
                   </td>
                   <td>
                     <button className="btn-outline" style={{ width: 'auto', padding: '0.35rem 0.6rem', fontSize: '0.8rem' }}
@@ -183,19 +188,25 @@ function UserDetail({
                   </span>}
               <div>
                 <div style={{ fontWeight: 700 }}>{data.user.displayName || '(名前なし)'}</div>
-                <div style={{ fontSize: '0.8rem', color: 'var(--text-pale)' }}>{userId}</div>
               </div>
             </div>
 
-            <button
-              className={data.user.banned ? 'btn-outline' : 'btn-danger'}
-              style={{ width: '100%', padding: '0.6rem', marginBottom: '1rem' }}
-              onClick={toggleBan}
-              disabled={working}
-            >
-              <span className="icon icon-sm">{data.user.banned ? 'lock_open' : 'block'}</span>
-              {data.user.banned ? 'BAN を解除' : 'BAN する'}
-            </button>
+            {data.user.isAdmin ? (
+              <div className="banner" style={{ background: '#e8f0fe', color: '#1a73e8', borderColor: '#1a73e8', marginBottom: '1rem' }}>
+                <span className="icon icon-sm" style={{ verticalAlign: 'middle' }}>shield_person</span>
+                {' '}このユーザーは管理者です（BAN できません）
+              </div>
+            ) : (
+              <button
+                className={data.user.banned ? 'btn-outline' : 'btn-danger'}
+                style={{ width: '100%', padding: '0.6rem', marginBottom: '1rem' }}
+                onClick={toggleBan}
+                disabled={working}
+              >
+                <span className="icon icon-sm">{data.user.banned ? 'lock_open' : 'block'}</span>
+                {data.user.banned ? 'BAN を解除' : 'BAN する'}
+              </button>
+            )}
 
             <h3 style={{ fontSize: '0.9rem', marginBottom: '0.5rem' }}>予約履歴 ({data.reservations.length}件)</h3>
             {data.reservations.length === 0 ? (
