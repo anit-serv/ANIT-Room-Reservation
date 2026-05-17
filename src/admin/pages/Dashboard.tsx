@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { adminFetch } from '../auth'
+import Skeleton from '../../components/Skeleton'
 
 type Stats = {
   pendingReservations: number
@@ -85,7 +86,9 @@ export default function Dashboard() {
   }, [])
 
   if (error) return <div className="banner error">{error}</div>
-  if (!data) return <div className="splash"><div className="spinner" /></div>
+  if (!data) return <DashboardSkeleton />
+
+  // 以降は実データ表示
 
   const { stats, upcoming, pendingChange, recentLogs } = data
 
@@ -228,6 +231,48 @@ export default function Dashboard() {
             </div>
           )}
         </div>
+      </div>
+    </div>
+  )
+}
+
+function DashboardSkeleton() {
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
+        <Skeleton width="180px" height="28px" />
+        <Skeleton width="200px" height="20px" />
+      </div>
+      <div className="stats-grid">
+        {[0, 1, 2, 3].map((i) => (
+          <div key={i} className="stat-card">
+            <Skeleton width={32} height={32} circle />
+            <div className="stat-body">
+              <Skeleton width="60%" height="12px" style={{ marginBottom: '0.4rem' }} />
+              <Skeleton width="40%" height="24px" />
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="dashboard-grid">
+        {[0, 1].map((i) => (
+          <div key={i} className="admin-card" style={{ padding: 0, overflow: 'hidden' }}>
+            <div className="dash-section-header">
+              <Skeleton width="160px" height="20px" />
+              <Skeleton width="80px" height="14px" />
+            </div>
+            {[0, 1, 2, 3].map((j) => (
+              <div key={j} className="dash-list-item" style={{ cursor: 'default' }}>
+                <Skeleton width="4px" height="40px" style={{ borderRadius: '4px' }} />
+                <div style={{ flex: 1 }}>
+                  <Skeleton width="70%" height="14px" style={{ marginBottom: '0.3rem' }} />
+                  <Skeleton width="50%" height="12px" />
+                </div>
+                <Skeleton width="48px" height="20px" style={{ borderRadius: '20px' }} />
+              </div>
+            ))}
+          </div>
+        ))}
       </div>
     </div>
   )

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import type { LiffProfile } from '../LiffApp'
+import Skeleton from '../../components/Skeleton'
 
 type Props = { profile: LiffProfile }
 type TimeSlot  = { label: string; value: string }
@@ -12,6 +13,7 @@ export default function ReservationForm({ profile }: Props) {
   const [selectedTime, setSelectedTime] = useState('')
   const [submitting,   setSubmitting]   = useState(false)
   const [done,         setDone]         = useState(false)
+  const [loadingSettings, setLoadingSettings] = useState(true)
   const [error,        setError]        = useState<string | null>(null)
 
   useEffect(() => {
@@ -19,6 +21,7 @@ export default function ReservationForm({ profile }: Props) {
       .then((r) => r.json())
       .then((data) => setDates(data.availableDates ?? []))
       .catch(() => setError('設定の取得に失敗しました'))
+      .finally(() => setLoadingSettings(false))
   }, [])
 
   const selectedDateEntry = dates.find((d) => d.value === selectedDate)
@@ -68,6 +71,20 @@ export default function ReservationForm({ profile }: Props) {
 
   const dateLabel = dates.find((d) => d.value === selectedDate)?.label ?? ''
   const timeLabel = timeSlots.find((t) => t.value === selectedTime)?.label ?? ''
+
+  if (loadingSettings) {
+    return (
+      <div>
+        <Skeleton width="100px" height="20px" style={{ marginBottom: '1rem' }} />
+        {[0, 1, 2].map((i) => (
+          <div key={i} className="section">
+            <Skeleton width="40%" height="14px" style={{ marginBottom: '0.5rem' }} />
+            <Skeleton width="100%" height={i === 0 ? 44 : 80} />
+          </div>
+        ))}
+      </div>
+    )
+  }
 
   if (done) {
     return (

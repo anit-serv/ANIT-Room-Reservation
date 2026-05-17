@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { adminFetch } from '../auth'
+import Skeleton from '../../components/Skeleton'
 
 type Log = {
   id: string
@@ -89,8 +90,17 @@ export default function Logs() {
       {error && <div className="banner error">{error}</div>}
 
       {loading ? (
-        <div className="splash" style={{ height: 'auto', padding: '3rem 0' }}>
-          <div className="spinner" />
+        <div className="log-list">
+          {[0, 1, 2, 3, 4, 5].map((i) => (
+            <div key={i} className="log-row">
+              <Skeleton width={32} height={32} circle />
+              <div style={{ flex: 1 }}>
+                <Skeleton width="70%" height="14px" style={{ marginBottom: '0.3rem' }} />
+                <Skeleton width="40%" height="12px" />
+              </div>
+              <Skeleton width="60px" height="12px" />
+            </div>
+          ))}
         </div>
       ) : logs.length === 0 ? (
         <div className="empty-state">

@@ -756,6 +756,22 @@ body {
   align-items: center;
 }
 
+/* ── スケルトン ─────────────────────────────────── */
+.skel {
+  display: block;
+  background: linear-gradient(90deg, #ececef 0%, #f5f5f7 50%, #ececef 100%);
+  background-size: 200% 100%;
+  animation: skel-shimmer 1.4s ease-in-out infinite;
+  border-radius: 6px;
+}
+
+.skel-circle { border-radius: 50%; }
+
+@keyframes skel-shimmer {
+  0%   { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+
 /* ── ダッシュボード ──────────────────────────────── */
 .stats-grid {
   display: grid;

@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { adminFetch } from '../auth'
+import Skeleton from '../../components/Skeleton'
 
 type Admin = {
   userId: string
@@ -101,7 +102,28 @@ export default function Admins() {
     )
   }
 
-  if (loading) return <div className="splash"><div className="spinner" /></div>
+  if (loading) return (
+    <div>
+      <Skeleton width="180px" height="28px" style={{ marginBottom: '1.5rem' }} />
+      <div className="admin-card">
+        <Skeleton width="60%" height="20px" style={{ marginBottom: '0.5rem' }} />
+        <Skeleton width="90%" height="14px" style={{ marginBottom: '1rem' }} />
+        <Skeleton width="160px" height="36px" />
+      </div>
+      <div className="admin-card" style={{ padding: 0, overflow: 'hidden' }}>
+        <div style={{ padding: '1rem 1.25rem', borderBottom: '1px solid var(--border)' }}>
+          <Skeleton width="200px" height="20px" />
+        </div>
+        {[0, 1, 2].map((i) => (
+          <div key={i} style={{ display: 'flex', gap: '0.75rem', padding: '0.75rem 1rem', borderBottom: '1px solid var(--border)', alignItems: 'center' }}>
+            <Skeleton width="40%" height="16px" />
+            <Skeleton width="80px" height="14px" style={{ marginLeft: 'auto' }} />
+            <Skeleton width="32px" height="32px" />
+          </div>
+        ))}
+      </div>
+    </div>
+  )
 
   return (
     <div>

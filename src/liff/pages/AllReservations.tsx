@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import Skeleton from '../../components/Skeleton'
 
 type TimeSlot    = { label: string; value: string }
 type DateEntry   = { label: string; value: string; timeSlots: TimeSlot[] }
@@ -69,8 +70,14 @@ export default function AllReservations() {
 
       {/* ローディング */}
       {loading && (
-        <div className="splash" style={{ height: 'auto', padding: '2.5rem 0' }}>
-          <div className="spinner" />
+        <div>
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="time-section">
+              <Skeleton width="100px" height="14px" style={{ marginBottom: '0.5rem' }} />
+              <Skeleton width="100%" height="40px" style={{ marginBottom: '0.3rem' }} />
+              <Skeleton width="100%" height="40px" />
+            </div>
+          ))}
         </div>
       )}
 

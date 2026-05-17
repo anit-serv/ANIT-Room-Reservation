@@ -3,6 +3,7 @@ import { adminFetch } from '../auth'
 import TimeSlotsEditor, { findConflicts, toMinutes, type TimeSlot } from '../components/TimeSlotsEditor'
 import DateListEditor from '../components/DateListEditor'
 import PerDayScheduleEditor, { findAllConflicts, type PerDaySchedule } from '../components/PerDayScheduleEditor'
+import Skeleton from '../../components/Skeleton'
 
 type SettingsCore = {
   availableDays: number[]
@@ -154,7 +155,17 @@ export default function Settings() {
     }
   }
 
-  if (!current) return <div className="splash"><div className="spinner" /></div>
+  if (!current) return (
+    <div>
+      <Skeleton width="160px" height="28px" style={{ marginBottom: '1.5rem' }} />
+      {[0, 1, 2, 3, 4].map((i) => (
+        <div key={i} className="admin-card">
+          <Skeleton width="40%" height="20px" style={{ marginBottom: '0.75rem' }} />
+          <Skeleton width="100%" height="60px" />
+        </div>
+      ))}
+    </div>
+  )
 
   return (
     <div>

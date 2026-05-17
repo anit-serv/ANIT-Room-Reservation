@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { adminFetch } from '../auth'
+import Skeleton from '../../components/Skeleton'
 
 type User = {
   userId: string
@@ -87,8 +88,16 @@ export default function Users() {
       {error && <div className="banner error">{error}</div>}
 
       {loading ? (
-        <div className="splash" style={{ height: 'auto', padding: '3rem 0' }}>
-          <div className="spinner" />
+        <div className="admin-card" style={{ padding: 0, overflow: 'hidden' }}>
+          {[0, 1, 2, 3, 4].map((i) => (
+            <div key={i} style={{ display: 'flex', gap: '0.75rem', padding: '0.75rem 1rem', borderBottom: '1px solid var(--border)', alignItems: 'center' }}>
+              <Skeleton width={32} height={32} circle />
+              <Skeleton width="40%" height="16px" />
+              <Skeleton width="80px" height="14px" style={{ marginLeft: 'auto' }} />
+              <Skeleton width="80px" height="22px" style={{ borderRadius: '20px' }} />
+              <Skeleton width="56px" height="28px" />
+            </div>
+          ))}
         </div>
       ) : filtered.length === 0 ? (
         <div className="empty-state">

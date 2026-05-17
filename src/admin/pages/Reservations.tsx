@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { adminFetch } from '../auth'
 import TimeRangeInput from '../components/TimeRangeInput'
+import Skeleton from '../../components/Skeleton'
 
 type Reservation = {
   id: string
@@ -119,8 +120,20 @@ export default function Reservations() {
 
       {error && <div className="banner error" style={{ marginBottom: '1rem' }}>{error}</div>}
       {loading ? (
-        <div className="splash" style={{ height: 'auto', padding: '3rem 0' }}>
-          <div className="spinner" />
+        <div className="admin-card" style={{ padding: 0, overflow: 'hidden' }}>
+          {[0, 1, 2, 3, 4, 5].map((i) => (
+            <div key={i} style={{ display: 'flex', gap: '1rem', padding: '0.75rem 1rem', borderBottom: '1px solid var(--border)', alignItems: 'center' }}>
+              <Skeleton width="80px" height="38px" />
+              <Skeleton width="120px" height="20px" />
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flex: 1 }}>
+                <Skeleton width={24} height={24} circle />
+                <Skeleton width="80px" height="14px" />
+              </div>
+              <Skeleton width="80px" height="22px" style={{ borderRadius: '20px' }} />
+              <Skeleton width="24px" height="14px" />
+              <Skeleton width="76px" height="32px" />
+            </div>
+          ))}
         </div>
       ) : reservations.length === 0 ? (
         <div className="empty-state">

@@ -3,6 +3,7 @@ import liff from '@line/liff'
 import ReservationForm from './pages/ReservationForm'
 import MyReservations from './pages/MyReservations'
 import AllReservations from './pages/AllReservations'
+import Skeleton from '../components/Skeleton'
 
 type Tab = 'register' | 'my' | 'all'
 
@@ -44,9 +45,24 @@ function App() {
 
   if (error) return <div className="error-splash"><span className="icon icon-xl">error</span><br />{error}</div>
   if (!profile) return (
-    <div className="splash">
-      <div className="spinner" />
-      <span>読み込み中...</span>
+    <div className="liff-shell">
+      <nav className="tab-bar">
+        {TABS.map((_, i) => (
+          <div key={i} style={{ flex: 1, padding: '10px 4px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+            <Skeleton width="22px" height="22px" />
+            <Skeleton width="48px" height="10px" />
+          </div>
+        ))}
+      </nav>
+      <main className="page">
+        <Skeleton width="100px" height="20px" style={{ marginBottom: '1rem' }} />
+        {[0, 1, 2].map((i) => (
+          <div key={i} className="section">
+            <Skeleton width="40%" height="14px" style={{ marginBottom: '0.5rem' }} />
+            <Skeleton width="100%" height="44px" />
+          </div>
+        ))}
+      </main>
     </div>
   )
 

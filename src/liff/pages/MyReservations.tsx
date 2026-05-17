@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import type { LiffProfile } from '../LiffApp'
+import Skeleton from '../../components/Skeleton'
 
 type Props = { profile: LiffProfile }
 
@@ -53,9 +54,18 @@ export default function MyReservations({ profile }: Props) {
   }
 
   if (loading) return (
-    <div className="splash">
-      <div className="spinner" />
-      <span>読み込み中...</span>
+    <div>
+      <Skeleton width="120px" height="20px" style={{ marginBottom: '1rem' }} />
+      {[0, 1, 2].map((i) => (
+        <div key={i} className="reservation-card">
+          <Skeleton width="4px" height="56px" style={{ borderRadius: '4px' }} />
+          <div style={{ flex: 1 }}>
+            <Skeleton width="60%" height="16px" style={{ marginBottom: '0.4rem' }} />
+            <Skeleton width="80%" height="12px" style={{ marginBottom: '0.5rem' }} />
+            <Skeleton width="80px" height="20px" style={{ borderRadius: '20px' }} />
+          </div>
+        </div>
+      ))}
     </div>
   )
 

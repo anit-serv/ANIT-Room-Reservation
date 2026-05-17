@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { getAdminToken, clearAdminToken, adminFetch } from './auth'
+import Skeleton from '../components/Skeleton'
 
 const NAV = [
   { to: '/admin',              label: 'ダッシュボード', icon: 'dashboard',     end: true },
@@ -43,7 +44,21 @@ export default function AdminLayout() {
     navigate('/admin/login', { replace: true })
   }
 
-  if (!me) return <div className="splash"><div className="spinner" /></div>
+  if (!me) return (
+    <div className="admin-shell">
+      <aside className="admin-sidebar">
+        <Skeleton width="60%" height="20px" style={{ margin: '0.5rem 0.75rem 1rem' }} />
+        {NAV.map((_, i) => (
+          <Skeleton key={i} width="100%" height="40px" style={{ marginBottom: '0.25rem' }} />
+        ))}
+      </aside>
+      <main className="admin-main">
+        <Skeleton width="200px" height="28px" style={{ marginBottom: '1.5rem' }} />
+        <Skeleton width="100%" height="120px" style={{ marginBottom: '1rem' }} />
+        <Skeleton width="100%" height="300px" />
+      </main>
+    </div>
+  )
 
   return (
     <div className="admin-shell">
