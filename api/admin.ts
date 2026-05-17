@@ -99,6 +99,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // 監査ログ
   if (path === 'logs') return handleLogs(req, res)
 
+  // ダッシュボード
+  if (path === 'dashboard') return handleDashboard(req, res)
+
   return res.status(404).json({ error: 'Not Found' })
 }
 
@@ -638,6 +641,106 @@ async function handleInvitationById(req: VercelRequest, res: VercelResponse, tok
   await db.collection('invitations').doc(token).delete()
   await audit(me, 'invitation.revoke', { targetType: 'invitation', targetId: token })
   return res.status(200).json({ success: true })
+}
+
+// ─── ダッシュボード（統計＋直近データを集約） ─────────
+async function handleDashboard(req: VercelRequest, res: VercelResponse) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method Not Allowed' })
+  try {
+    await verifyAdmin(req.headers.authorization)
+  } catch (err: any) {
+    const status = err.message === 'Forbidden' ? 403 : 401
+    return res.status(status).json({ error: err.message })
+  }
+
+  try {
+    const nowJST = new Date(Date.now() + 9 * 60 * 60 * 1000)
+    const todayStr = nowJST.toISOString().slice(0, 10)
+    const in7Days = new Date(nowJST); in7Days.setUTCDate(nowJST.getUTCDate() + 7)
+    const in7DaysStr = in7Days.toISOString().slice(0, 10)
+
+    const [resSnap, usersSnap, adminsSnap, settingsDoc, logsSnap] = await Promise.all([
+      db.collection('reservations').where('date', '>=', `${todayStr}T00:00`).get(),
+      db.collection('users').get(),
+      db.collection('admins').get(),
+      db.collection('settings').doc('reservation').get(),
+      db.collection('auditLogs').orderBy('createdAt', 'desc').limit(8).get(),
+    ])
+
+    // 統計
+    const allFutureRes = resSnap.docs.map((d) => ({ id: d.id, ...d.data() } as any))
+    const pendingCount = allFutureRes.filter((r) => r.status === 'pending').length
+    const confirmedCount = allFutureRes.filter((r) => r.status === 'confirmed').length
+    const todayCount = allFutureRes.filter((r) => (r.date ?? '').startsWith(todayStr)).length
+    const bannedCount = usersSnap.docs.filter((d) => d.data().banned === true).length
+
+    // 直近の予約（今日以降7日間、最大10件）
+    const upcomingRaw = allFutureRes
+      .filter((r) => (r.date ?? '').split('T')[0] <= in7DaysStr)
+      .sort((a, b) => (a.date ?? '').localeCompare(b.date ?? ''))
+      .slice(0, 10)
+
+    // ユーザー名を結合
+    const upcomingUserIds = Array.from(new Set(upcomingRaw.map((r) => r.userId).filter(Boolean)))
+    const userMap: Record<string, { displayName: string; pictureUrl: string | null }> = {}
+    if (upcomingUserIds.length > 0) {
+      const refs = upcomingUserIds.map((id) => db.collection('users').doc(id))
+      const userDocs = await db.getAll(...refs)
+      userDocs.forEach((d) => {
+        if (d.exists) {
+          userMap[d.id] = {
+            displayName: d.data()?.displayName ?? '',
+            pictureUrl: d.data()?.pictureUrl ?? null,
+          }
+        }
+      })
+    }
+
+    const upcoming = upcomingRaw.map((r) => ({
+      id: r.id,
+      bandName: r.bandName,
+      date: r.date,
+      status: r.status,
+      order: r.order,
+      userDisplayName: userMap[r.userId]?.displayName ?? '',
+      userPictureUrl:  userMap[r.userId]?.pictureUrl  ?? null,
+    }))
+
+    // 適用予定の設定変更
+    const settings = settingsDoc.exists ? settingsDoc.data()! : {}
+    const pendingChange = settings.nextChange ?? null
+
+    // 最近のログ
+    const recentLogs = logsSnap.docs.map((d) => {
+      const data = d.data()
+      return {
+        id: d.id,
+        actorDisplayName: data.actorDisplayName,
+        action: data.action,
+        targetLabel: data.targetLabel,
+        createdAt: data.createdAt?.toMillis?.() ?? null,
+      }
+    })
+
+    return res.status(200).json({
+      stats: {
+        pendingReservations: pendingCount,
+        confirmedReservations: confirmedCount,
+        todayReservations: todayCount,
+        totalUsers: usersSnap.size,
+        bannedUsers: bannedCount,
+        adminCount: adminsSnap.size,
+      },
+      upcoming,
+      pendingChange: pendingChange ? {
+        availableDays: pendingChange.availableDays ?? [],
+        effectiveFrom: pendingChange.effectiveFrom ?? null,
+      } : null,
+      recentLogs,
+    })
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message })
+  }
 }
 
 // ─── 監査ログ一覧（GET のみ。削除エンドポイントなし） ──
