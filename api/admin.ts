@@ -494,10 +494,15 @@ async function handleAdminsList(req: VercelRequest, res: VercelResponse) {
     return {
       userId: d.id,
       displayName: data.displayName ?? '',
+      isSuperAdmin: data.isSuperAdmin === true,
       addedAt: data.addedAt?.toMillis?.() ?? null,
       addedBy: data.addedBy ?? null,
     }
-  }).sort((a, b) => (a.addedAt ?? 0) - (b.addedAt ?? 0))
+  }).sort((a, b) => {
+    // スーパー管理者を先頭、その後 addedAt 順
+    if (a.isSuperAdmin !== b.isSuperAdmin) return a.isSuperAdmin ? -1 : 1
+    return (a.addedAt ?? 0) - (b.addedAt ?? 0)
+  })
   return res.status(200).json({ admins })
 }
 
@@ -515,7 +520,11 @@ async function handleAdminById(req: VercelRequest, res: VercelResponse, targetId
     return res.status(400).json({ error: '自分自身は削除できません' })
   }
   const target = await db.collection('admins').doc(targetId).get()
-  const targetLabel = target.exists ? (target.data()?.displayName ?? '') : ''
+  if (!target.exists) return res.status(404).json({ error: '管理者が見つかりません' })
+  if (target.data()?.isSuperAdmin === true) {
+    return res.status(403).json({ error: 'スーパー管理者は削除できません' })
+  }
+  const targetLabel = target.data()?.displayName ?? ''
   await db.collection('admins').doc(targetId).delete()
   await audit(me, 'admin.remove', { targetType: 'admin', targetId, targetLabel })
   return res.status(200).json({ success: true })

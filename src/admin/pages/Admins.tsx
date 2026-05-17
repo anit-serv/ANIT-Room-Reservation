@@ -4,6 +4,7 @@ import { adminFetch } from '../auth'
 type Admin = {
   userId: string
   displayName: string
+  isSuperAdmin: boolean
   addedAt: number | null
   addedBy: string | null
 }
@@ -135,14 +136,24 @@ export default function Admins() {
             {admins.map((a) => (
               <tr key={a.userId}>
                 <td>
-                  <div>{a.displayName || '(名前なし)'}</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <span>{a.displayName || '(名前なし)'}</span>
+                    {a.isSuperAdmin && (
+                      <span className="badge" style={{ background: '#fff7e0', color: '#b86200', border: '1px solid #f4c95a' }}>
+                        <span className="icon icon-sm">star</span>スーパー管理者
+                      </span>
+                    )}
+                    {me?.userId === a.userId && (
+                      <span className="badge" style={{ background: 'var(--bg)', color: 'var(--text-sub)' }}>自分</span>
+                    )}
+                  </div>
                 </td>
                 <td style={{ fontSize: '0.85rem', color: 'var(--text-sub)' }}>
                   {a.addedAt ? new Date(a.addedAt).toLocaleDateString('ja-JP') : '-'}
                 </td>
                 <td>
-                  {me?.userId === a.userId ? (
-                    <span style={{ fontSize: '0.8rem', color: 'var(--text-pale)' }}>自分</span>
+                  {(a.isSuperAdmin || me?.userId === a.userId) ? (
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-pale)' }}>—</span>
                   ) : (
                     <button className="btn-icon" onClick={() => removeAdmin(a)}>
                       <span className="icon">person_remove</span>
