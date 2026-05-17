@@ -7,7 +7,6 @@ export default function Login() {
   const [params] = useSearchParams()
 
   useEffect(() => {
-    // OAuth コールバック後のトークン受け取り
     const token = params.get('token')
     const error = params.get('error')
     if (token) {
@@ -27,12 +26,12 @@ export default function Login() {
   const error = params.get('error')
 
   return (
-    <div className="login-screen">
-      <div className="login-card">
-        <h1 className="login-title">管理画面</h1>
-        <p className="login-sub">LINE アカウントでログインしてください</p>
+    <div className="flex items-center justify-center min-h-dvh p-4 bg-bg">
+      <div className="bg-surface border border-line rounded-2xl p-8 shadow-[var(--shadow-card)] max-w-[360px] w-full">
+        <h1 className="text-[1.3rem] font-bold mb-2 text-center text-ink">管理画面</h1>
+        <p className="text-[0.9rem] text-ink-sub text-center mb-6">LINE アカウントでログインしてください</p>
         {error && (
-          <div className="banner error" style={{ marginBottom: '1rem' }}>
+          <div className="banner-error">
             {error === 'not_admin'           ? '管理者として登録されていません'
             : error === 'invitation_expired' ? '招待リンクの有効期限が切れています'
             : error === 'invitation_used'    ? 'この招待リンクは既に使用されています'
@@ -41,7 +40,10 @@ export default function Login() {
             : 'ログインに失敗しました'}
           </div>
         )}
-        <button className="line-login-btn" onClick={handleLogin}>
+        <button
+          onClick={handleLogin}
+          className="w-full flex items-center justify-center gap-2 px-4 py-[0.9rem] bg-brand hover:bg-brand-dark text-white rounded-[10px] text-base font-semibold cursor-pointer transition-colors"
+        >
           <span className="icon">login</span>
           LINE でログイン
         </button>

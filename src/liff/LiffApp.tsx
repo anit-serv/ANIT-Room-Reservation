@@ -39,7 +39,6 @@ function App() {
           pictureUrl: lineProfile.pictureUrl,
           idToken,
         })
-        // ユーザー情報を users コレクションに同期（失敗しても無視）
         fetch('/api/reservations/sync', {
           method: 'POST',
           headers: { Authorization: `Bearer ${idToken}` },
@@ -48,22 +47,30 @@ function App() {
       .catch((err: Error) => setError(err.message))
   }, [])
 
-  if (error) return <div className="error-splash"><span className="icon icon-xl">error</span><br />{error}</div>
+  if (error) return (
+    <div className="flex items-center justify-center min-h-dvh p-6 text-danger text-center text-sm">
+      <div>
+        <span className="icon icon-xl">error</span>
+        <br />{error}
+      </div>
+    </div>
+  )
+
   if (!profile) return (
     <div className="liff-shell">
-      <nav className="tab-bar">
+      <nav className="flex bg-surface border-b border-line sticky top-0 z-10">
         {TABS.map((_, i) => (
-          <div key={i} style={{ flex: 1, padding: '10px 4px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+          <div key={i} className="flex-1 px-1 py-2.5 flex flex-col items-center gap-1">
             <Skeleton width="22px" height="22px" />
             <Skeleton width="48px" height="10px" />
           </div>
         ))}
       </nav>
-      <main className="page">
-        <Skeleton width="100px" height="20px" style={{ marginBottom: '1rem' }} />
+      <main className="flex-1 p-4 overflow-y-auto">
+        <Skeleton width="100px" height="20px" className="mb-4" />
         {[0, 1, 2].map((i) => (
-          <div key={i} className="section">
-            <Skeleton width="40%" height="14px" style={{ marginBottom: '0.5rem' }} />
+          <div key={i} className="bg-surface border border-line rounded-xl p-4 mb-3 shadow-[var(--shadow-card-sm)]">
+            <Skeleton width="40%" height="14px" className="mb-2" />
             <Skeleton width="100%" height="44px" />
           </div>
         ))}
@@ -73,19 +80,24 @@ function App() {
 
   return (
     <div className="liff-shell">
-      <nav className="tab-bar">
+      <nav className="flex bg-surface border-b border-line sticky top-0 z-10">
         {TABS.map(({ id, icon, label }) => (
           <button
             key={id}
-            className={activeTab === id ? 'active' : ''}
             onClick={() => setActiveTab(id)}
+            className={
+              'flex-1 flex flex-col items-center gap-0.5 px-1 py-2.5 text-[0.7rem] border-b-2 transition-colors -webkit-tap-highlight-color-transparent ' +
+              (activeTab === id
+                ? 'text-brand border-brand font-semibold'
+                : 'text-ink-pale border-transparent')
+            }
           >
-            <span className="icon tab-icon">{icon}</span>
+            <span className="icon" style={{ fontSize: 22 }}>{icon}</span>
             {label}
           </button>
         ))}
       </nav>
-      <main className="page">
+      <main className="flex-1 p-4 overflow-y-auto">
         {activeTab === 'register' && <ReservationForm profile={profile} />}
         {activeTab === 'my'       && <MyReservations  profile={profile} />}
         {activeTab === 'all'      && <AllReservations />}

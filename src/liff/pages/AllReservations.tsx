@@ -40,7 +40,6 @@ export default function AllReservations() {
     }
   }
 
-  // 選択日付の時間枠順で並べる。順序にないものは末尾に補う。
   const activeSlots = slotMap
     ? (() => {
         const known = timeSlotOrder.filter((ts) => slotMap[ts]?.length)
@@ -51,72 +50,75 @@ export default function AllReservations() {
 
   return (
     <div>
-      <p className="page-title">全登録表示</p>
+      <p className="text-[1.05rem] font-bold mb-4 text-ink">全登録表示</p>
 
-      {error && <div className="banner error">{error}</div>}
+      {error && <div className="banner-error">{error}</div>}
 
       {/* 日付チップ（横スクロール） */}
-      <div className="date-scroll">
+      <div className="no-scrollbar flex gap-2 overflow-x-auto pb-1 mb-4">
         {dates.map((d) => (
           <button
             key={d.value}
-            className={`date-chip ${selectedDate === d.value ? 'selected' : ''}`}
             onClick={() => handleDateSelect(d.value)}
+            className={
+              'flex-shrink-0 px-3.5 py-1.5 border-[1.5px] rounded-full text-[0.85rem] cursor-pointer transition whitespace-nowrap ' +
+              (selectedDate === d.value
+                ? 'bg-brand border-brand text-white font-semibold'
+                : 'bg-[#fafafa] border-line text-ink-sub')
+            }
           >
             {d.label}
           </button>
         ))}
       </div>
 
-      {/* ローディング */}
       {loading && (
         <div>
           {[0, 1, 2].map((i) => (
-            <div key={i} className="time-section">
-              <Skeleton width="100px" height="14px" style={{ marginBottom: '0.5rem' }} />
-              <Skeleton width="100%" height="40px" style={{ marginBottom: '0.3rem' }} />
+            <div key={i} className="mb-4">
+              <Skeleton width="100px" height="14px" className="mb-2" />
+              <Skeleton width="100%" height="40px" className="mb-1" />
               <Skeleton width="100%" height="40px" />
             </div>
           ))}
         </div>
       )}
 
-      {/* 結果 */}
       {slotMap && !loading && (
         activeSlots.length === 0
           ? (
-            <div className="empty-state">
-              <span className="icon icon-xl" style={{ color: 'var(--text-pale)' }}>event_busy</span>
-              <span className="empty-text">この日の登録はまだありません</span>
+            <div className="flex flex-col items-center gap-2 py-12 px-4 text-ink-pale text-center">
+              <span className="icon icon-xl text-ink-pale">event_busy</span>
+              <span className="text-[0.9rem]">この日の登録はまだありません</span>
             </div>
           )
           : activeSlots.map((ts) => (
-            <div key={ts} className="time-section">
-              <div className="time-header">
+            <div key={ts} className="mb-4">
+              <div className="flex items-center gap-1.5 text-[0.8rem] font-bold text-ink-sub mb-1.5 px-1">
                 <span className="icon icon-sm">schedule</span>
                 <span>{ts}</span>
-                <span style={{ marginLeft: 'auto', color: 'var(--text-pale)', fontWeight: 400 }}>
-                  {slotMap[ts].length}件
-                </span>
+                <span className="ml-auto text-ink-pale font-normal">{slotMap[ts].length}件</span>
               </div>
               {slotMap[ts].map((entry, i) => (
-                <div key={i} className="slot-item">
-                  {entry.status === 'confirmed'
-                    ? <div className="slot-rank">{i + 1}</div>
-                    : <div className="slot-dot" />
-                  }
-                  <span className="slot-name">{entry.bandName}</span>
+                <div key={i} className="flex items-center gap-2.5 px-3 py-2 bg-surface border border-line rounded-lg mb-1 shadow-[var(--shadow-card-sm)]">
+                  {entry.status === 'confirmed' ? (
+                    <div className="w-[22px] h-[22px] rounded-full bg-brand-light text-brand-dark text-[0.7rem] font-bold flex items-center justify-center flex-shrink-0">
+                      {i + 1}
+                    </div>
+                  ) : (
+                    <div className="w-1.5 h-1.5 rounded-full bg-ink-pale flex-shrink-0" />
+                  )}
+                  <span className="text-[0.9rem] text-ink font-medium">{entry.bandName}</span>
                 </div>
               ))}
             </div>
           ))
       )}
 
-      {/* 日付未選択 */}
       {!selectedDate && !loading && (
-        <div className="empty-state">
-          <span className="icon icon-xl" style={{ color: 'var(--text-pale)' }}>calendar_month</span>
-          <span className="empty-text">日付を選択してください</span>
+        <div className="flex flex-col items-center gap-2 py-12 px-4 text-ink-pale text-center">
+          <span className="icon icon-xl text-ink-pale">calendar_month</span>
+          <span className="text-[0.9rem]">日付を選択してください</span>
         </div>
       )}
     </div>

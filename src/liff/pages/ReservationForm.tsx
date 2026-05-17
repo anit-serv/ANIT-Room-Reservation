@@ -27,7 +27,6 @@ export default function ReservationForm({ profile }: Props) {
   const selectedDateEntry = dates.find((d) => d.value === selectedDate)
   const timeSlots = selectedDateEntry?.timeSlots ?? []
 
-  // 日付を変更したとき、新しい日付に存在しない時間枠が選ばれていたらクリア
   function handleSelectDate(value: string) {
     setSelectedDate(value)
     const newEntry = dates.find((d) => d.value === value)
@@ -73,10 +72,10 @@ export default function ReservationForm({ profile }: Props) {
   if (loadingSettings) {
     return (
       <div>
-        <Skeleton width="100px" height="20px" style={{ marginBottom: '1rem' }} />
+        <Skeleton width="100px" height="20px" className="mb-4" />
         {[0, 1, 2].map((i) => (
-          <div key={i} className="section">
-            <Skeleton width="40%" height="14px" style={{ marginBottom: '0.5rem' }} />
+          <div key={i} className="bg-surface border border-line rounded-xl p-4 mb-3 shadow-[var(--shadow-card-sm)]">
+            <Skeleton width="40%" height="14px" className="mb-2" />
             <Skeleton width="100%" height={i === 0 ? 44 : 80} />
           </div>
         ))}
@@ -87,32 +86,20 @@ export default function ReservationForm({ profile }: Props) {
   if (done) {
     return (
       <div>
-        <div className="banner success">✅ 予約を受け付けました。抽選結果をお待ちください。</div>
-        <div className="card" style={{ marginBottom: '0.75rem' }}>
-          <div className="summary-row"><span className="summary-key">バンド名</span><span className="summary-val">{bandName}</span></div>
-          <div className="summary-row"><span className="summary-key">日付</span><span className="summary-val">{dateLabel}</span></div>
-          <div className="summary-row"><span className="summary-key">時間帯</span><span className="summary-val">{timeLabel}</span></div>
-        </div>
-        <button className="btn-outline" onClick={reset}>続けて登録する</button>
+        <div className="banner-success">✅ 予約を受け付けました。抽選結果をお待ちください。</div>
+        <Summary bandName={bandName} dateLabel={dateLabel} timeLabel={timeLabel} />
+        <button className="btn-outline mt-2" onClick={reset}>続けて登録する</button>
       </div>
     )
   }
 
   return (
     <div>
-      <p className="page-title">予約登録</p>
+      <p className="text-[1.05rem] font-bold mb-4 text-ink">予約登録</p>
 
-      {error && <div className="banner error">{error}</div>}
+      {error && <div className="banner-error">{error}</div>}
 
-      {/* バンド名 */}
-      <div className={`section ${bandName.trim() ? 'completed' : ''}`}>
-        <div className="section-header">
-          <span className="section-label">
-            <span className="step-badge">1</span>
-            バンド名
-          </span>
-          {bandName.trim() && <span className="icon icon-sm" style={{ color: 'var(--green)' }}>check_circle</span>}
-        </div>
+      <SectionCard step={1} label="バンド名" complete={!!bandName.trim()}>
         <input
           className="text-input"
           type="text"
@@ -120,64 +107,98 @@ export default function ReservationForm({ profile }: Props) {
           value={bandName}
           onChange={(e) => setBandName(e.target.value)}
         />
-      </div>
+      </SectionCard>
 
-      {/* 日付 */}
-      <div className={`section ${selectedDate ? 'completed' : ''}`}>
-        <div className="section-header">
-          <span className="section-label">
-            <span className="step-badge">2</span>
-            日付
-          </span>
-          {selectedDate && <span className="icon icon-sm" style={{ color: 'var(--green)' }}>check_circle</span>}
-        </div>
-        <div className="select-grid cols-3">
+      <SectionCard step={2} label="日付" complete={!!selectedDate}>
+        <div className="grid grid-cols-3 gap-2">
           {dates.map((d) => (
-            <button
-              key={d.value}
-              className={`select-btn ${selectedDate === d.value ? 'selected' : ''}`}
-              onClick={() => handleSelectDate(d.value)}
-            >
+            <SelectButton key={d.value} active={selectedDate === d.value} onClick={() => handleSelectDate(d.value)}>
               {d.label}
-            </button>
+            </SelectButton>
           ))}
         </div>
-      </div>
+      </SectionCard>
 
-      {/* 時間帯 */}
-      <div className={`section ${selectedTime ? 'completed' : ''}`}>
-        <div className="section-header">
-          <span className="section-label">
-            <span className="step-badge">3</span>
-            時間帯
-          </span>
-          {selectedTime && <span className="icon icon-sm" style={{ color: 'var(--green)' }}>check_circle</span>}
-        </div>
-        <div className="select-grid">
+      <SectionCard step={3} label="時間帯" complete={!!selectedTime}>
+        <div className="grid grid-cols-2 gap-2">
           {timeSlots.map((t) => (
-            <button
-              key={t.value}
-              className={`select-btn ${selectedTime === t.value ? 'selected' : ''}`}
-              onClick={() => setSelectedTime(t.value)}
-            >
+            <SelectButton key={t.value} active={selectedTime === t.value} onClick={() => setSelectedTime(t.value)}>
               {t.label}
-            </button>
+            </SelectButton>
           ))}
         </div>
-      </div>
+      </SectionCard>
 
-      {/* 確認サマリー */}
       {canSubmit && (
-        <div className="summary">
-          <div className="summary-row"><span className="summary-key">バンド名</span><span className="summary-val">{bandName}</span></div>
-          <div className="summary-row"><span className="summary-key">日付</span><span className="summary-val">{dateLabel}</span></div>
-          <div className="summary-row"><span className="summary-key">時間帯</span><span className="summary-val">{timeLabel}</span></div>
+        <div className="bg-brand-light border-[1.5px] border-brand rounded-xl p-4 mb-3">
+          <SummaryRow label="バンド名" value={bandName} />
+          <SummaryRow label="日付" value={dateLabel} />
+          <SummaryRow label="時間帯" value={timeLabel} />
         </div>
       )}
 
       <button className="btn-primary" onClick={handleSubmit} disabled={!canSubmit}>
         {submitting ? '送信中...' : '予約する'}
       </button>
+    </div>
+  )
+}
+
+// ── Section card with step badge & completion mark ─────────────
+function SectionCard({
+  step, label, complete, children,
+}: { step: number; label: string; complete: boolean; children: React.ReactNode }) {
+  return (
+    <div className={
+      'bg-surface border rounded-xl p-4 mb-3 shadow-[var(--shadow-card-sm)] transition-colors ' +
+      (complete ? 'border-brand' : 'border-line')
+    }>
+      <div className="flex items-center justify-between mb-3">
+        <span className="flex items-center gap-1.5 text-[0.8rem] font-semibold text-ink-sub uppercase tracking-wide">
+          <span className={
+            'w-5 h-5 rounded-full flex items-center justify-center text-[0.65rem] font-bold ' +
+            (complete ? 'bg-brand text-white' : 'bg-line text-ink-sub')
+          }>{step}</span>
+          {label}
+        </span>
+        {complete && <span className="icon icon-sm text-brand">check_circle</span>}
+      </div>
+      {children}
+    </div>
+  )
+}
+
+function SelectButton({
+  active, onClick, children,
+}: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      onClick={onClick}
+      className={
+        'px-1 py-2.5 rounded-lg text-[0.85rem] cursor-pointer text-center transition active:scale-[0.97] border-[1.5px] ' +
+        (active ? 'bg-brand border-brand text-white font-semibold' : 'bg-[#fafafa] border-line text-ink-sub')
+      }
+    >
+      {children}
+    </button>
+  )
+}
+
+function Summary({ bandName, dateLabel, timeLabel }: { bandName: string; dateLabel: string; timeLabel: string }) {
+  return (
+    <div className="bg-surface border border-line rounded-xl p-4 mb-3 shadow-[var(--shadow-card-sm)]">
+      <SummaryRow label="バンド名" value={bandName} />
+      <SummaryRow label="日付" value={dateLabel} />
+      <SummaryRow label="時間帯" value={timeLabel} />
+    </div>
+  )
+}
+
+function SummaryRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex justify-between text-[0.9rem] py-0.5 not-first:border-t not-first:border-brand/20 not-first:mt-1.5 not-first:pt-1.5">
+      <span className="text-ink-sub">{label}</span>
+      <span className="font-semibold text-ink">{value}</span>
     </div>
   )
 }

@@ -30,13 +30,11 @@ export function valueToLabel(value: string): string {
   return `${fmt(s)}~${fmt(e)}`
 }
 
-// "HH:MM" → 分
 export function toMinutes(t: string): number {
   const [h, m] = t.split(':').map(Number)
   return h * 60 + m
 }
 
-// 重複しているスロットのインデックスを Set で返す
 export function findConflicts(slots: TimeSlot[]): Set<number> {
   const result = new Set<number>()
   const ranges = slots.map((s) => {
@@ -107,10 +105,10 @@ export default function TimeSlotsEditor({
   return (
     <>
       {presets !== undefined && (
-        <div className="preset-bar" ref={menuRef}>
+        <div className="relative inline-block mb-2" ref={menuRef}>
           <button
             type="button"
-            className="btn-outline preset-toggle"
+            className="btn-outline w-auto px-3 py-1.5 mt-0 inline-flex items-center gap-1 text-[0.85rem]"
             onClick={() => setMenuOpen((v) => !v)}
           >
             <span className="icon icon-sm">bookmarks</span>
@@ -118,23 +116,23 @@ export default function TimeSlotsEditor({
             <span className="icon icon-sm">{menuOpen ? 'expand_less' : 'expand_more'}</span>
           </button>
           {menuOpen && (
-            <div className="preset-menu">
+            <div className="absolute top-[calc(100%+4px)] left-0 min-w-[240px] bg-surface border border-line rounded-[10px] shadow-[0_6px_20px_rgba(0,0,0,.1)] p-1.5 z-50 max-h-[280px] overflow-y-auto">
               {presets.length === 0 ? (
-                <div className="preset-empty">保存済みのプリセットはありません</div>
+                <div className="px-2.5 py-3 text-[0.85rem] text-ink-pale text-center">保存済みのプリセットはありません</div>
               ) : (
                 presets.map((p) => (
                   <div
                     key={p.id}
-                    className="preset-item"
+                    className="flex items-center justify-between gap-2 px-2.5 py-2 rounded-md cursor-pointer hover:bg-bg transition-colors"
                     onClick={() => applyPreset(p)}
                   >
-                    <div className="preset-item-body">
-                      <div className="preset-item-name">{p.name}</div>
-                      <div className="preset-item-desc">{p.timeSlots.length}枠</div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[0.9rem] font-medium">{p.name}</div>
+                      <div className="text-[0.75rem] text-ink-pale">{p.timeSlots.length}枠</div>
                     </div>
                     {onDeletePreset && (
                       <span
-                        className="preset-item-delete"
+                        className="text-ink-pale p-1 rounded inline-flex hover:text-danger hover:bg-danger-light"
                         onClick={(e) => handleDelete(p, e)}
                         title="プリセットを削除"
                       >
@@ -147,7 +145,7 @@ export default function TimeSlotsEditor({
               {onSavePreset && (
                 <button
                   type="button"
-                  className="preset-item preset-item-add"
+                  className="flex items-center gap-1.5 w-full px-2.5 py-2 rounded-md border-0 bg-transparent text-left cursor-pointer border-t border-line mt-1 pt-2 text-brand font-semibold disabled:opacity-50 disabled:cursor-not-allowed enabled:hover:bg-bg"
                   onClick={() => { setSaveDialog(true); setMenuOpen(false) }}
                   disabled={!canSavePreset}
                   title={canSavePreset ? '' : '時間枠を正しく入力すると保存できます'}
@@ -161,11 +159,15 @@ export default function TimeSlotsEditor({
         </div>
       )}
 
-      <div className="slot-list">
+      <div className="flex flex-col gap-2">
         {slots.map((s, i) => (
-          <div key={i} className={`slot-row slot-row-time${conflicts.has(i) ? ' has-conflict' : ''}`}>
+          <div key={i}
+            className={
+              'grid grid-cols-[1fr_auto_auto] gap-2 items-center p-1.5 rounded-lg transition-all ' +
+              (conflicts.has(i) ? 'bg-danger-light shadow-[inset_0_0_0_1.5px_var(--color-danger)]' : '')
+            }>
             <TimeRangeInput value={s.value} onChange={(v) => update(i, v)} />
-            <span style={{ fontSize: '0.8rem', color: 'var(--text-pale)', minWidth: '100px' }}>
+            <span className="text-[0.8rem] text-ink-pale min-w-[100px]">
               {s.label || '未設定'}
             </span>
             <button className="btn-icon" onClick={() => remove(i)}>
@@ -173,15 +175,15 @@ export default function TimeSlotsEditor({
             </button>
           </div>
         ))}
-        <button className="btn-outline" style={{ width: 'auto', padding: '0.4rem 0.8rem', marginTop: '0.25rem' }} onClick={add}>
+        <button className="btn-outline w-auto px-3 py-1.5 mt-1" onClick={add}>
           <span className="icon icon-sm">add</span> 時間枠を追加
         </button>
       </div>
 
       {saveDialog && (
         <div className="modal-backdrop" onClick={() => setSaveDialog(false)}>
-          <div className="modal-card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '400px' }}>
-            <h3 style={{ marginBottom: '0.75rem' }}>プリセットとして保存</h3>
+          <div className="modal-card max-w-[400px]" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-base font-semibold mb-3">プリセットとして保存</h3>
             <div className="form-row">
               <label>プリセット名</label>
               <input
@@ -192,9 +194,9 @@ export default function TimeSlotsEditor({
                 autoFocus
               />
             </div>
-            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
-              <button className="btn-outline" style={{ flex: 1 }} onClick={() => setSaveDialog(false)}>キャンセル</button>
-              <button className="btn-primary" style={{ flex: 1 }} onClick={handleSave} disabled={!presetName.trim()}>保存</button>
+            <div className="flex gap-2 mt-4">
+              <button className="btn-outline flex-1" onClick={() => setSaveDialog(false)}>キャンセル</button>
+              <button className="btn-primary flex-1" onClick={handleSave} disabled={!presetName.trim()}>保存</button>
             </div>
           </div>
         </div>

@@ -55,36 +55,36 @@ export default function MyReservations({ profile }: Props) {
 
   if (loading) return (
     <div>
-      <Skeleton width="120px" height="20px" style={{ marginBottom: '1rem' }} />
+      <Skeleton width="120px" height="20px" className="mb-4" />
       {[0, 1, 2].map((i) => (
         <div key={i} className="reservation-card">
-          <Skeleton width="4px" height="56px" style={{ borderRadius: '4px' }} />
-          <div style={{ flex: 1 }}>
-            <Skeleton width="60%" height="16px" style={{ marginBottom: '0.4rem' }} />
-            <Skeleton width="80%" height="12px" style={{ marginBottom: '0.5rem' }} />
-            <Skeleton width="80px" height="20px" style={{ borderRadius: '20px' }} />
+          <Skeleton width="4px" height="56px" />
+          <div className="flex-1">
+            <Skeleton width="60%" height="16px" className="mb-1.5" />
+            <Skeleton width="80%" height="12px" className="mb-2" />
+            <Skeleton width="80px" height="20px" style={{ borderRadius: 20 }} />
           </div>
         </div>
       ))}
     </div>
   )
 
-  if (error) return <div className="banner error" style={{ marginTop: '1rem' }}>{error}</div>
+  if (error) return <div className="banner-error mt-4">{error}</div>
 
   if (reservations.length === 0) {
     return (
-      <div className="empty-state">
-        <span className="icon icon-xl" style={{ color: 'var(--text-pale)' }}>event_busy</span>
-        <span className="empty-text">予約はまだありません</span>
+      <div className="flex flex-col items-center gap-2 py-12 px-4 text-ink-pale text-center">
+        <span className="icon icon-xl text-ink-pale">event_busy</span>
+        <span className="text-[0.9rem]">予約はまだありません</span>
       </div>
     )
   }
 
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
-        <p className="page-title" style={{ margin: 0 }}>自分の予約</p>
-        <span style={{ fontSize: '0.8rem', color: 'var(--text-sub)', background: 'var(--bg)', padding: '0.2rem 0.6rem', borderRadius: '20px' }}>
+      <div className="flex items-center justify-between mb-4">
+        <p className="text-[1.05rem] font-bold m-0 text-ink">自分の予約</p>
+        <span className="text-[0.8rem] text-ink-sub bg-bg px-2.5 py-1 rounded-full">
           {reservations.length}件
         </span>
       </div>
@@ -97,14 +97,14 @@ export default function MyReservations({ profile }: Props) {
 
         return (
           <div key={r.id} className="reservation-card">
-            <div className={`accent ${r.status}`} />
-            <div className="card-body">
-              <div className="card-band">{r.bandName}</div>
-              <div className="card-date" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <span className="icon icon-sm" style={{ color: 'var(--text-pale)' }}>calendar_month</span>{displayDate}
-                <span className="icon icon-sm" style={{ color: 'var(--text-pale)' }}>schedule</span>{timePart}
+            <div className={'w-1 self-stretch rounded ' + (isConfirmed ? 'bg-brand' : 'bg-warn')} />
+            <div className="flex-1 min-w-0">
+              <div className="font-bold text-ink truncate mb-0.5">{r.bandName}</div>
+              <div className="text-[0.82rem] text-ink-sub mb-2 flex items-center gap-1.5 flex-wrap">
+                <span className="icon icon-sm text-ink-pale">calendar_month</span>{displayDate}
+                <span className="icon icon-sm text-ink-pale">schedule</span>{timePart}
               </div>
-              <span className={`badge ${r.status}`}>
+              <span className={'badge ' + (isConfirmed ? 'badge-confirmed' : 'badge-pending')}>
                 <span className="icon icon-sm">{isConfirmed ? 'check_circle' : 'hourglass_empty'}</span>
                 {isConfirmed ? '抽選確定' : '抽選待ち'}
               </span>

@@ -51,14 +51,12 @@ export default function Reservations() {
 
   useEffect(() => { load() }, [load])
 
-  // focus クエリ → 該当行へスクロール＋ハイライト
   useEffect(() => {
     if (!focusId || reservations.length === 0) return
     const row = rowRefs.current[focusId]
     if (row) {
       row.scrollIntoView({ behavior: 'smooth', block: 'center' })
       setHighlightedId(focusId)
-      // 3秒後にクエリを消す（履歴汚染を防ぐ）と同時にハイライト解除
       const t = setTimeout(() => {
         setHighlightedId(null)
         setSearchParams({}, { replace: true })
@@ -79,57 +77,36 @@ export default function Reservations() {
 
   return (
     <div>
-      <h1 className="admin-page-title">予約管理</h1>
+      <h1 className="text-2xl font-bold mb-6">予約管理</h1>
 
       <div className="admin-card">
         <div className="filter-row">
-          <input
-            type="date"
-            className="text-input"
-            value={dateFilter}
-            onChange={(e) => setDateFilter(e.target.value)}
-            style={{ width: 'auto' }}
-          />
-          <select
-            className="text-input"
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as any)}
-            style={{ width: 'auto' }}
-          >
+          <input type="date" className="text-input w-auto" value={dateFilter} onChange={(e) => setDateFilter(e.target.value)} />
+          <select className="text-input w-auto" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as any)}>
             <option value="">全ステータス</option>
             <option value="pending">抽選待ち</option>
             <option value="confirmed">抽選確定</option>
           </select>
-          <input
-            type="text"
-            className="text-input"
-            placeholder="バンド名で検索"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            style={{ flex: 1 }}
-          />
-          <button
-            className="btn-outline"
-            style={{ width: 'auto', padding: '0.5rem 0.8rem' }}
-            onClick={() => { setDateFilter(''); setStatusFilter(''); setSearch('') }}
-          >
+          <input type="text" className="text-input flex-1" placeholder="バンド名で検索" value={search} onChange={(e) => setSearch(e.target.value)} />
+          <button className="btn-outline w-auto px-3 py-2"
+            onClick={() => { setDateFilter(''); setStatusFilter(''); setSearch('') }}>
             クリア
           </button>
         </div>
       </div>
 
-      {error && <div className="banner error" style={{ marginBottom: '1rem' }}>{error}</div>}
+      {error && <div className="banner-error">{error}</div>}
       {loading ? (
-        <div className="admin-card" style={{ padding: 0, overflow: 'hidden' }}>
+        <div className="bg-surface border border-line rounded-xl overflow-hidden shadow-[var(--shadow-card-sm)]">
           {[0, 1, 2, 3, 4, 5].map((i) => (
-            <div key={i} style={{ display: 'flex', gap: '1rem', padding: '0.75rem 1rem', borderBottom: '1px solid var(--border)', alignItems: 'center' }}>
+            <div key={i} className="flex gap-4 px-4 py-3 border-b border-line items-center last:border-b-0">
               <Skeleton width="80px" height="38px" />
               <Skeleton width="120px" height="20px" />
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flex: 1 }}>
+              <div className="flex items-center gap-2 flex-1">
                 <Skeleton width={24} height={24} circle />
                 <Skeleton width="80px" height="14px" />
               </div>
-              <Skeleton width="80px" height="22px" style={{ borderRadius: '20px' }} />
+              <Skeleton width="80px" height="22px" style={{ borderRadius: 20 }} />
               <Skeleton width="24px" height="14px" />
               <Skeleton width="76px" height="32px" />
             </div>
@@ -137,11 +114,11 @@ export default function Reservations() {
         </div>
       ) : reservations.length === 0 ? (
         <div className="empty-state">
-          <span className="icon icon-xl" style={{ color: 'var(--text-pale)' }}>event_busy</span>
-          <span className="empty-text">該当する予約がありません</span>
+          <span className="icon icon-xl text-ink-pale">event_busy</span>
+          <span className="text-[0.9rem]">該当する予約がありません</span>
         </div>
       ) : (
-        <div className="admin-card" style={{ padding: 0, overflow: 'hidden' }}>
+        <div className="bg-surface border border-line rounded-xl overflow-hidden shadow-[var(--shadow-card-sm)]">
           <table className="admin-table">
             <thead>
               <tr>
@@ -165,22 +142,20 @@ export default function Reservations() {
                     <td data-label="日時">
                       <div>
                         <div>{datePart}</div>
-                        <div style={{ fontSize: '0.8rem', color: 'var(--text-sub)' }}>{timePart}</div>
+                        <div className="text-[0.8rem] text-ink-sub">{timePart}</div>
                       </div>
                     </td>
                     <td data-label="バンド名">{r.bandName}</td>
                     <td data-label="登録者">
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <div className="flex items-center gap-2">
                         {r.userPictureUrl
-                          ? <img src={r.userPictureUrl} alt="" className="user-avatar" style={{ width: '24px', height: '24px' }} />
-                          : <span className="user-avatar-fallback" style={{ width: '24px', height: '24px' }}>
-                              <span className="icon icon-sm">account_circle</span>
-                            </span>}
-                        <span style={{ fontSize: '0.85rem' }}>{r.userDisplayName || '(不明)'}</span>
+                          ? <img src={r.userPictureUrl} alt="" className="avatar avatar-sm" />
+                          : <span className="avatar-fallback avatar-sm"><span className="icon icon-sm">account_circle</span></span>}
+                        <span className="text-[0.85rem]">{r.userDisplayName || '(不明)'}</span>
                       </div>
                     </td>
                     <td data-label="ステータス">
-                      <span className={`badge ${r.status}`}>
+                      <span className={'badge ' + (r.status === 'confirmed' ? 'badge-confirmed' : 'badge-pending')}>
                         <span className="icon icon-sm">
                           {r.status === 'confirmed' ? 'check_circle' : 'hourglass_empty'}
                         </span>
@@ -189,7 +164,7 @@ export default function Reservations() {
                     </td>
                     <td data-label="順位">{r.order ?? '-'}</td>
                     <td className="cell-actions">
-                      <div style={{ display: 'flex', gap: '0.4rem' }}>
+                      <div className="flex gap-1.5">
                         <button className="btn-icon" onClick={() => setEditing(r)}>
                           <span className="icon">edit</span>
                         </button>
@@ -252,32 +227,23 @@ function EditModal({
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal-card" onClick={(e) => e.stopPropagation()}>
-        <h2 className="admin-card-title">予約を編集</h2>
-        {err && <div className="banner error" style={{ marginBottom: '0.75rem' }}>{err}</div>}
+        <h2 className="text-base font-bold mb-3">予約を編集</h2>
+        {err && <div className="banner-error">{err}</div>}
         <div className="form-row">
           <label>バンド名</label>
-          <input
-            className="text-input"
-            value={bandName}
-            onChange={(e) => setBandName(e.target.value)}
-          />
+          <input className="text-input" value={bandName} onChange={(e) => setBandName(e.target.value)} />
         </div>
         <div className="form-row">
           <label>日付</label>
-          <input
-            type="date"
-            className="text-input"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-          />
+          <input type="date" className="text-input" value={date} onChange={(e) => setDate(e.target.value)} />
         </div>
         <div className="form-row">
           <label>時間帯</label>
           <TimeRangeInput value={time} onChange={setTime} />
         </div>
-        <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
-          <button className="btn-outline" style={{ flex: 1 }} onClick={onClose}>キャンセル</button>
-          <button className="btn-primary" style={{ flex: 1 }} onClick={save} disabled={saving}>
+        <div className="flex gap-2 mt-4">
+          <button className="btn-outline flex-1" onClick={onClose}>キャンセル</button>
+          <button className="btn-primary flex-1" onClick={save} disabled={saving}>
             {saving ? '保存中...' : '保存'}
           </button>
         </div>

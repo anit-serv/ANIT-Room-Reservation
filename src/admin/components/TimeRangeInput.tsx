@@ -31,20 +31,20 @@ export default function TimeRangeInput({ value, onChange, separator = '-' }: Pro
   }
 
   return (
-    <div className="time-range">
+    <div className="flex items-center gap-2">
       <input
         type="time"
-        className="text-input time-input"
+        className="text-input text-center px-2 py-2"
         value={start}
         onChange={(e) => { setStart(e.target.value); emit(e.target.value, end) }}
         step="600"
       />
-      <span className="time-range-sep">
+      <span className="text-ink-pale inline-flex items-center">
         <span className="icon">arrow_forward</span>
       </span>
       <input
         type="time"
-        className="text-input time-input"
+        className="text-input text-center px-2 py-2"
         value={end}
         onChange={(e) => { setEnd(e.target.value); emit(start, e.target.value) }}
         step="600"

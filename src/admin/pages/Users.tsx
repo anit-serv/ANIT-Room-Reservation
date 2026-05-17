@@ -49,9 +49,7 @@ export default function Users() {
       if (tab === 'admin')  return u.isAdmin
       return true
     })
-    .filter((u) =>
-      !search || u.displayName.toLowerCase().includes(search.toLowerCase())
-    )
+    .filter((u) => !search || u.displayName.toLowerCase().includes(search.toLowerCase()))
 
   const counts = {
     all: users.length,
@@ -61,51 +59,40 @@ export default function Users() {
 
   return (
     <div>
-      <h1 className="admin-page-title">ユーザー管理</h1>
+      <h1 className="text-2xl font-bold mb-6">ユーザー管理</h1>
 
-      <div className="admin-tabs">
-        <button className={`admin-tab ${tab === 'all'    ? 'active' : ''}`} onClick={() => setTab('all')}>
-          全員 <span className="admin-tab-count">{counts.all}</span>
-        </button>
-        <button className={`admin-tab ${tab === 'banned' ? 'active' : ''}`} onClick={() => setTab('banned')}>
-          BAN者 <span className="admin-tab-count">{counts.banned}</span>
-        </button>
-        <button className={`admin-tab ${tab === 'admin'  ? 'active' : ''}`} onClick={() => setTab('admin')}>
-          管理者 <span className="admin-tab-count">{counts.admin}</span>
-        </button>
+      <div className="flex gap-1 mb-4 border-b border-line">
+        <TabButton active={tab === 'all'}    onClick={() => setTab('all')}    label="全員"  count={counts.all} />
+        <TabButton active={tab === 'banned'} onClick={() => setTab('banned')} label="BAN者" count={counts.banned} />
+        <TabButton active={tab === 'admin'}  onClick={() => setTab('admin')}  label="管理者" count={counts.admin} />
       </div>
 
       <div className="admin-card">
-        <input
-          type="text"
-          className="text-input"
-          placeholder="名前で検索"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
+        <input type="text" className="text-input" placeholder="名前で検索"
+          value={search} onChange={(e) => setSearch(e.target.value)} />
       </div>
 
-      {error && <div className="banner error">{error}</div>}
+      {error && <div className="banner-error">{error}</div>}
 
       {loading ? (
-        <div className="admin-card" style={{ padding: 0, overflow: 'hidden' }}>
+        <div className="bg-surface border border-line rounded-xl overflow-hidden shadow-[var(--shadow-card-sm)]">
           {[0, 1, 2, 3, 4].map((i) => (
-            <div key={i} style={{ display: 'flex', gap: '0.75rem', padding: '0.75rem 1rem', borderBottom: '1px solid var(--border)', alignItems: 'center' }}>
+            <div key={i} className="flex gap-3 px-4 py-3 border-b border-line items-center last:border-b-0">
               <Skeleton width={32} height={32} circle />
               <Skeleton width="40%" height="16px" />
-              <Skeleton width="80px" height="14px" style={{ marginLeft: 'auto' }} />
-              <Skeleton width="80px" height="22px" style={{ borderRadius: '20px' }} />
+              <Skeleton width="80px" height="14px" className="ml-auto" />
+              <Skeleton width="80px" height="22px" style={{ borderRadius: 20 }} />
               <Skeleton width="56px" height="28px" />
             </div>
           ))}
         </div>
       ) : filtered.length === 0 ? (
         <div className="empty-state">
-          <span className="icon icon-xl" style={{ color: 'var(--text-pale)' }}>group_off</span>
-          <span className="empty-text">該当するユーザーがいません</span>
+          <span className="icon icon-xl text-ink-pale">group_off</span>
+          <span className="text-[0.9rem]">該当するユーザーがいません</span>
         </div>
       ) : (
-        <div className="admin-card" style={{ padding: 0, overflow: 'hidden' }}>
+        <div className="bg-surface border border-line rounded-xl overflow-hidden shadow-[var(--shadow-card-sm)]">
           <table className="admin-table">
             <thead>
               <tr>
@@ -119,34 +106,25 @@ export default function Users() {
               {filtered.map((u) => (
                 <tr key={u.userId}>
                   <td data-label="ユーザー">
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <div className="flex items-center gap-2">
                       {u.pictureUrl
-                        ? <img src={u.pictureUrl} alt="" className="user-avatar" />
-                        : <span className="user-avatar-fallback"><span className="icon">account_circle</span></span>}
+                        ? <img src={u.pictureUrl} alt="" className="avatar" />
+                        : <span className="avatar-fallback"><span className="icon">account_circle</span></span>}
                       <span>{u.displayName || '(名前なし)'}</span>
                     </div>
                   </td>
-                  <td data-label="最終予約" style={{ fontSize: '0.85rem', color: 'var(--text-sub)' }}>
-                    {u.lastReservedAt
-                      ? new Date(u.lastReservedAt).toLocaleDateString('ja-JP')
-                      : '-'}
+                  <td data-label="最終予約" className="text-[0.85rem] text-ink-sub">
+                    {u.lastReservedAt ? new Date(u.lastReservedAt).toLocaleDateString('ja-JP') : '-'}
                   </td>
                   <td data-label="状態">
                     {u.isAdmin
-                      ? <span className="badge" style={{ background: '#e8f0fe', color: '#1a73e8' }}>
-                          <span className="icon icon-sm">shield_person</span>管理者
-                        </span>
+                      ? <span className="badge badge-info"><span className="icon icon-sm">shield_person</span>管理者</span>
                       : u.banned
-                        ? <span className="badge" style={{ background: 'var(--red-light)', color: 'var(--red)' }}>
-                            <span className="icon icon-sm">block</span>BAN中
-                          </span>
-                        : <span className="badge confirmed">
-                            <span className="icon icon-sm">check_circle</span>有効
-                          </span>}
+                        ? <span className="badge badge-danger"><span className="icon icon-sm">block</span>BAN中</span>
+                        : <span className="badge badge-confirmed"><span className="icon icon-sm">check_circle</span>有効</span>}
                   </td>
                   <td className="cell-actions">
-                    <button className="btn-outline" style={{ width: 'auto', padding: '0.35rem 0.6rem', fontSize: '0.8rem' }}
-                      onClick={() => setSelected(u.userId)}>
+                    <button className="btn-outline w-auto px-2.5 py-1.5 text-[0.8rem]" onClick={() => setSelected(u.userId)}>
                       詳細
                     </button>
                   </td>
@@ -158,13 +136,30 @@ export default function Users() {
       )}
 
       {selected && (
-        <UserDetail
-          userId={selected}
-          onClose={() => setSelected(null)}
-          onUpdated={() => { load() }}
-        />
+        <UserDetail userId={selected} onClose={() => setSelected(null)} onUpdated={() => load()} />
       )}
     </div>
+  )
+}
+
+function TabButton({ active, onClick, label, count }:
+  { active: boolean; onClick: () => void; label: string; count: number }) {
+  return (
+    <button
+      onClick={onClick}
+      className={
+        'flex items-center gap-1.5 px-4 py-2.5 bg-transparent border-0 border-b-2 cursor-pointer text-[0.9rem] font-medium transition-colors ' +
+        (active
+          ? 'text-brand border-brand font-semibold'
+          : 'text-ink-sub border-transparent hover:text-ink')
+      }
+    >
+      {label}
+      <span className={
+        'text-[0.75rem] font-semibold px-1.5 py-0.5 rounded-full ' +
+        (active ? 'bg-brand-light text-brand-dark' : 'bg-bg text-ink-sub')
+      }>{count}</span>
+    </button>
   )
 }
 
@@ -214,71 +209,66 @@ function UserDetail({
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal-card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '560px' }}>
+      <div className="modal-card max-w-[560px]" onClick={(e) => e.stopPropagation()}>
         {!data ? (
-          <div className="splash" style={{ height: 'auto', padding: '2rem 0' }}>
+          <div className="flex items-center justify-center py-8">
             <div className="spinner" />
           </div>
         ) : (
           <>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem' }}>
+            <div className="flex items-center gap-3 mb-4">
               {data.user.pictureUrl
-                ? <img src={data.user.pictureUrl} alt="" className="user-avatar" style={{ width: '48px', height: '48px' }} />
-                : <span className="user-avatar-fallback" style={{ width: '48px', height: '48px' }}>
-                    <span className="icon icon-lg">account_circle</span>
-                  </span>}
+                ? <img src={data.user.pictureUrl} alt="" className="avatar avatar-lg" />
+                : <span className="avatar-fallback avatar-lg"><span className="icon icon-lg">account_circle</span></span>}
               <div>
-                <div style={{ fontWeight: 700 }}>{data.user.displayName || '(名前なし)'}</div>
+                <div className="font-bold">{data.user.displayName || '(名前なし)'}</div>
               </div>
             </div>
 
             {data.user.isAdmin ? (
-              <div className="banner" style={{ background: '#e8f0fe', color: '#1a73e8', borderColor: '#1a73e8', marginBottom: '1rem' }}>
-                <span className="icon icon-sm" style={{ verticalAlign: 'middle' }}>shield_person</span>
+              <div className="bg-link-light text-link border border-link rounded-xl px-4 py-3 mb-4 text-[0.9rem] font-medium">
+                <span className="icon icon-sm align-middle">shield_person</span>
                 {' '}このユーザーは管理者です（BAN できません）
               </div>
             ) : (
               <button
-                className={data.user.banned ? 'btn-outline' : 'btn-danger'}
-                style={{ width: '100%', padding: '0.6rem', marginBottom: '1rem' }}
+                className={data.user.banned ? 'btn-outline mb-4' : 'btn-danger mb-4 w-full py-2.5'}
                 onClick={toggleBan}
                 disabled={working}
               >
-                <span className="icon icon-sm">{data.user.banned ? 'lock_open' : 'block'}</span>
+                <span className="icon icon-sm mr-1">{data.user.banned ? 'lock_open' : 'block'}</span>
                 {data.user.banned ? 'BAN を解除' : 'BAN する'}
               </button>
             )}
 
-            <h3 style={{ fontSize: '0.9rem', marginBottom: '0.5rem' }}>予約履歴 ({data.reservations.length}件)</h3>
+            <h3 className="text-[0.9rem] font-semibold mb-2">予約履歴 ({data.reservations.length}件)</h3>
             {data.reservations.length === 0 ? (
-              <p style={{ color: 'var(--text-pale)', fontSize: '0.9rem' }}>履歴なし</p>
+              <p className="text-ink-pale text-[0.9rem]">履歴なし</p>
             ) : (
-              <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
+              <div className="max-h-[300px] overflow-y-auto">
                 {data.reservations.map((r) => (
                   <button
                     key={r.id}
-                    className="reservation-card reservation-card-clickable"
                     onClick={() => jumpToReservation(r.id)}
                     title="予約管理で開く"
+                    className="reservation-card w-full cursor-pointer text-left hover:bg-bg hover:border-brand transition-colors"
                   >
-                    <div className={`accent ${r.status}`} />
-                    <div className="card-body">
-                      <div className="card-band">{r.bandName}</div>
-                      <div className="card-date">{r.date}</div>
-                      <span className={`badge ${r.status}`}>
-                        <span className="icon icon-sm">
-                          {r.status === 'confirmed' ? 'check_circle' : 'hourglass_empty'}
-                        </span>
+                    <div className={'w-1 self-stretch rounded ' + (r.status === 'confirmed' ? 'bg-brand' : 'bg-warn')} />
+                    <div className="flex-1 min-w-0">
+                      <div className="font-bold text-ink truncate">{r.bandName}</div>
+                      <div className="text-[0.82rem] text-ink-sub">{r.date}</div>
+                      <span className={'badge ' + (r.status === 'confirmed' ? 'badge-confirmed' : 'badge-pending')}>
+                        <span className="icon icon-sm">{r.status === 'confirmed' ? 'check_circle' : 'hourglass_empty'}</span>
                         {r.status === 'confirmed' ? `確定 (${r.order ?? '-'})` : '抽選待ち'}
                       </span>
                     </div>
-                    <span className="icon icon-sm" style={{ color: 'var(--text-pale)' }}>arrow_forward</span>
+                    <span className="icon icon-sm text-ink-pale">arrow_forward</span>
                   </button>
                 ))}
               </div>
             )}
 
-            <button className="btn-outline" style={{ marginTop: '1rem' }} onClick={onClose}>閉じる</button>
+            <button className="btn-outline mt-4" onClick={onClose}>閉じる</button>
           </>
         )}
       </div>

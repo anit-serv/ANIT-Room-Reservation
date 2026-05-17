@@ -23,7 +23,6 @@ function todayJST(): string {
   return new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10)
 }
 
-// 設定の最小適用日（今日+7日）。現在表示中の予約期間との競合を避けるため。
 function minEffectiveDate(): string {
   const d = new Date(Date.now() + 9 * 60 * 60 * 1000)
   d.setUTCDate(d.getUTCDate() + 7)
@@ -76,18 +75,15 @@ export default function Settings() {
     if (res.ok) await loadPresets()
   }
 
-  // 日付が変わったときに min を更新し、effectiveFrom が古ければ繰り上げる
   useEffect(() => {
     function refresh() {
       const newMin = minEffectiveDate()
       setMinDate((prev) => prev !== newMin ? newMin : prev)
       setEffectiveFrom((prev) => prev < newMin ? newMin : prev)
     }
-    // タブ復帰時
     const visHandler = () => { if (document.visibilityState === 'visible') refresh() }
     document.addEventListener('visibilitychange', visHandler)
     window.addEventListener('focus', refresh)
-    // 1分ごとにも確認（日付跨ぎを検知）
     const id = setInterval(refresh, 60_000)
     return () => {
       document.removeEventListener('visibilitychange', visHandler)
@@ -166,7 +162,6 @@ export default function Settings() {
       setMessage({ type: 'error', text: '同じ日付が追加日と除外日の両方に指定されています' })
       return
     }
-    // 保存直前に min を再計算（日付跨ぎ対策）。古ければ自動繰り上げ
     const currentMin = minEffectiveDate()
     let finalEffective = effectiveFrom
     if (finalEffective < currentMin) {
@@ -217,10 +212,10 @@ export default function Settings() {
 
   if (!current) return (
     <div>
-      <Skeleton width="160px" height="28px" style={{ marginBottom: '1.5rem' }} />
+      <Skeleton width="160px" height="28px" className="mb-6" />
       {[0, 1, 2, 3, 4].map((i) => (
         <div key={i} className="admin-card">
-          <Skeleton width="40%" height="20px" style={{ marginBottom: '0.75rem' }} />
+          <Skeleton width="40%" height="20px" className="mb-3" />
           <Skeleton width="100%" height="60px" />
         </div>
       ))}
@@ -229,39 +224,38 @@ export default function Settings() {
 
   return (
     <div>
-      <h1 className="admin-page-title">設定</h1>
+      <h1 className="text-2xl font-bold mb-6">設定</h1>
 
       {message && (
-        <div className={`banner ${message.type}`} style={{ marginBottom: '1rem' }}>
+        <div className={message.type === 'success' ? 'banner-success' : 'banner-error'}>
           {message.text}
         </div>
       )}
 
       {editingScheduled && (
-        <div className="banner" style={{ background: 'var(--orange-light)', color: 'var(--orange)', borderColor: 'var(--orange)', marginBottom: '1rem' }}>
-          <span className="icon icon-sm" style={{ verticalAlign: 'middle' }}>edit</span>
+        <div className="banner-warn">
+          <span className="icon icon-sm align-middle">edit</span>
           {' '}適用予定の変更を編集中（保存すると上書きされます）
-          <button className="btn-outline" style={{ width: 'auto', padding: '0.3rem 0.7rem', marginLeft: '0.75rem', fontSize: '0.8rem' }}
-            onClick={cancelEditScheduled}>
+          <button className="btn-outline w-auto px-2.5 py-1 ml-3 text-[0.8rem]" onClick={cancelEditScheduled}>
             編集をやめる
           </button>
         </div>
       )}
 
       {current.nextChange && !editingScheduled && (
-        <div className="admin-card" style={{ background: 'var(--orange-light)', borderColor: 'var(--orange)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-            <strong style={{ color: 'var(--orange)' }}>
-              <span className="icon" style={{ verticalAlign: 'middle' }}>schedule</span> 適用予定の変更
+        <div className="bg-warn-light border border-warn rounded-xl p-5 mb-4 shadow-[var(--shadow-card-sm)]">
+          <div className="flex justify-between items-center mb-2 gap-2 flex-wrap">
+            <strong className="text-warn">
+              <span className="icon align-middle">schedule</span> 適用予定の変更
             </strong>
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
-              <button className="btn-outline" style={{ width: 'auto', padding: '0.4rem 0.8rem' }} onClick={loadScheduledForEdit}>
+            <div className="flex gap-2">
+              <button className="btn-outline w-auto px-3 py-1.5" onClick={loadScheduledForEdit}>
                 <span className="icon icon-sm">edit</span> 編集
               </button>
               <button className="btn-danger" onClick={cancelScheduled}>取り消し</button>
             </div>
           </div>
-          <div style={{ fontSize: '0.9rem', color: 'var(--text-sub)' }}>
+          <div className="text-[0.9rem] text-ink-sub">
             適用日: <strong>{current.nextChange.effectiveFrom}</strong>
             {' / '}
             曜日: <strong>{current.nextChange.availableDays.map((d) => WEEK_DAYS[d]).join('・') || 'なし'}</strong>
@@ -273,55 +267,44 @@ export default function Settings() {
         </div>
       )}
 
-      {/* 登録可能曜日 */}
       <div className="admin-card">
-        <h2 className="admin-card-title">登録可能曜日</h2>
-        <div className="day-grid">
-          {WEEK_DAYS.map((label, i) => (
-            <label key={i} className={`day-chip ${availableDays.includes(i) ? 'selected' : ''}`}>
-              <input
-                type="checkbox"
-                checked={availableDays.includes(i)}
-                onChange={() => toggleDay(i)}
-              />
-              {label}
-            </label>
-          ))}
+        <h2 className="text-base font-bold mb-3">登録可能曜日</h2>
+        <div className="flex gap-2 flex-wrap">
+          {WEEK_DAYS.map((label, i) => {
+            const selected = availableDays.includes(i)
+            return (
+              <label key={i}
+                className={
+                  'flex items-center justify-center w-12 h-12 rounded-full border-2 font-semibold cursor-pointer transition select-none ' +
+                  (selected ? 'bg-brand border-brand text-white' : 'bg-[#fafafa] border-line hover:border-brand')
+                }>
+                <input type="checkbox" checked={selected} onChange={() => toggleDay(i)} className="hidden" />
+                {label}
+              </label>
+            )
+          })}
         </div>
       </div>
 
-      {/* 追加日 */}
       <div className="admin-card">
-        <h2 className="admin-card-title">追加日</h2>
-        <p style={{ fontSize: '0.85rem', color: 'var(--text-sub)', marginBottom: '0.75rem' }}>
+        <h2 className="text-base font-bold mb-3">追加日</h2>
+        <p className="text-[0.85rem] text-ink-sub mb-3">
           上記の曜日に該当しない日でも、ここに追加した日は予約可能になります。
         </p>
-        <DateListEditor
-          dates={extraDates}
-          onChange={setExtraDates}
-          min={todayJST()}
-          emptyText="追加日なし"
-        />
+        <DateListEditor dates={extraDates} onChange={setExtraDates} min={todayJST()} emptyText="追加日なし" />
       </div>
 
-      {/* 除外日 */}
       <div className="admin-card">
-        <h2 className="admin-card-title">除外日</h2>
-        <p style={{ fontSize: '0.85rem', color: 'var(--text-sub)', marginBottom: '0.75rem' }}>
+        <h2 className="text-base font-bold mb-3">除外日</h2>
+        <p className="text-[0.85rem] text-ink-sub mb-3">
           通常は予約可能曜日でも、ここに登録した日は予約できなくなります（祝日や臨時休業など）。
         </p>
-        <DateListEditor
-          dates={excludedDates}
-          onChange={setExcludedDates}
-          min={todayJST()}
-          emptyText="除外日なし"
-        />
+        <DateListEditor dates={excludedDates} onChange={setExcludedDates} min={todayJST()} emptyText="除外日なし" />
       </div>
 
-      {/* デフォルト時間枠 */}
       <div className="admin-card">
-        <h2 className="admin-card-title">デフォルト時間枠</h2>
-        <p style={{ fontSize: '0.85rem', color: 'var(--text-sub)', marginBottom: '0.75rem' }}>
+        <h2 className="text-base font-bold mb-3">デフォルト時間枠</h2>
+        <p className="text-[0.85rem] text-ink-sub mb-3">
           全ての日で使用される基本の時間枠です。曜日や日付別に上書きする場合は下の設定で。
         </p>
         <TimeSlotsEditor
@@ -333,16 +316,15 @@ export default function Settings() {
           onDeletePreset={deletePreset}
         />
         {defaultConflicts.size > 0 && (
-          <div style={{ marginTop: '0.5rem', color: 'var(--red)', fontSize: '0.85rem' }}>
-            <span className="icon icon-sm" style={{ verticalAlign: 'middle' }}>warning</span>
+          <div className="mt-2 text-danger text-[0.85rem]">
+            <span className="icon icon-sm align-middle">warning</span>
             {' '}時間枠が重複しています
           </div>
         )}
       </div>
 
-      {/* 曜日・日付別オーバーライド */}
       <div className="admin-card">
-        <h2 className="admin-card-title">曜日・日付別の時間枠</h2>
+        <h2 className="text-base font-bold mb-3">曜日・日付別の時間枠</h2>
         <PerDayScheduleEditor
           schedule={perDaySchedule}
           onChange={setPerDaySchedule}
@@ -354,24 +336,22 @@ export default function Settings() {
         />
       </div>
 
-      {/* 適用日 */}
       <div className="admin-card">
-        <h2 className="admin-card-title">適用日</h2>
-        <p style={{ fontSize: '0.85rem', color: 'var(--text-sub)', marginBottom: '0.75rem' }}>
+        <h2 className="text-base font-bold mb-3">適用日</h2>
+        <p className="text-[0.85rem] text-ink-sub mb-3">
           現在表示中の予約期間（今日含め7日間）との競合を避けるため、
           <strong>{minDate}</strong> 以降の日付を指定してください。
         </p>
         <input
           type="date"
-          className="text-input"
-          style={{ width: 'auto' }}
+          className="text-input w-auto"
           value={effectiveFrom}
           min={minDate}
           onChange={(e) => setEffectiveFrom(e.target.value)}
         />
       </div>
 
-      <button className="btn-primary" style={{ maxWidth: '300px' }} onClick={save} disabled={saving}>
+      <button className="btn-primary max-w-[300px]" onClick={save} disabled={saving}>
         {saving ? '保存中...' : editingScheduled ? '上書き保存' : '保存'}
       </button>
     </div>
