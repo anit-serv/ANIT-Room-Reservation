@@ -23,6 +23,13 @@ function todayJST(): string {
   return new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10)
 }
 
+// 設定の最小適用日（今日+7日）。現在表示中の予約期間との競合を避けるため。
+function minEffectiveDate(): string {
+  const d = new Date(Date.now() + 9 * 60 * 60 * 1000)
+  d.setUTCDate(d.getUTCDate() + 7)
+  return d.toISOString().slice(0, 10)
+}
+
 function emptySchedule(): PerDaySchedule {
   return { enabled: false, byWeekday: {}, byDate: {} }
 }
@@ -34,8 +41,7 @@ export default function Settings() {
   const [extraDates, setExtraDates]       = useState<string[]>([])
   const [excludedDates, setExcludedDates] = useState<string[]>([])
   const [perDaySchedule, setPerDaySchedule] = useState<PerDaySchedule>(emptySchedule())
-  const [applyMode, setApplyMode]         = useState<'now' | 'scheduled'>('now')
-  const [effectiveFrom, setEffectiveFrom] = useState<string>(todayJST())
+  const [effectiveFrom, setEffectiveFrom] = useState<string>(minEffectiveDate())
   const [editingScheduled, setEditingScheduled] = useState(false)
   const [saving, setSaving]               = useState(false)
   const [message, setMessage]             = useState<{ type: 'success' | 'error'; text: string } | null>(null)
@@ -61,7 +67,6 @@ export default function Settings() {
   function loadScheduledForEdit() {
     if (!current?.nextChange) return
     applyToForm(current.nextChange)
-    setApplyMode('scheduled')
     setEffectiveFrom(current.nextChange.effectiveFrom)
     setEditingScheduled(true)
     setMessage(null)
@@ -70,8 +75,7 @@ export default function Settings() {
   function cancelEditScheduled() {
     if (!current) return
     applyToForm(current)
-    setApplyMode('now')
-    setEffectiveFrom(todayJST())
+    setEffectiveFrom(minEffectiveDate())
     setEditingScheduled(false)
   }
 
@@ -114,15 +118,17 @@ export default function Settings() {
       setMessage({ type: 'error', text: '同じ日付が追加日と除外日の両方に指定されています' })
       return
     }
+    if (effectiveFrom < minEffectiveDate()) {
+      setMessage({ type: 'error', text: `適用日は${minEffectiveDate()}以降を指定してください` })
+      return
+    }
 
     setSaving(true)
     try {
-      const body: any = {
+      const body = {
         availableDays, timeSlots, extraDates, excludedDates, perDaySchedule,
+        effectiveFrom,
       }
-      if (applyMode === 'scheduled') body.effectiveFrom = effectiveFrom
-      else body.applyNow = true
-
       const res = await adminFetch('/api/admin/settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -132,7 +138,7 @@ export default function Settings() {
       const result = await res.json()
       setMessage({
         type: 'success',
-        text: result.applied === 'now' ? '即時適用しました' : `${result.effectiveFrom} から適用予定で保存しました`,
+        text: `${result.effectiveFrom} から適用予定で保存しました`,
       })
       setEditingScheduled(false)
       load()
@@ -284,28 +290,21 @@ export default function Settings() {
         />
       </div>
 
-      {/* 適用タイミング */}
+      {/* 適用日 */}
       <div className="admin-card">
-        <h2 className="admin-card-title">適用タイミング</h2>
-        <div className="radio-list">
-          <label className="radio-item">
-            <input type="radio" checked={applyMode === 'now'} onChange={() => setApplyMode('now')} />
-            <span>即時適用</span>
-          </label>
-          <label className="radio-item">
-            <input type="radio" checked={applyMode === 'scheduled'} onChange={() => setApplyMode('scheduled')} />
-            <span>指定日から適用</span>
-            <input
-              type="date"
-              className="text-input"
-              style={{ width: 'auto', marginLeft: '0.5rem' }}
-              value={effectiveFrom}
-              min={todayJST()}
-              disabled={applyMode !== 'scheduled'}
-              onChange={(e) => setEffectiveFrom(e.target.value)}
-            />
-          </label>
-        </div>
+        <h2 className="admin-card-title">適用日</h2>
+        <p style={{ fontSize: '0.85rem', color: 'var(--text-sub)', marginBottom: '0.75rem' }}>
+          現在表示中の予約期間（今日含め7日間）との競合を避けるため、
+          <strong>{minEffectiveDate()}</strong> 以降の日付を指定してください。
+        </p>
+        <input
+          type="date"
+          className="text-input"
+          style={{ width: 'auto' }}
+          value={effectiveFrom}
+          min={minEffectiveDate()}
+          onChange={(e) => setEffectiveFrom(e.target.value)}
+        />
       </div>
 
       <button className="btn-primary" style={{ maxWidth: '300px' }} onClick={save} disabled={saving}>

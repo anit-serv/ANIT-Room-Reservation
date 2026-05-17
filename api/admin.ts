@@ -381,23 +381,24 @@ async function handleSettings(req: VercelRequest, res: VercelResponse) {
     const validated = validateSettings(req.body)
     if (typeof validated === 'string') return res.status(400).json({ error: validated })
 
-    const { effectiveFrom, applyNow } = (req.body ?? {}) as { effectiveFrom?: string; applyNow?: boolean }
-    const today = todayJST()
+    const { effectiveFrom } = (req.body ?? {}) as { effectiveFrom?: string }
 
-    // 即時適用、または effectiveFrom が今日以前の場合
-    if (applyNow || !effectiveFrom || effectiveFrom <= today) {
-      await docRef.set({
-        ...validated,
-        nextChange: admin.firestore.FieldValue.delete(),
-      }, { merge: true })
-      await audit(me, 'settings.update', { targetType: 'settings', details: validated })
-      return res.status(200).json({ applied: 'now' })
+    if (!effectiveFrom || !isValidDate(effectiveFrom)) {
+      return res.status(400).json({ error: '適用日を指定してください' })
     }
 
-    // 未来日付として予約
-    if (!isValidDate(effectiveFrom)) {
-      return res.status(400).json({ error: '不正な日付形式です' })
+    // 現在の予約可能期間（今日含め7日間 = 今日～+6日）と競合させないため、
+    // 適用日は 今日+7日 以降に制限する
+    const nowJST = new Date(Date.now() + 9 * 60 * 60 * 1000)
+    const minDate = new Date(nowJST)
+    minDate.setUTCDate(nowJST.getUTCDate() + 7)
+    const minDateStr = minDate.toISOString().slice(0, 10)
+    if (effectiveFrom < minDateStr) {
+      return res.status(400).json({
+        error: `適用日は${minDateStr}以降を指定してください（現在の予約可能期間との競合を避けるため）`,
+      })
     }
+
     await docRef.set({
       nextChange: { ...validated, effectiveFrom },
     }, { merge: true })
