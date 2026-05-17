@@ -5,6 +5,8 @@ import TimeRangeInput from '../components/TimeRangeInput'
 type Reservation = {
   id: string
   userId: string
+  userDisplayName: string
+  userPictureUrl: string | null
   bandName: string
   date: string
   status: 'pending' | 'confirmed'
@@ -110,6 +112,7 @@ export default function Reservations() {
               <tr>
                 <th>日時</th>
                 <th>バンド名</th>
+                <th>登録者</th>
                 <th>ステータス</th>
                 <th>順位</th>
                 <th style={{ width: '120px' }}>操作</th>
@@ -125,6 +128,16 @@ export default function Reservations() {
                       <div style={{ fontSize: '0.8rem', color: 'var(--text-sub)' }}>{timePart}</div>
                     </td>
                     <td>{r.bandName}</td>
+                    <td>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        {r.userPictureUrl
+                          ? <img src={r.userPictureUrl} alt="" className="user-avatar" style={{ width: '24px', height: '24px' }} />
+                          : <span className="user-avatar-fallback" style={{ width: '24px', height: '24px' }}>
+                              <span className="icon icon-sm">account_circle</span>
+                            </span>}
+                        <span style={{ fontSize: '0.85rem' }}>{r.userDisplayName || '(不明)'}</span>
+                      </div>
+                    </td>
                     <td>
                       <span className={`badge ${r.status}`}>
                         <span className="icon icon-sm">

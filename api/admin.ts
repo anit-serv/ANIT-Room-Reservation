@@ -403,9 +403,28 @@ async function handleReservationsList(req: VercelRequest, res: VercelResponse) {
     // 日付降順でソート
     docs.sort((a, b) => (b.date ?? '').localeCompare(a.date ?? ''))
 
+    // ユーザー名をまとめて取得
+    const userIds = Array.from(new Set(docs.map((d) => d.userId).filter(Boolean)))
+    const userMap: Record<string, { displayName: string; pictureUrl: string | null }> = {}
+    if (userIds.length > 0) {
+      const refs = userIds.map((id) => db.collection('users').doc(id))
+      const userDocs = await db.getAll(...refs)
+      userDocs.forEach((doc) => {
+        if (doc.exists) {
+          const data = doc.data()!
+          userMap[doc.id] = {
+            displayName: data.displayName ?? '',
+            pictureUrl: data.pictureUrl ?? null,
+          }
+        }
+      })
+    }
+
     const reservations = docs.map((d) => ({
       id: d.id,
       userId: d.userId,
+      userDisplayName: userMap[d.userId]?.displayName ?? '',
+      userPictureUrl:  userMap[d.userId]?.pictureUrl  ?? null,
       bandName: d.bandName,
       date: d.date,
       status: d.status,
