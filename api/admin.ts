@@ -84,6 +84,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (segments[0] === 'admins') {
     if (segments.length === 1) return handleAdminsList(req, res)
     if (segments.length === 2) return handleAdminById(req, res, segments[1])
+    if (segments.length === 3 && segments[2] === 'transfer-super') {
+      return handleTransferSuper(req, res, segments[1])
+    }
   }
 
   // 招待
@@ -527,6 +530,50 @@ async function handleAdminById(req: VercelRequest, res: VercelResponse, targetId
   const targetLabel = target.data()?.displayName ?? ''
   await db.collection('admins').doc(targetId).delete()
   await audit(me, 'admin.remove', { targetType: 'admin', targetId, targetLabel })
+  return res.status(200).json({ success: true })
+}
+
+// ─── スーパー管理者の移譲 ─────────────────────────────
+async function handleTransferSuper(req: VercelRequest, res: VercelResponse, targetId: string) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method Not Allowed' })
+  let me: AuditActor & { isSuperAdmin?: boolean }
+  try {
+    me = await verifyAdmin(req.headers.authorization)
+  } catch (err: any) {
+    const status = err.message === 'Forbidden' ? 403 : 401
+    return res.status(status).json({ error: err.message })
+  }
+  if (!me.isSuperAdmin) {
+    return res.status(403).json({ error: 'スーパー管理者のみが移譲できます' })
+  }
+  if (me.userId === targetId) {
+    return res.status(400).json({ error: '自分自身には移譲できません' })
+  }
+
+  let targetLabel = ''
+  try {
+    await db.runTransaction(async (tx) => {
+      const meRef = db.collection('admins').doc(me.userId)
+      const targetRef = db.collection('admins').doc(targetId)
+      const [meDoc, targetDoc] = await Promise.all([tx.get(meRef), tx.get(targetRef)])
+      if (!meDoc.exists || meDoc.data()?.isSuperAdmin !== true) {
+        throw new Error('スーパー管理者ではありません')
+      }
+      if (!targetDoc.exists) {
+        throw new Error('移譲先の管理者が見つかりません')
+      }
+      targetLabel = targetDoc.data()?.displayName ?? ''
+      tx.update(meRef,     { isSuperAdmin: admin.firestore.FieldValue.delete() })
+      tx.update(targetRef, { isSuperAdmin: true })
+    })
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message })
+  }
+
+  await audit(me, 'admin.super.transfer', {
+    targetType: 'admin', targetId, targetLabel,
+    details: { from: me.userId, to: targetId },
+  })
   return res.status(200).json({ success: true })
 }
 

@@ -22,7 +22,7 @@ export default function Admins() {
   const [admins, setAdmins]           = useState<Admin[]>([])
   const [invitations, setInvitations] = useState<Invitation[]>([])
   const [loading, setLoading]         = useState(true)
-  const [me, setMe]                   = useState<{ userId: string } | null>(null)
+  const [me, setMe]                   = useState<{ userId: string; isSuperAdmin?: boolean } | null>(null)
   const [generated, setGenerated]     = useState<{ url: string; expiresAt: string } | null>(null)
   const [generating, setGenerating]   = useState(false)
 
@@ -53,6 +53,20 @@ export default function Admins() {
       setAdmins((prev) => prev.filter((x) => x.userId !== a.userId))
     } else {
       alert((await res.json()).error ?? '削除に失敗しました')
+    }
+  }
+
+  async function transferSuper(a: Admin) {
+    if (!confirm(
+      `スーパー管理者を「${a.displayName || a.userId}」に移譲しますか？\n\n` +
+      `この操作は取り消せません。あなたは通常の管理者になります。`
+    )) return
+    const res = await adminFetch(`/api/admin/admins/${a.userId}/transfer-super`, { method: 'POST' })
+    if (res.ok) {
+      alert(`「${a.displayName}」にスーパー管理者を移譲しました`)
+      load()
+    } else {
+      alert((await res.json()).error ?? '移譲に失敗しました')
     }
   }
 
@@ -152,13 +166,28 @@ export default function Admins() {
                   {a.addedAt ? new Date(a.addedAt).toLocaleDateString('ja-JP') : '-'}
                 </td>
                 <td>
-                  {(a.isSuperAdmin || me?.userId === a.userId) ? (
-                    <span style={{ fontSize: '0.8rem', color: 'var(--text-pale)' }}>—</span>
-                  ) : (
-                    <button className="btn-icon" onClick={() => removeAdmin(a)}>
-                      <span className="icon">person_remove</span>
-                    </button>
-                  )}
+                  <div style={{ display: 'flex', gap: '0.3rem', justifyContent: 'flex-end' }}>
+                    {/* スーパー管理者だけが表示できる移譲ボタン */}
+                    {me?.isSuperAdmin && !a.isSuperAdmin && me?.userId !== a.userId && (
+                      <button
+                        className="btn-icon"
+                        onClick={() => transferSuper(a)}
+                        title="スーパー管理者に移譲"
+                        style={{ color: '#b86200', borderColor: '#f4c95a' }}
+                      >
+                        <span className="icon">star</span>
+                      </button>
+                    )}
+                    {/* 削除ボタン */}
+                    {!a.isSuperAdmin && me?.userId !== a.userId && (
+                      <button className="btn-icon" onClick={() => removeAdmin(a)} title="削除">
+                        <span className="icon">person_remove</span>
+                      </button>
+                    )}
+                    {(a.isSuperAdmin && me?.userId === a.userId) && (
+                      <span style={{ fontSize: '0.8rem', color: 'var(--text-pale)' }}>—</span>
+                    )}
+                  </div>
                 </td>
               </tr>
             ))}

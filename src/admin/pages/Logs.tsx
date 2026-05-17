@@ -23,6 +23,7 @@ const ACTION_LABELS: Record<string, { label: string; icon: string; color: string
   'settings.scheduled.cancel': { label: '設定予定の取消', icon: 'cancel',         color: 'var(--text-sub)' },
   'admin.add':               { label: '管理者追加',        icon: 'person_add',     color: 'var(--green)' },
   'admin.remove':            { label: '管理者削除',        icon: 'person_remove',  color: 'var(--red)' },
+  'admin.super.transfer':    { label: 'スーパー管理者移譲', icon: 'star',           color: '#b86200' },
   'invitation.create':       { label: '招待発行',          icon: 'add_link',       color: 'var(--green)' },
   'invitation.revoke':       { label: '招待取消',          icon: 'link_off',       color: 'var(--text-sub)' },
 }
