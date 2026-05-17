@@ -173,7 +173,6 @@ export default function Admins() {
               <tr key={a.userId}>
                 <td data-label="名前">
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                    <span>{a.displayName || '(名前なし)'}</span>
                     {a.isSuperAdmin && (
                       <span className="badge" style={{ background: '#fff7e0', color: '#b86200', border: '1px solid #f4c95a' }}>
                         <span className="icon icon-sm">star</span>スーパー管理者
@@ -182,6 +181,7 @@ export default function Admins() {
                     {me?.userId === a.userId && (
                       <span className="badge" style={{ background: 'var(--bg)', color: 'var(--text-sub)' }}>自分</span>
                     )}
+                    <span>{a.displayName || '(名前なし)'}</span>
                   </div>
                 </td>
                 <td data-label="登録日" style={{ fontSize: '0.85rem', color: 'var(--text-sub)' }}>
