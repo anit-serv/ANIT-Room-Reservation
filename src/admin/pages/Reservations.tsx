@@ -149,12 +149,14 @@ export default function Reservations() {
                     ref={(el) => { rowRefs.current[r.id] = el }}
                     className={highlightedId === r.id ? 'row-highlight' : ''}
                   >
-                    <td>
-                      <div>{datePart}</div>
-                      <div style={{ fontSize: '0.8rem', color: 'var(--text-sub)' }}>{timePart}</div>
+                    <td data-label="日時">
+                      <div>
+                        <div>{datePart}</div>
+                        <div style={{ fontSize: '0.8rem', color: 'var(--text-sub)' }}>{timePart}</div>
+                      </div>
                     </td>
-                    <td>{r.bandName}</td>
-                    <td>
+                    <td data-label="バンド名">{r.bandName}</td>
+                    <td data-label="登録者">
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                         {r.userPictureUrl
                           ? <img src={r.userPictureUrl} alt="" className="user-avatar" style={{ width: '24px', height: '24px' }} />
@@ -164,7 +166,7 @@ export default function Reservations() {
                         <span style={{ fontSize: '0.85rem' }}>{r.userDisplayName || '(不明)'}</span>
                       </div>
                     </td>
-                    <td>
+                    <td data-label="ステータス">
                       <span className={`badge ${r.status}`}>
                         <span className="icon icon-sm">
                           {r.status === 'confirmed' ? 'check_circle' : 'hourglass_empty'}
@@ -172,8 +174,8 @@ export default function Reservations() {
                         {r.status === 'confirmed' ? '確定' : '抽選待ち'}
                       </span>
                     </td>
-                    <td>{r.order ?? '-'}</td>
-                    <td>
+                    <td data-label="順位">{r.order ?? '-'}</td>
+                    <td className="cell-actions">
                       <div style={{ display: 'flex', gap: '0.4rem' }}>
                         <button className="btn-icon" onClick={() => setEditing(r)}>
                           <span className="icon">edit</span>

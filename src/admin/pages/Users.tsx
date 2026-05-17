@@ -109,7 +109,7 @@ export default function Users() {
             <tbody>
               {filtered.map((u) => (
                 <tr key={u.userId}>
-                  <td>
+                  <td data-label="ユーザー">
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                       {u.pictureUrl
                         ? <img src={u.pictureUrl} alt="" className="user-avatar" />
@@ -117,12 +117,12 @@ export default function Users() {
                       <span>{u.displayName || '(名前なし)'}</span>
                     </div>
                   </td>
-                  <td style={{ fontSize: '0.85rem', color: 'var(--text-sub)' }}>
+                  <td data-label="最終予約" style={{ fontSize: '0.85rem', color: 'var(--text-sub)' }}>
                     {u.lastReservedAt
                       ? new Date(u.lastReservedAt).toLocaleDateString('ja-JP')
                       : '-'}
                   </td>
-                  <td>
+                  <td data-label="状態">
                     {u.isAdmin
                       ? <span className="badge" style={{ background: '#e8f0fe', color: '#1a73e8' }}>
                           <span className="icon icon-sm">shield_person</span>管理者
@@ -135,7 +135,7 @@ export default function Users() {
                             <span className="icon icon-sm">check_circle</span>有効
                           </span>}
                   </td>
-                  <td>
+                  <td className="cell-actions">
                     <button className="btn-outline" style={{ width: 'auto', padding: '0.35rem 0.6rem', fontSize: '0.8rem' }}
                       onClick={() => setSelected(u.userId)}>
                       詳細

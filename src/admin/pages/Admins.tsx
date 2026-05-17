@@ -149,8 +149,8 @@ export default function Admins() {
           <tbody>
             {admins.map((a) => (
               <tr key={a.userId}>
-                <td>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <td data-label="名前">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                     <span>{a.displayName || '(名前なし)'}</span>
                     {a.isSuperAdmin && (
                       <span className="badge" style={{ background: '#fff7e0', color: '#b86200', border: '1px solid #f4c95a' }}>
@@ -162,10 +162,10 @@ export default function Admins() {
                     )}
                   </div>
                 </td>
-                <td style={{ fontSize: '0.85rem', color: 'var(--text-sub)' }}>
+                <td data-label="登録日" style={{ fontSize: '0.85rem', color: 'var(--text-sub)' }}>
                   {a.addedAt ? new Date(a.addedAt).toLocaleDateString('ja-JP') : '-'}
                 </td>
-                <td>
+                <td className="cell-actions">
                   <div style={{ display: 'flex', gap: '0.3rem', justifyContent: 'flex-end' }}>
                     {/* スーパー管理者だけが表示できる移譲ボタン */}
                     {me?.isSuperAdmin && !a.isSuperAdmin && me?.userId !== a.userId && (
@@ -215,20 +215,20 @@ export default function Admins() {
                 const expired = inv.expiresAt ? inv.expiresAt < Date.now() : false
                 return (
                   <tr key={inv.token}>
-                    <td style={{ fontSize: '0.85rem' }}>
+                    <td data-label="発行日" style={{ fontSize: '0.85rem' }}>
                       {inv.createdAt ? new Date(inv.createdAt).toLocaleString('ja-JP') : '-'}
                     </td>
-                    <td style={{ fontSize: '0.85rem' }}>
+                    <td data-label="有効期限" style={{ fontSize: '0.85rem' }}>
                       {inv.expiresAt ? new Date(inv.expiresAt).toLocaleString('ja-JP') : '-'}
                     </td>
-                    <td>
+                    <td data-label="状態">
                       {inv.used
                         ? <span className="badge confirmed">使用済み</span>
                         : expired
                           ? <span className="badge" style={{ background: 'var(--bg)', color: 'var(--text-pale)' }}>期限切れ</span>
                           : <span className="badge pending">有効</span>}
                     </td>
-                    <td>
+                    <td className="cell-actions">
                       {!inv.used && !expired && (
                         <button className="btn-icon" onClick={() => revokeInvitation(inv.token)}>
                           <span className="icon">delete</span>
