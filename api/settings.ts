@@ -55,7 +55,7 @@ function pickTimeSlotsForDate(date: string, settings: Settings): TimeSlot[] {
 
 type DateEntry = { label: string; value: string; timeSlots: TimeSlot[] }
 
-// 今日から6日後まで（7日分）を見て、availableDays に該当 + extraDates - excludedDates の日付を集める
+// 今日から7日後まで（8日分）を見て、availableDays に該当 + extraDates - excludedDates の日付を集める
 // forView=false（登録用）: 今日は常に除外、20:50以降は翌日も除外
 // forView=true（全登録表示用）: 20:50以降は今日のみ除外、翌日は含む
 function buildDateList(settings: Settings, forView: boolean): DateEntry[] {
@@ -70,7 +70,7 @@ function buildDateList(settings: Settings, forView: boolean): DateEntry[] {
 
   // 当該7日間に表示する日のセットを作る
   const candidates = new Set<string>()
-  for (let i = 0; i < 7; i++) {
+  for (let i = 0; i < 8; i++) {
     const d = new Date(nowJST)
     d.setUTCDate(nowJST.getUTCDate() + i)
     d.setUTCHours(0, 0, 0, 0)

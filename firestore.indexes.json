@@ -1,0 +1,13 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "reservations",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "bandName", "order": "ASCENDING" },
+        { "fieldPath": "date",     "order": "ASCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}
