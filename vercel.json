@@ -6,5 +6,11 @@
     { "source": "/api/reservations/:path*", "destination": "/api/reservations?_path=:path*" },
     { "source": "/admin", "destination": "/index.html" },
     { "source": "/admin/:path*", "destination": "/index.html" }
+  ],
+  "crons": [
+    {
+      "path": "/api/data-organize",
+      "schedule": "0 17 * * *"
+    }
   ]
 }

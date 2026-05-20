@@ -25,15 +25,20 @@ const db = admin.firestore();
 // 2. メイン処理
 // ---------------------------------------------------------
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // セキュリティチェック
+  // セキュリティチェック（Vercel cronのAuthorizationヘッダー、または手動呼び出しのqueryパラメータ）
+  const cronSecret = process.env.CRON_SECRET
+  const authHeader = req.headers.authorization
   const { key, days } = req.query;
-  if (key !== process.env.CRON_SECRET) {
+  const isAuthorized =
+    (authHeader === `Bearer ${cronSecret}`) ||
+    (key === cronSecret)
+  if (!isAuthorized) {
     return res.status(401).json({ status: 'error', message: 'Unauthorized' });
   }
 
   try {
-    // 削除対象の日数（デフォルト: 7日前）
-    const daysToKeep = days && typeof days === 'string' ? parseInt(days, 10) : 7;
+    // 削除対象の日数（デフォルト: 4年 = 1461日）
+    const daysToKeep = days && typeof days === 'string' ? parseInt(days, 10) : 1461;
 
     // 基準日を計算（JST）
     const now = new Date();
