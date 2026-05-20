@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo, useCallback } from 'react'
+import { useBlocker } from 'react-router-dom'
 import { adminFetch } from '../auth'
 import TimeSlotsEditor, { findConflicts, toMinutes, type TimeSlot, type TimeSlotPreset } from '../components/TimeSlotsEditor'
 import DateListEditor from '../components/DateListEditor'
@@ -140,6 +141,33 @@ export default function Settings() {
   }
 
   const lotteryTimeInvalid = !lotteryTime || lotteryTime < '01:00'
+
+  const isDirty = useMemo(() => {
+    if (!current) return false
+    const sortedStr = (arr: string[]) => JSON.stringify([...arr].sort())
+    return (
+      JSON.stringify(availableDays) !== JSON.stringify(current.availableDays ?? [3, 4, 6]) ||
+      JSON.stringify(timeSlots)     !== JSON.stringify(current.timeSlots ?? []) ||
+      sortedStr(extraDates)         !== sortedStr(current.extraDates ?? []) ||
+      sortedStr(excludedDates)      !== sortedStr(current.excludedDates ?? []) ||
+      JSON.stringify(perDaySchedule) !== JSON.stringify(current.perDaySchedule ?? emptySchedule()) ||
+      lotteryTime !== (current.lotteryTime ?? '21:00')
+    )
+  }, [current, availableDays, timeSlots, extraDates, excludedDates, perDaySchedule, lotteryTime])
+
+  useEffect(() => {
+    const handler = (e: BeforeUnloadEvent) => {
+      if (isDirty) e.preventDefault()
+    }
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [isDirty])
+
+  const blocker = useBlocker(
+    useCallback(({ currentLocation, nextLocation }: { currentLocation: { pathname: string }; nextLocation: { pathname: string } }) =>
+      isDirty && currentLocation.pathname !== nextLocation.pathname,
+    [isDirty])
+  )
 
   const defaultConflicts = findConflicts(timeSlots)
   const hasOverrideConflict = findAllConflicts(perDaySchedule)
@@ -403,6 +431,28 @@ export default function Settings() {
       <button className="btn-primary max-w-[300px]" onClick={save} disabled={saving}>
         {saving ? '保存中...' : editingScheduled ? '上書き保存' : '保存'}
       </button>
+
+      {blocker.state === 'blocked' && (
+        <div className="modal-backdrop" onClick={() => blocker.reset()}>
+          <div className="modal-card max-w-[360px]" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-3 mb-3">
+              <span className="icon text-warn" style={{ fontSize: 28 }}>warning</span>
+              <h2 className="text-base font-bold m-0">未保存の変更があります</h2>
+            </div>
+            <p className="text-[0.9rem] text-ink-sub mb-4">
+              保存せずにページを離れると、変更内容が失われます。
+            </p>
+            <div className="flex gap-2">
+              <button className="btn-outline flex-1" onClick={() => blocker.reset()}>
+                留まる
+              </button>
+              <button className="btn-danger flex-1" onClick={() => blocker.proceed()}>
+                離れる
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
