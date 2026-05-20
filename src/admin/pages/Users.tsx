@@ -92,13 +92,15 @@ export default function Users() {
           <span className="text-[0.9rem]">該当するユーザーがいません</span>
         </div>
       ) : (
-        <div className="bg-surface border border-line rounded-xl overflow-hidden shadow-[var(--shadow-card-sm)]">
+        <>
+        {/* Desktop */}
+        <div className="hidden md:block bg-surface border border-line rounded-xl overflow-hidden shadow-[var(--shadow-card-sm)]">
           <table className="admin-table">
             <thead>
               <tr>
-                <th>ユーザー</th>
+                <th></th>
                 <th>最終予約</th>
-                <th>状態</th>
+                <th></th>
                 <th style={{ width: '80px' }}></th>
               </tr>
             </thead>
@@ -133,10 +135,64 @@ export default function Users() {
             </tbody>
           </table>
         </div>
+
+        {/* Mobile accordion */}
+        <div className="md:hidden bg-surface border border-line rounded-xl overflow-hidden shadow-[var(--shadow-card-sm)]">
+          {filtered.map((u) => (
+            <UserMobileCard key={u.userId} u={u} onDetail={() => setSelected(u.userId)} />
+          ))}
+        </div>
+        </>
       )}
 
       {selected && (
         <UserDetail userId={selected} onClose={() => setSelected(null)} onUpdated={() => load()} />
+      )}
+    </div>
+  )
+}
+
+function UserMobileCard({ u, onDetail }: { u: User; onDetail: () => void }) {
+  const [open, setOpen] = useState(false)
+
+  return (
+    <div className="border-b border-line last:border-b-0">
+      <button
+        className="w-full flex items-center gap-3 px-4 py-3 text-left bg-transparent border-0 cursor-pointer hover:bg-[#fafbfc] transition-colors"
+        onClick={() => setOpen((v) => !v)}
+      >
+        <div className="flex items-center gap-2 flex-1 min-w-0">
+          {u.pictureUrl
+            ? <img src={u.pictureUrl} alt="" className="avatar" />
+            : <span className="avatar-fallback"><span className="icon">account_circle</span></span>}
+          <span className="font-medium truncate">{u.displayName || '(名前なし)'}</span>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          {u.isAdmin
+            ? <span className="badge badge-info"><span className="icon icon-sm">shield_person</span>管理者</span>
+            : u.banned
+              ? <span className="badge badge-danger"><span className="icon icon-sm">block</span>BAN中</span>
+              : <span className="badge badge-confirmed"><span className="icon icon-sm">check_circle</span>有効</span>}
+          <span className={`icon text-ink-pale transition-transform duration-200 ${open ? 'rotate-180' : ''}`}>
+            expand_more
+          </span>
+        </div>
+      </button>
+
+      {open && (
+        <div className="px-4 pb-3 border-t border-line bg-bg">
+          <div className="flex items-center justify-between py-2">
+            <span className="text-[0.72rem] text-ink-sub font-semibold uppercase tracking-wide">最終予約</span>
+            <span className="text-[0.85rem] text-ink-sub">
+              {u.lastReservedAt ? new Date(u.lastReservedAt).toLocaleDateString('ja-JP') : '-'}
+            </span>
+          </div>
+          <div className="pt-2">
+            <button className="btn-outline py-1.5 text-[0.85rem]" onClick={onDetail}>
+              詳細を見る
+            </button>
+          </div>
+        </div>
       )}
     </div>
   )

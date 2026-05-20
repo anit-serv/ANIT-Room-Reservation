@@ -5,6 +5,7 @@ import Skeleton from '../../components/Skeleton'
 type Admin = {
   userId: string
   displayName: string
+  pictureUrl: string | null
   isSuperAdmin: boolean
   addedAt: number | null
   addedBy: string | null
@@ -153,10 +154,12 @@ export default function Admins() {
         <div className="px-5 py-4 border-b border-line">
           <h2 className="text-base font-bold m-0">現在の管理者 ({admins.length}名)</h2>
         </div>
-        <table className="admin-table">
+
+        {/* Desktop */}
+        <table className="admin-table hidden md:table">
           <thead>
             <tr>
-              <th>名前</th>
+              <th></th>
               <th>登録日</th>
               <th style={{ width: '100px' }}></th>
             </tr>
@@ -165,12 +168,15 @@ export default function Admins() {
             {admins.map((a) => (
               <tr key={a.userId}>
                 <td data-label="名前">
-                  <div className="flex items-center gap-2 flex-wrap justify-end">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {a.pictureUrl
+                      ? <img src={a.pictureUrl} alt="" className="avatar" />
+                      : <span className="avatar-fallback"><span className="icon">account_circle</span></span>}
+                    <span>{a.displayName || '(名前なし)'}</span>
                     {a.isSuperAdmin && (
                       <span className="badge badge-super"><span className="icon icon-sm">star</span>スーパー管理者</span>
                     )}
                     {me?.userId === a.userId && <span className="badge badge-neutral">自分</span>}
-                    <span>{a.displayName || '(名前なし)'}</span>
                   </div>
                 </td>
                 <td data-label="登録日" className="text-[0.85rem] text-ink-sub">
@@ -202,6 +208,19 @@ export default function Admins() {
             ))}
           </tbody>
         </table>
+
+        {/* Mobile accordion */}
+        <div className="md:hidden">
+          {admins.map((a) => (
+            <AdminMobileCard
+              key={a.userId}
+              a={a}
+              me={me}
+              onRemove={() => removeAdmin(a)}
+              onTransfer={() => transferSuper(a)}
+            />
+          ))}
+        </div>
       </div>
 
       {/* 発行済み招待 */}
@@ -210,12 +229,14 @@ export default function Admins() {
           <div className="px-5 py-4 border-b border-line">
             <h2 className="text-base font-bold m-0">発行済み招待</h2>
           </div>
-          <table className="admin-table">
+
+          {/* Desktop */}
+          <table className="admin-table hidden md:table">
             <thead>
               <tr>
                 <th>発行日</th>
                 <th>有効期限</th>
-                <th>状態</th>
+                <th></th>
                 <th style={{ width: '80px' }}></th>
               </tr>
             </thead>
@@ -249,6 +270,141 @@ export default function Admins() {
               })}
             </tbody>
           </table>
+
+          {/* Mobile accordion */}
+          <div className="md:hidden">
+            {invitations.map((inv) => (
+              <InvitationMobileCard
+                key={inv.token}
+                inv={inv}
+                onRevoke={() => revokeInvitation(inv.token)}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function AdminMobileCard({
+  a, me, onRemove, onTransfer,
+}: {
+  a: Admin
+  me: { userId: string; isSuperAdmin?: boolean } | null
+  onRemove: () => void
+  onTransfer: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const isSelf = me?.userId === a.userId
+
+  return (
+    <div className="border-b border-line last:border-b-0">
+      <button
+        className="w-full flex items-center gap-3 px-4 py-3 text-left bg-transparent border-0 cursor-pointer hover:bg-[#fafbfc] transition-colors"
+        onClick={() => setOpen((v) => !v)}
+      >
+        {a.pictureUrl
+          ? <img src={a.pictureUrl} alt="" className="avatar shrink-0" />
+          : <span className="avatar-fallback shrink-0"><span className="icon">account_circle</span></span>}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {isSelf && <span className="badge badge-neutral">自分</span>}
+            <span className="font-medium">{a.displayName || '(名前なし)'}</span>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          {a.isSuperAdmin
+            ? <span className="badge badge-super"><span className="icon icon-sm">star</span>スーパー管理者</span>
+            : <span className="badge badge-info"><span className="icon icon-sm">shield_person</span>管理者</span>}
+          <span className={`icon text-ink-pale transition-transform duration-200 ${open ? 'rotate-180' : ''}`}>
+            expand_more
+          </span>
+        </div>
+      </button>
+
+      {open && (
+        <div className="px-4 pb-3 border-t border-line bg-bg">
+          <div className="flex items-center justify-between py-2">
+            <span className="text-[0.72rem] text-ink-sub font-semibold uppercase tracking-wide">登録日</span>
+            <span className="text-[0.85rem] text-ink-sub">
+              {a.addedAt ? new Date(a.addedAt).toLocaleDateString('ja-JP') : '-'}
+            </span>
+          </div>
+          {!isSelf && !a.isSuperAdmin && (
+            <div className="flex gap-2 pt-2">
+              {me?.isSuperAdmin && (
+                <button
+                  className="btn-icon"
+                  onClick={onTransfer}
+                  title="スーパー管理者に移譲"
+                  style={{ color: 'var(--color-super)', borderColor: 'var(--color-super-border)' }}
+                >
+                  <span className="icon">star</span>
+                </button>
+              )}
+              <button className="btn-icon" onClick={onRemove} title="削除">
+                <span className="icon">person_remove</span>
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function InvitationMobileCard({
+  inv, onRevoke,
+}: {
+  inv: Invitation
+  onRevoke: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const expired = inv.expiresAt ? inv.expiresAt < Date.now() : false
+
+  return (
+    <div className="border-b border-line last:border-b-0">
+      <button
+        className="w-full flex items-center gap-3 px-4 py-3 text-left bg-transparent border-0 cursor-pointer hover:bg-[#fafbfc] transition-colors"
+        onClick={() => setOpen((v) => !v)}
+      >
+        <div className="flex-1 min-w-0 text-[0.85rem] text-ink-sub">
+          {inv.createdAt ? new Date(inv.createdAt).toLocaleString('ja-JP') : '-'}
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          {inv.used
+            ? <span className="badge badge-confirmed">使用済み</span>
+            : expired
+              ? <span className="badge badge-neutral">期限切れ</span>
+              : <span className="badge badge-pending">有効</span>}
+          <span className={`icon text-ink-pale transition-transform duration-200 ${open ? 'rotate-180' : ''}`}>
+            expand_more
+          </span>
+        </div>
+      </button>
+
+      {open && (
+        <div className="px-4 pb-3 border-t border-line bg-bg">
+          <div className="flex items-center justify-between py-2 border-b border-line">
+            <span className="text-[0.72rem] text-ink-sub font-semibold uppercase tracking-wide">発行日</span>
+            <span className="text-[0.85rem] text-ink-sub">
+              {inv.createdAt ? new Date(inv.createdAt).toLocaleString('ja-JP') : '-'}
+            </span>
+          </div>
+          <div className="flex items-center justify-between py-2">
+            <span className="text-[0.72rem] text-ink-sub font-semibold uppercase tracking-wide">有効期限</span>
+            <span className="text-[0.85rem] text-ink-sub">
+              {inv.expiresAt ? new Date(inv.expiresAt).toLocaleString('ja-JP') : '-'}
+            </span>
+          </div>
+          {!inv.used && !expired && (
+            <div className="pt-2">
+              <button className="btn-icon" onClick={onRevoke}>
+                <span className="icon">delete</span>
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>

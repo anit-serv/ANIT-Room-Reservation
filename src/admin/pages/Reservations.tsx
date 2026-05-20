@@ -19,7 +19,7 @@ type Reservation = {
 export default function Reservations() {
   const [searchParams, setSearchParams] = useSearchParams()
   const focusId = searchParams.get('focus')
-  const rowRefs = useRef<Record<string, HTMLTableRowElement | null>>({})
+  const rowRefs = useRef<Record<string, HTMLElement | null>>({})
 
   const [reservations, setReservations] = useState<Reservation[]>([])
   const [loading, setLoading]           = useState(true)
@@ -118,7 +118,9 @@ export default function Reservations() {
           <span className="text-[0.9rem]">該当する予約がありません</span>
         </div>
       ) : (
-        <div className="bg-surface border border-line rounded-xl overflow-hidden shadow-[var(--shadow-card-sm)]">
+        <>
+        {/* Desktop */}
+        <div className="hidden md:block bg-surface border border-line rounded-xl overflow-hidden shadow-[var(--shadow-card-sm)]">
           <table className="admin-table">
             <thead>
               <tr>
@@ -179,6 +181,21 @@ export default function Reservations() {
             </tbody>
           </table>
         </div>
+
+        {/* Mobile accordion */}
+        <div className="md:hidden bg-surface border border-line rounded-xl overflow-hidden shadow-[var(--shadow-card-sm)]">
+          {reservations.map((r) => (
+            <ReservationMobileCard
+              key={r.id}
+              r={r}
+              highlighted={highlightedId === r.id}
+              rowRef={(el) => { rowRefs.current[r.id] = el }}
+              onEdit={() => setEditing(r)}
+              onDelete={() => handleDelete(r)}
+            />
+          ))}
+        </div>
+        </>
       )}
 
       {editing && (
@@ -187,6 +204,71 @@ export default function Reservations() {
           onClose={() => setEditing(null)}
           onSaved={() => { setEditing(null); load() }}
         />
+      )}
+    </div>
+  )
+}
+
+function ReservationMobileCard({
+  r, highlighted, rowRef, onEdit, onDelete,
+}: {
+  r: Reservation
+  highlighted: boolean
+  rowRef: (el: HTMLDivElement | null) => void
+  onEdit: () => void
+  onDelete: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [datePart, timePart] = r.date.split('T')
+
+  return (
+    <div
+      ref={rowRef}
+      className={`border-b border-line last:border-b-0 ${highlighted ? 'row-highlight' : ''}`}
+    >
+      <button
+        className="w-full flex items-center gap-3 px-4 py-3 text-left bg-transparent border-0 cursor-pointer hover:bg-[#fafbfc] transition-colors"
+        onClick={() => setOpen((v) => !v)}
+      >
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-medium text-[0.9rem] truncate">{r.bandName}</span>
+            <span className={'badge ' + (r.status === 'confirmed' ? 'badge-confirmed' : 'badge-pending')}>
+              <span className="icon icon-sm">{r.status === 'confirmed' ? 'check_circle' : 'hourglass_empty'}</span>
+              {r.status === 'confirmed' ? '確定' : '抽選待ち'}
+            </span>
+          </div>
+          <div className="text-[0.8rem] text-ink-sub mt-0.5">{datePart}　{timePart}</div>
+        </div>
+        <span className={`icon text-ink-pale transition-transform duration-200 ${open ? 'rotate-180' : ''}`}>
+          expand_more
+        </span>
+      </button>
+
+      {open && (
+        <div className="px-4 pb-3 border-t border-line bg-bg">
+          <div className="flex items-center justify-between py-2 border-b border-line">
+            <span className="text-[0.72rem] text-ink-sub font-semibold uppercase tracking-wide">登録者</span>
+            <div className="flex items-center gap-2">
+              {r.userPictureUrl
+                ? <img src={r.userPictureUrl} alt="" className="avatar avatar-sm" />
+                : <span className="avatar-fallback avatar-sm"><span className="icon icon-sm">account_circle</span></span>}
+              <span className="text-[0.85rem]">{r.userDisplayName || '(不明)'}</span>
+            </div>
+          </div>
+          <div className="flex items-center justify-between py-2">
+            <span className="text-[0.72rem] text-ink-sub font-semibold uppercase tracking-wide">順位</span>
+            <span className="text-[0.9rem]">{r.order ?? '-'}</span>
+          </div>
+          <div className="flex gap-2 pt-2">
+            <button className="btn-outline py-1.5 text-[0.85rem]" onClick={onEdit}>
+              <span className="icon icon-sm">edit</span> 編集
+            </button>
+            <button className="btn-icon" onClick={onDelete}>
+              <span className="icon">delete</span>
+            </button>
+          </div>
+        </div>
       )}
     </div>
   )

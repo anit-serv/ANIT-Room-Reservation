@@ -26,8 +26,13 @@ function App() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
+    const liffId = import.meta.env.VITE_LIFF_ID as string | undefined
+    if (!liffId) {
+      setError('LINE アプリ内からアクセスしてください')
+      return
+    }
     liff
-      .init({ liffId: import.meta.env.VITE_LIFF_ID })
+      .init({ liffId })
       .then(async () => {
         if (!liff.isLoggedIn()) { liff.login(); return }
         const lineProfile = await liff.getProfile()

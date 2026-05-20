@@ -515,11 +515,19 @@ async function handleAdminsList(req: VercelRequest, res: VercelResponse) {
     return res.status(status).json({ error: err.message })
   }
   const snapshot = await db.collection('admins').get()
+  const adminIds = snapshot.docs.map((d) => d.id)
+  const userDocs = adminIds.length > 0
+    ? await db.getAll(...adminIds.map((id) => db.collection('users').doc(id)))
+    : []
+  const pictureMap: Record<string, string | null> = {}
+  userDocs.forEach((d) => { pictureMap[d.id] = d.exists ? (d.data()?.pictureUrl ?? null) : null })
+
   const admins = snapshot.docs.map((d) => {
     const data = d.data()
     return {
       userId: d.id,
       displayName: data.displayName ?? '',
+      pictureUrl: pictureMap[d.id] ?? null,
       isSuperAdmin: data.isSuperAdmin === true,
       addedAt: data.addedAt?.toMillis?.() ?? null,
       addedBy: data.addedBy ?? null,
