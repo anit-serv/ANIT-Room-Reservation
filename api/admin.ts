@@ -453,19 +453,30 @@ async function handleSettingsLotteryTime(req: VercelRequest, res: VercelResponse
   await db.collection('settings').doc('reservation').set({ lotteryTime }, { merge: true })
   await audit(me, 'settings.lotteryTime', { targetType: 'settings', details: { lotteryTime } })
 
-  // cron-job.org スケジュール更新
-  const apiKey = process.env.CRONJOB_ORG_API_KEY
-  const jobId  = process.env.CRONJOB_ORG_JOB_ID
-  if (apiKey && jobId) {
+  // cron-job.org スケジュール更新（抽選ジョブ: 5分前 / 通知ジョブ: 抽選時刻）
+  const apiKey        = process.env.CRONJOB_ORG_API_KEY
+  const lotteryJobId  = process.env.CRONJOB_ORG_LOTTERY_JOB_ID
+  const notifyJobId   = process.env.CRONJOB_ORG_NOTIFY_JOB_ID
+  if (apiKey && (lotteryJobId || notifyJobId)) {
     const [h, m] = lotteryTime.split(':').map(Number)
+    const lotteryMinutes = h * 60 + m
+
+    // 抽選ジョブ: 5分前
+    const lotteryJobMinutes = lotteryMinutes - 5
+    const lotteryJobH = Math.floor(lotteryJobMinutes / 60)
+    const lotteryJobM = lotteryJobMinutes % 60
+
+    const headers = { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' }
+    const makeSchedule = (jh: number, jm: number) => ({
+      job: { schedule: { timezone: 'Asia/Tokyo', expiresAt: 0, hours: [jh], minutes: [jm], mdays: [-1], months: [-1], wdays: [-1] } }
+    })
+
     try {
-      await axios.patch(
-        `https://api.cron-job.org/jobs/${jobId}`,
-        { job: { schedule: { timezone: 'Asia/Tokyo', expiresAt: 0, hours: [h], minutes: [m], mdays: [-1], months: [-1], wdays: [-1] } } },
-        { headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' } }
-      )
+      await Promise.all([
+        lotteryJobId && axios.patch(`https://api.cron-job.org/jobs/${lotteryJobId}`, makeSchedule(lotteryJobH, lotteryJobM), { headers }),
+        notifyJobId  && axios.patch(`https://api.cron-job.org/jobs/${notifyJobId}`,  makeSchedule(h, m),                    { headers }),
+      ])
     } catch (err: any) {
-      // cron更新失敗はFirestore保存済みのためwarningのみ
       return res.status(200).json({ success: true, lotteryTime, cronWarning: 'cron-job.orgの更新に失敗しました: ' + err.message })
     }
   }
