@@ -74,7 +74,7 @@ const TRIGGER_WORDS = {
 const MESSAGES = {
   ERROR: 'エラーが発生しました。もう一度お試しください。',
   SESSION_EXPIRED: '⏰ 5分間経過したため、操作をキャンセルしました。\nもう一度お試しください。',
-  LOTTERY_TIME: '⚠️ 現在は20:50〜21:00の抽選集計時間のため、操作はできません。21:00以降にお試しください。',
+  LOTTERY_TIME: '⚠️ 現在は抽選集計時間のため、操作はできません。抽選終了後にお試しください。',
   CAROUSEL_EXPIRED: '⏰ このボタンは有効期限切れです。',
   CAROUSEL_OUTDATED: '⚠️ このカルーセルは既に操作済みです。',
   CAROUSEL_REFRESH: '「自分の登録を見たい」と送って最新の一覧を取得してください。',
@@ -557,7 +557,7 @@ async function handleRegisterRequest(event: line.MessageEvent, userId: string) {
   if (await isLotteryTime()) {
     return client.replyMessage(event.replyToken, {
       type: 'text',
-      text: '⚠️ 現在は20:50〜21:00の抽選集計時間のため、予約操作はできません。21:00以降にお試しください。',
+      text: '⚠️ 現在は抽選集計時間のため、予約操作はできません。抽選終了後にお試しください。',
     });
   }
 
@@ -1377,32 +1377,30 @@ async function handleEditFinalize(event: line.PostbackEvent, data: string) {
 // ---------------------------------------------------------
 
 async function isLotteryTime(): Promise<boolean> {
-  const now = new Date();
-  const jstOffset = 9 * 60 * 60 * 1000;
-  const nowJST = new Date(now.getTime() + jstOffset);
-  const h = nowJST.getUTCHours();
-  const m = nowJST.getUTCMinutes();
+  const settingsDoc = await db.collection('settings').doc('reservation').get();
+  const lotteryTime: string = (settingsDoc.exists ? settingsDoc.data()?.lotteryTime : null) ?? '21:00';
+  const [lh, lm] = lotteryTime.split(':').map(Number);
+  const lotteryMinutes = lh * 60 + lm;
 
-  // 20:50〜21:00の時間帯かチェック
-  const isLotteryTimeSlot = h === 20 && m >= 50;
-  if (!isLotteryTimeSlot) return false;
+  const nowJST = new Date(Date.now() + 9 * 60 * 60 * 1000);
+  const nowMinutes = nowJST.getUTCHours() * 60 + nowJST.getUTCMinutes();
+  if (nowMinutes < lotteryMinutes - 10 || nowMinutes >= lotteryMinutes) return false;
 
-  // 翌日が登録可能日かどうかをチェック
   const tomorrow = new Date(nowJST);
   tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
-  const tomorrowDayIndex = tomorrow.getUTCDay();
-
   const availableDays = await getAvailableDays();
-  return availableDays.includes(tomorrowDayIndex);
+  return availableDays.includes(tomorrow.getUTCDay());
 }
 
 async function getAvailableDateList(_includeToday: boolean = false): Promise<{ label: string; value: string }[]> {
-  const now = new Date();
-  const jstOffset = 9 * 60 * 60 * 1000;
-  const nowJST = new Date(now.getTime() + jstOffset);
-  const h = nowJST.getUTCHours();
-  const mi = nowJST.getUTCMinutes();
-  const afterLotteryPrep = h > 20 || (h === 20 && mi >= 50);
+  const settingsDoc = await db.collection('settings').doc('reservation').get();
+  const lotteryTime: string = (settingsDoc.exists ? settingsDoc.data()?.lotteryTime : null) ?? '21:00';
+  const [lh, lm] = lotteryTime.split(':').map(Number);
+  const lockoutMinutes = lh * 60 + lm - 10;
+
+  const nowJST = new Date(Date.now() + 9 * 60 * 60 * 1000);
+  const nowMinutes = nowJST.getUTCHours() * 60 + nowJST.getUTCMinutes();
+  const afterLotteryPrep = nowMinutes >= lockoutMinutes;
 
   const availableDays = await getAvailableDays();
   const results: { label: string; value: string }[] = [];

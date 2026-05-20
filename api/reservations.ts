@@ -64,9 +64,12 @@ async function handleCreate(req: VercelRequest, res: VercelResponse) {
     const { bandName, date } = req.body as { bandName: string; date: string }
     if (!bandName || !date) return res.status(400).json({ error: 'bandName と date は必須です' })
 
-    // BAN チェック
+    // 設定とBANチェックを並列取得
+    const [userDoc, settingsDoc] = await Promise.all([
+      db.collection('users').doc(userId).get(),
+      db.collection('settings').doc('reservation').get(),
+    ])
     const userRef = db.collection('users').doc(userId)
-    const userDoc = await userRef.get()
     if (userDoc.exists && userDoc.data()?.banned === true) {
       return res.status(403).json({ error: '予約機能の利用が停止されています' })
     }
@@ -85,19 +88,23 @@ async function handleCreate(req: VercelRequest, res: VercelResponse) {
       })
     }
 
-    // 抽選時間中（20:50〜21:00）は今日・翌日の登録不可
+    // 抽選10分前〜抽選時刻の間は当日・翌日の登録不可
+    const lotteryTime = (settingsDoc.exists ? settingsDoc.data()?.lotteryTime : null) ?? '21:00'
+    const [lh, lm] = lotteryTime.split(':').map(Number)
+    const lotteryMinutes = lh * 60 + lm
     const nowJST = new Date(Date.now() + 9 * 60 * 60 * 1000)
-    const h = nowJST.getUTCHours()
-    const mi = nowJST.getUTCMinutes()
-    const inLotteryWindow = h === 20 && mi >= 50
+    const nowMinutes = nowJST.getUTCHours() * 60 + nowJST.getUTCMinutes()
+    const inLotteryWindow = nowMinutes >= lotteryMinutes - 10 && nowMinutes < lotteryMinutes
     if (inLotteryWindow) {
+      const lockoutHH = String(Math.floor((lotteryMinutes - 10) / 60)).padStart(2, '0')
+      const lockoutMM = String((lotteryMinutes - 10) % 60).padStart(2, '0')
       const todayStr = nowJST.toISOString().slice(0, 10)
       const tomorrowJST = new Date(nowJST)
       tomorrowJST.setUTCDate(nowJST.getUTCDate() + 1)
       const tomorrowStr = tomorrowJST.toISOString().slice(0, 10)
       const dateStr = date.split('T')[0]
       if (dateStr === todayStr || dateStr === tomorrowStr) {
-        return res.status(400).json({ error: '抽選時間中のため本日・翌日の登録はできません' })
+        return res.status(400).json({ error: `抽選集計中（${lockoutHH}:${lockoutMM}〜${lotteryTime}）のため本日・翌日の登録はできません` })
       }
     }
 

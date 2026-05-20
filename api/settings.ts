@@ -26,6 +26,7 @@ type Settings = {
     byDate?:    { [date: string]: TimeSlot[] }
   }
   nextChange?: any
+  lotteryTime?: string
 }
 
 const DEFAULT_TIME_SLOTS: TimeSlot[] = [
@@ -56,13 +57,16 @@ function pickTimeSlotsForDate(date: string, settings: Settings): TimeSlot[] {
 type DateEntry = { label: string; value: string; timeSlots: TimeSlot[] }
 
 // 今日から7日後まで（8日分）を見て、availableDays に該当 + extraDates - excludedDates の日付を集める
-// forView=false（登録用）: 今日は常に除外、20:50以降は翌日も除外
-// forView=true（全登録表示用）: 20:50以降は今日のみ除外、翌日は含む
+// forView=false（登録用）: 今日は常に除外、抽選10分前以降は翌日も除外
+// forView=true（全登録表示用）: 抽選10分前以降は今日のみ除外、翌日は含む
 function buildDateList(settings: Settings, forView: boolean): DateEntry[] {
+  const lotteryTime = settings.lotteryTime ?? '21:00'
+  const [lh, lm] = lotteryTime.split(':').map(Number)
+  const lockoutMinutes = lh * 60 + lm - 10
+
   const nowJST = new Date(Date.now() + 9 * 60 * 60 * 1000)
-  const h = nowJST.getUTCHours()
-  const mi = nowJST.getUTCMinutes()
-  const afterLotteryPrep = h > 20 || (h === 20 && mi >= 50)
+  const nowMinutes = nowJST.getUTCHours() * 60 + nowJST.getUTCMinutes()
+  const afterLotteryPrep = nowMinutes >= lockoutMinutes
 
   const availableDays = settings.availableDays ?? DEFAULT_AVAILABLE_DAYS
   const extraSet = new Set(settings.extraDates ?? [])
@@ -127,7 +131,8 @@ export default async function handler(_req: VercelRequest, res: VercelResponse) 
       availableDates:          buildDateList(data, false),
       availableDatesWithToday: buildDateList(data, true),
       // 後方互換のため timeSlots（デフォルト）も返す
-      timeSlots: data.timeSlots ?? DEFAULT_TIME_SLOTS,
+      timeSlots:    data.timeSlots ?? DEFAULT_TIME_SLOTS,
+      lotteryTime:  data.lotteryTime ?? '21:00',
     })
   } catch (err: any) {
     return res.status(500).json({ error: err.message })

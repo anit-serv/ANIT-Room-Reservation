@@ -65,8 +65,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (path === 'auth/me')       return handleAuthMe(req, res)
 
   // 設定
-  if (path === 'settings')           return handleSettings(req, res)
-  if (path === 'settings/scheduled') return handleSettingsScheduled(req, res)
+  if (path === 'settings')              return handleSettings(req, res)
+  if (path === 'settings/scheduled')    return handleSettingsScheduled(req, res)
+  if (path === 'settings/lottery-time') return handleSettingsLotteryTime(req, res)
 
   // 予約管理
   if (segments[0] === 'reservations') {
@@ -380,6 +381,7 @@ async function handleSettings(req: VercelRequest, res: VercelResponse) {
       excludedDates:  data.excludedDates  ?? [],
       perDaySchedule: data.perDaySchedule ?? { enabled: false, byWeekday: {}, byDate: {} },
       nextChange:     data.nextChange     ?? null,
+      lotteryTime:    (data as any).lotteryTime ?? '21:00',
     })
   }
 
@@ -430,6 +432,45 @@ async function handleSettingsScheduled(req: VercelRequest, res: VercelResponse) 
   }, { merge: true })
   await audit(me, 'settings.scheduled.cancel', { targetType: 'settings' })
   return res.status(200).json({ success: true })
+}
+
+// ─── 抽選時刻の即時更新 ───────────────────────────────
+async function handleSettingsLotteryTime(req: VercelRequest, res: VercelResponse) {
+  if (req.method !== 'PUT') return res.status(405).json({ error: 'Method Not Allowed' })
+  let me: AuditActor
+  try {
+    me = await verifyAdmin(req.headers.authorization)
+  } catch (err: any) {
+    const status = err.message === 'Forbidden' ? 403 : 401
+    return res.status(status).json({ error: err.message })
+  }
+
+  const { lotteryTime } = (req.body ?? {}) as { lotteryTime?: string }
+  if (!lotteryTime || !/^([01]\d|2[0-3]):[0-5]\d$/.test(lotteryTime) || lotteryTime < '01:00') {
+    return res.status(400).json({ error: '抽選時刻は01:00〜23:59で指定してください' })
+  }
+
+  await db.collection('settings').doc('reservation').set({ lotteryTime }, { merge: true })
+  await audit(me, 'settings.lotteryTime', { targetType: 'settings', details: { lotteryTime } })
+
+  // cron-job.org スケジュール更新
+  const apiKey = process.env.CRONJOB_ORG_API_KEY
+  const jobId  = process.env.CRONJOB_ORG_JOB_ID
+  if (apiKey && jobId) {
+    const [h, m] = lotteryTime.split(':').map(Number)
+    try {
+      await axios.patch(
+        `https://api.cron-job.org/jobs/${jobId}`,
+        { job: { schedule: { timezone: 'Asia/Tokyo', expiresAt: 0, hours: [h], minutes: [m], mdays: [-1], months: [-1], wdays: [-1] } } },
+        { headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' } }
+      )
+    } catch (err: any) {
+      // cron更新失敗はFirestore保存済みのためwarningのみ
+      return res.status(200).json({ success: true, lotteryTime, cronWarning: 'cron-job.orgの更新に失敗しました: ' + err.message })
+    }
+  }
+
+  return res.status(200).json({ success: true, lotteryTime })
 }
 
 // ─── 予約一覧（フィルタ可） ────────────────────────────

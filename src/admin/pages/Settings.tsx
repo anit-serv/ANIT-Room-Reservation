@@ -15,6 +15,7 @@ type SettingsCore = {
 
 type SettingsResponse = SettingsCore & {
   nextChange: (SettingsCore & { effectiveFrom: string }) | null
+  lotteryTime: string
 }
 
 const WEEK_DAYS = ['日', '月', '火', '水', '木', '金', '土']
@@ -46,6 +47,9 @@ export default function Settings() {
   const [saving, setSaving]               = useState(false)
   const [message, setMessage]             = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [presets, setPresets]             = useState<TimeSlotPreset[]>([])
+  const [lotteryTime, setLotteryTime]     = useState('21:00')
+  const [savingLottery, setSavingLottery] = useState(false)
+  const [lotteryMessage, setLotteryMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   useEffect(() => { load(); loadPresets() }, [])
 
@@ -105,6 +109,7 @@ export default function Settings() {
     if (!res.ok) { setMessage({ type: 'error', text: '設定の取得に失敗しました' }); return }
     const data = (await res.json()) as SettingsResponse
     setCurrent(data)
+    setLotteryTime(data.lotteryTime ?? '21:00')
     if (!editingScheduled) applyToForm(data)
   }
 
@@ -127,6 +132,40 @@ export default function Settings() {
     setAvailableDays((prev) =>
       prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d].sort()
     )
+  }
+
+  function computeLockoutTime(lt: string): string {
+    const [h, m] = lt.split(':').map(Number)
+    const total = h * 60 + m - 10
+    return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`
+  }
+
+  async function saveLotteryTime() {
+    if (!lotteryTime || lotteryTime < '01:00') {
+      setLotteryMessage({ type: 'error', text: '抽選時刻は01:00以降を指定してください' })
+      return
+    }
+    setSavingLottery(true)
+    setLotteryMessage(null)
+    try {
+      const res = await adminFetch('/api/admin/settings/lottery-time', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lotteryTime }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error ?? '保存に失敗しました')
+      setLotteryMessage({
+        type: 'success',
+        text: json.cronWarning
+          ? `保存しました（⚠️ ${json.cronWarning}）`
+          : `抽選時刻を ${lotteryTime} に設定しました。cron-job.orgも更新済みです。`,
+      })
+    } catch (err: any) {
+      setLotteryMessage({ type: 'error', text: err.message })
+    } finally {
+      setSavingLottery(false)
+    }
   }
 
   const defaultConflicts = findConflicts(timeSlots)
@@ -266,6 +305,45 @@ export default function Settings() {
           </div>
         </div>
       )}
+
+      {/* 抽選時刻 */}
+      <div className="admin-card">
+        <h2 className="text-base font-bold mb-1">抽選時刻</h2>
+        <p className="text-[0.85rem] text-ink-sub mb-3">
+          変更すると cron-job.org のスケジュールも自動で更新されます。
+        </p>
+
+        {lotteryMessage && (
+          <div className={lotteryMessage.type === 'success' ? 'banner-success mb-3' : 'banner-error mb-3'}>
+            {lotteryMessage.text}
+          </div>
+        )}
+
+        <div className="flex items-center gap-3 mb-3 flex-wrap">
+          <input
+            type="time"
+            className="text-input w-auto"
+            min="01:00"
+            max="23:59"
+            value={lotteryTime}
+            onChange={(e) => { setLotteryTime(e.target.value); setLotteryMessage(null) }}
+          />
+          <button
+            className="btn-outline w-auto px-4 py-2.5 text-[0.9rem]"
+            onClick={saveLotteryTime}
+            disabled={savingLottery}
+          >
+            {savingLottery ? '保存中...' : '保存'}
+          </button>
+        </div>
+
+        <div className="flex items-start gap-2 p-3 bg-warn-light border border-warn rounded-lg text-[0.85rem] text-warn">
+          <span className="icon icon-sm shrink-0 mt-0.5">warning</span>
+          <span>
+            抽選時刻の<strong>10分前（{computeLockoutTime(lotteryTime || '21:00')}）</strong>から抽選時刻（{lotteryTime || '21:00'}）まで、当日・翌日の登録ができなくなります。
+          </span>
+        </div>
+      </div>
 
       <div className="admin-card">
         <h2 className="text-base font-bold mb-3">登録可能曜日</h2>
