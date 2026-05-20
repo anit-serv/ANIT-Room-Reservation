@@ -245,31 +245,33 @@ function ReservationMobileCard({
         </span>
       </button>
 
-      {open && (
-        <div className="px-4 pb-3 border-t border-line bg-bg">
-          <div className="flex items-center justify-between py-2 border-b border-line">
-            <span className="text-[0.72rem] text-ink-sub font-semibold uppercase tracking-wide">登録者</span>
-            <div className="flex items-center gap-2">
-              {r.userPictureUrl
-                ? <img src={r.userPictureUrl} alt="" className="avatar avatar-sm" />
-                : <span className="avatar-fallback avatar-sm"><span className="icon icon-sm">account_circle</span></span>}
-              <span className="text-[0.85rem]">{r.userDisplayName || '(不明)'}</span>
+      <div className={`grid transition-all duration-200 ease-out ${open ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
+        <div className="overflow-hidden min-h-0">
+          <div className="px-4 pb-3 border-t border-line bg-bg">
+            <div className="flex items-center justify-between py-2 border-b border-line">
+              <span className="text-[0.72rem] text-ink-sub font-semibold uppercase tracking-wide">登録者</span>
+              <div className="flex items-center gap-2">
+                {r.userPictureUrl
+                  ? <img src={r.userPictureUrl} alt="" className="avatar avatar-sm" />
+                  : <span className="avatar-fallback avatar-sm"><span className="icon icon-sm">account_circle</span></span>}
+                <span className="text-[0.85rem]">{r.userDisplayName || '(不明)'}</span>
+              </div>
+            </div>
+            <div className="flex items-center justify-between py-2">
+              <span className="text-[0.72rem] text-ink-sub font-semibold uppercase tracking-wide">順位</span>
+              <span className="text-[0.9rem]">{r.order ?? '-'}</span>
+            </div>
+            <div className="flex gap-2 pt-2">
+              <button className="btn-outline py-1.5 text-[0.85rem]" onClick={onEdit}>
+                <span className="icon icon-sm">edit</span> 編集
+              </button>
+              <button className="btn-icon" onClick={onDelete}>
+                <span className="icon">delete</span>
+              </button>
             </div>
           </div>
-          <div className="flex items-center justify-between py-2">
-            <span className="text-[0.72rem] text-ink-sub font-semibold uppercase tracking-wide">順位</span>
-            <span className="text-[0.9rem]">{r.order ?? '-'}</span>
-          </div>
-          <div className="flex gap-2 pt-2">
-            <button className="btn-outline py-1.5 text-[0.85rem]" onClick={onEdit}>
-              <span className="icon icon-sm">edit</span> 編集
-            </button>
-            <button className="btn-icon" onClick={onDelete}>
-              <span className="icon">delete</span>
-            </button>
-          </div>
         </div>
-      )}
+      </div>
     </div>
   )
 }

@@ -179,21 +179,23 @@ function UserMobileCard({ u, onDetail }: { u: User; onDetail: () => void }) {
         </div>
       </button>
 
-      {open && (
-        <div className="px-4 pb-3 border-t border-line bg-bg">
-          <div className="flex items-center justify-between py-2">
-            <span className="text-[0.72rem] text-ink-sub font-semibold uppercase tracking-wide">最終予約</span>
-            <span className="text-[0.85rem] text-ink-sub">
-              {u.lastReservedAt ? new Date(u.lastReservedAt).toLocaleDateString('ja-JP') : '-'}
-            </span>
-          </div>
-          <div className="pt-2">
-            <button className="btn-outline py-1.5 text-[0.85rem]" onClick={onDetail}>
-              詳細を見る
-            </button>
+      <div className={`grid transition-all duration-200 ease-out ${open ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
+        <div className="overflow-hidden min-h-0">
+          <div className="px-4 pb-3 border-t border-line bg-bg">
+            <div className="flex items-center justify-between py-2">
+              <span className="text-[0.72rem] text-ink-sub font-semibold uppercase tracking-wide">最終予約</span>
+              <span className="text-[0.85rem] text-ink-sub">
+                {u.lastReservedAt ? new Date(u.lastReservedAt).toLocaleDateString('ja-JP') : '-'}
+              </span>
+            </div>
+            <div className="pt-2">
+              <button className="btn-outline py-1.5 text-[0.85rem]" onClick={onDetail}>
+                詳細を見る
+              </button>
+            </div>
           </div>
         </div>
-      )}
+      </div>
     </div>
   )
 }

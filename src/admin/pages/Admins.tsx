@@ -309,8 +309,8 @@ function AdminMobileCard({
           : <span className="avatar-fallback shrink-0"><span className="icon">account_circle</span></span>}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5 flex-wrap">
-            {isSelf && <span className="badge badge-neutral">自分</span>}
             <span className="font-medium">{a.displayName || '(名前なし)'}</span>
+            {isSelf && <span className="badge badge-neutral">自分</span>}
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -323,33 +323,35 @@ function AdminMobileCard({
         </div>
       </button>
 
-      {open && (
-        <div className="px-4 pb-3 border-t border-line bg-bg">
-          <div className="flex items-center justify-between py-2">
-            <span className="text-[0.72rem] text-ink-sub font-semibold uppercase tracking-wide">登録日</span>
-            <span className="text-[0.85rem] text-ink-sub">
-              {a.addedAt ? new Date(a.addedAt).toLocaleDateString('ja-JP') : '-'}
-            </span>
-          </div>
-          {!isSelf && !a.isSuperAdmin && (
-            <div className="flex gap-2 pt-2">
-              {me?.isSuperAdmin && (
-                <button
-                  className="btn-icon"
-                  onClick={onTransfer}
-                  title="スーパー管理者に移譲"
-                  style={{ color: 'var(--color-super)', borderColor: 'var(--color-super-border)' }}
-                >
-                  <span className="icon">star</span>
-                </button>
-              )}
-              <button className="btn-icon" onClick={onRemove} title="削除">
-                <span className="icon">person_remove</span>
-              </button>
+      <div className={`grid transition-all duration-200 ease-out ${open ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
+        <div className="overflow-hidden min-h-0">
+          <div className="px-4 pb-3 border-t border-line bg-bg">
+            <div className="flex items-center justify-between py-2">
+              <span className="text-[0.72rem] text-ink-sub font-semibold uppercase tracking-wide">登録日</span>
+              <span className="text-[0.85rem] text-ink-sub">
+                {a.addedAt ? new Date(a.addedAt).toLocaleDateString('ja-JP') : '-'}
+              </span>
             </div>
-          )}
+            {!isSelf && !a.isSuperAdmin && (
+              <div className="flex gap-2 pt-2">
+                {me?.isSuperAdmin && (
+                  <button
+                    className="btn-icon"
+                    onClick={onTransfer}
+                    title="スーパー管理者に移譲"
+                    style={{ color: 'var(--color-super)', borderColor: 'var(--color-super-border)' }}
+                  >
+                    <span className="icon">star</span>
+                  </button>
+                )}
+                <button className="btn-icon" onClick={onRemove} title="削除">
+                  <span className="icon">person_remove</span>
+                </button>
+              </div>
+            )}
+          </div>
         </div>
-      )}
+      </div>
     </div>
   )
 }
@@ -384,29 +386,31 @@ function InvitationMobileCard({
         </div>
       </button>
 
-      {open && (
-        <div className="px-4 pb-3 border-t border-line bg-bg">
-          <div className="flex items-center justify-between py-2 border-b border-line">
-            <span className="text-[0.72rem] text-ink-sub font-semibold uppercase tracking-wide">発行日</span>
-            <span className="text-[0.85rem] text-ink-sub">
-              {inv.createdAt ? new Date(inv.createdAt).toLocaleString('ja-JP') : '-'}
-            </span>
-          </div>
-          <div className="flex items-center justify-between py-2">
-            <span className="text-[0.72rem] text-ink-sub font-semibold uppercase tracking-wide">有効期限</span>
-            <span className="text-[0.85rem] text-ink-sub">
-              {inv.expiresAt ? new Date(inv.expiresAt).toLocaleString('ja-JP') : '-'}
-            </span>
-          </div>
-          {!inv.used && !expired && (
-            <div className="pt-2">
-              <button className="btn-icon" onClick={onRevoke}>
-                <span className="icon">delete</span>
-              </button>
+      <div className={`grid transition-all duration-200 ease-out ${open ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
+        <div className="overflow-hidden min-h-0">
+          <div className="px-4 pb-3 border-t border-line bg-bg">
+            <div className="flex items-center justify-between py-2 border-b border-line">
+              <span className="text-[0.72rem] text-ink-sub font-semibold uppercase tracking-wide">発行日</span>
+              <span className="text-[0.85rem] text-ink-sub">
+                {inv.createdAt ? new Date(inv.createdAt).toLocaleString('ja-JP') : '-'}
+              </span>
             </div>
-          )}
+            <div className="flex items-center justify-between py-2">
+              <span className="text-[0.72rem] text-ink-sub font-semibold uppercase tracking-wide">有効期限</span>
+              <span className="text-[0.85rem] text-ink-sub">
+                {inv.expiresAt ? new Date(inv.expiresAt).toLocaleString('ja-JP') : '-'}
+              </span>
+            </div>
+            {!inv.used && !expired && (
+              <div className="pt-2">
+                <button className="btn-icon" onClick={onRevoke}>
+                  <span className="icon">delete</span>
+                </button>
+              </div>
+            )}
+          </div>
         </div>
-      )}
+      </div>
     </div>
   )
 }
