@@ -57,7 +57,7 @@ LINE Bot / LIFFアプリ と Web管理画面を組み合わせた、音楽練習
 | ホスティング | Vercel |
 | Cron | cron-job.org |
 | ユーザー認証 | LINE LIFF / LINE ID Token |
-| 管理者認証 | LINE Login → JWT |
+| 管理者認証 | LINE Login → LINE ID Token |
 | 外部API | LINE Messaging API / LINE LIFF / BAND Developers API |
 
 ## プロジェクト構成
@@ -208,7 +208,7 @@ POST /api/reservations/sync           ユーザー情報同期
 POST /api/webhook                     LINE Bot Webhook
 ```
 
-### 管理画面API（管理者JWTトークン必須）
+### 管理画面API（管理者 LINE ID Token 必須）
 
 ```
 GET/PUT  /api/admin/settings              設定の取得・更新（予約適用）
@@ -259,7 +259,7 @@ GET /api/wake
 ## セキュリティ
 
 - Cronエンドポイント: `CRON_SECRET` によるクエリパラメータ認証（または `Authorization: Bearer` ヘッダー）
-- 管理画面: LINE Login → サーバー側で JWT 発行・検証
+- 管理画面: LINE Login → LINE が発行した ID Token をサーバー側で LINE API に問い合わせて検証、Firestore の admins コレクションで管理者確認
 - LIFFアプリ: LINE ID Token をサーバー側で検証
 - 招待リンク: 24時間有効・一度使用で無効化
 - 監査ログ: 管理者操作をすべて記録（1年保持）
