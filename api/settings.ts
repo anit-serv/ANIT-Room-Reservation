@@ -55,8 +55,8 @@ function pickTimeSlotsForDate(date: string, settings: Settings): TimeSlot[] {
 
 type DateEntry = { label: string; value: string; timeSlots: TimeSlot[] }
 
-// 14日先まで見て、availableDays に該当 + extraDates - excludedDates の日付を集める
-// forView=false（登録用）: 20:50以降は今日・翌日を除外
+// 今日から6日後まで（7日分）を見て、availableDays に該当 + extraDates - excludedDates の日付を集める
+// forView=false（登録用）: 今日は常に除外、20:50以降は翌日も除外
 // forView=true（全登録表示用）: 20:50以降は今日のみ除外、翌日は含む
 function buildDateList(settings: Settings, forView: boolean): DateEntry[] {
   const nowJST = new Date(Date.now() + 9 * 60 * 60 * 1000)
@@ -81,7 +81,6 @@ function buildDateList(settings: Settings, forView: boolean): DateEntry[] {
     if ((inWeekly || inExtra)) candidates.add(dateStr)
   }
 
-  // 範囲外の extraDates も 7 日以内なら追加（上で網羅済みだが念のため）
   // 今日(i=0)・翌日(i=1)の制約
   const todayStr = todayJST()
   const tomorrowDate = new Date(nowJST); tomorrowDate.setUTCDate(nowJST.getUTCDate() + 1)
@@ -89,7 +88,7 @@ function buildDateList(settings: Settings, forView: boolean): DateEntry[] {
 
   const results: DateEntry[] = []
   for (const dateStr of Array.from(candidates).sort()) {
-    if (dateStr === todayStr && afterLotteryPrep) continue
+    if (dateStr === todayStr && (afterLotteryPrep || !forView)) continue
     if (dateStr === tomorrowStr && afterLotteryPrep && !forView) continue
 
     const dObj = new Date(dateStr + 'T00:00:00Z')
