@@ -47,9 +47,7 @@ export default function Settings() {
   const [saving, setSaving]               = useState(false)
   const [message, setMessage]             = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [presets, setPresets]             = useState<TimeSlotPreset[]>([])
-  const [lotteryTime, setLotteryTime]     = useState('21:00')
-  const [savingLottery, setSavingLottery] = useState(false)
-  const [lotteryMessage, setLotteryMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [lotteryTime, setLotteryTime] = useState('21:00')
 
   useEffect(() => { load(); loadPresets() }, [])
 
@@ -137,36 +135,11 @@ export default function Settings() {
   function computeLockoutTime(lt: string): string {
     const [h, m] = lt.split(':').map(Number)
     const total = h * 60 + m - 10
+    if (total < 0) return '無効'
     return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`
   }
 
-  async function saveLotteryTime() {
-    if (!lotteryTime || lotteryTime < '01:00') {
-      setLotteryMessage({ type: 'error', text: '抽選時刻は01:00以降を指定してください' })
-      return
-    }
-    setSavingLottery(true)
-    setLotteryMessage(null)
-    try {
-      const res = await adminFetch('/api/admin/settings/lottery-time', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ lotteryTime }),
-      })
-      const json = await res.json()
-      if (!res.ok) throw new Error(json.error ?? '保存に失敗しました')
-      setLotteryMessage({
-        type: 'success',
-        text: json.cronWarning
-          ? `保存しました（⚠️ ${json.cronWarning}）`
-          : `抽選時刻を ${lotteryTime} に設定しました。cron-job.orgも更新済みです。`,
-      })
-    } catch (err: any) {
-      setLotteryMessage({ type: 'error', text: err.message })
-    } finally {
-      setSavingLottery(false)
-    }
-  }
+  const lotteryTimeInvalid = !lotteryTime || lotteryTime < '01:00'
 
   const defaultConflicts = findConflicts(timeSlots)
   const hasOverrideConflict = findAllConflicts(perDaySchedule)
@@ -174,6 +147,10 @@ export default function Settings() {
 
   async function save() {
     setMessage(null)
+    if (lotteryTimeInvalid) {
+      setMessage({ type: 'error', text: '抽選時刻は01:00以降を指定してください' })
+      return
+    }
     if (availableDays.length === 0 && extraDates.length === 0) {
       setMessage({ type: 'error', text: '登録可能曜日か追加日を1つ以上指定してください' })
       return
@@ -213,20 +190,27 @@ export default function Settings() {
 
     setSaving(true)
     try {
-      const body = {
-        availableDays, timeSlots, extraDates, excludedDates, perDaySchedule,
-        effectiveFrom: finalEffective,
-      }
-      const res = await adminFetch('/api/admin/settings', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      })
+      const [res, lotteryRes] = await Promise.all([
+        adminFetch('/api/admin/settings', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ availableDays, timeSlots, extraDates, excludedDates, perDaySchedule, effectiveFrom: finalEffective }),
+        }),
+        adminFetch('/api/admin/settings/lottery-time', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ lotteryTime }),
+        }),
+      ])
       if (!res.ok) throw new Error((await res.json()).error ?? '保存に失敗しました')
+      const lotteryJson = await lotteryRes.json()
+      if (!lotteryRes.ok) throw new Error(lotteryJson.error ?? '抽選時刻の保存に失敗しました')
       const result = await res.json()
       setMessage({
         type: 'success',
-        text: `${result.effectiveFrom} から適用予定で保存しました`,
+        text: lotteryJson.cronWarning
+          ? `保存しました（⚠️ cron-job.org: ${lotteryJson.cronWarning}）`
+          : `${result.effectiveFrom} から適用予定で保存しました`,
       })
       setEditingScheduled(false)
       load()
@@ -312,37 +296,24 @@ export default function Settings() {
         <p className="text-[0.85rem] text-ink-sub mb-3">
           変更すると cron-job.org のスケジュールも自動で更新されます。
         </p>
-
-        {lotteryMessage && (
-          <div className={lotteryMessage.type === 'success' ? 'banner-success mb-3' : 'banner-error mb-3'}>
-            {lotteryMessage.text}
-          </div>
+        <input
+          type="time"
+          className="text-input w-auto"
+          min="01:00"
+          max="23:59"
+          value={lotteryTime}
+          onChange={(e) => setLotteryTime(e.target.value)}
+        />
+        {lotteryTimeInvalid ? (
+          <p className="mt-2 text-danger text-[0.85rem]">
+            <span className="icon icon-sm align-middle">error</span>
+            {' '}抽選時刻は01:00以降を指定してください
+          </p>
+        ) : (
+          <p className="mt-2 text-[0.82rem] text-ink-sub">
+            {computeLockoutTime(lotteryTime)}（10分前）〜{lotteryTime} の間、当日・翌日の登録が制限されます
+          </p>
         )}
-
-        <div className="flex items-center gap-3 mb-3 flex-wrap">
-          <input
-            type="time"
-            className="text-input w-auto"
-            min="01:00"
-            max="23:59"
-            value={lotteryTime}
-            onChange={(e) => { setLotteryTime(e.target.value); setLotteryMessage(null) }}
-          />
-          <button
-            className="btn-outline w-auto px-4 py-2.5 text-[0.9rem]"
-            onClick={saveLotteryTime}
-            disabled={savingLottery}
-          >
-            {savingLottery ? '保存中...' : '保存'}
-          </button>
-        </div>
-
-        <div className="flex items-start gap-2 p-3 bg-warn-light border border-warn rounded-lg text-[0.85rem] text-warn">
-          <span className="icon icon-sm shrink-0 mt-0.5">warning</span>
-          <span>
-            抽選時刻の<strong>10分前（{computeLockoutTime(lotteryTime || '21:00')}）</strong>から抽選時刻（{lotteryTime || '21:00'}）まで、当日・翌日の登録ができなくなります。
-          </span>
-        </div>
       </div>
 
       <div className="admin-card">
