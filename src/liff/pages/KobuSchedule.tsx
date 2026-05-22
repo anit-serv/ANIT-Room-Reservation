@@ -323,38 +323,18 @@ export default function KobuSchedule({ profile }: Props) {
                       ) : null
                     })}
 
-                    {/* 営業時間前グレーゾーン */}
-                    <div
-                      className="absolute left-0 right-0 pointer-events-none"
-                      style={{
-                        top: 0,
-                        height: openMin - dispStart,
-                        background: 'repeating-linear-gradient(-45deg,transparent,transparent 4px,rgba(0,0,0,0.04) 4px,rgba(0,0,0,0.04) 8px)',
-                        backgroundColor: '#f4f4f5',
-                      }}
-                    />
-
-                    {/* 営業時間後グレーゾーン */}
-                    <div
-                      className="absolute left-0 right-0 pointer-events-none"
-                      style={{
-                        top: closeMin - dispStart,
-                        height: dispEnd - closeMin,
-                        background: 'repeating-linear-gradient(-45deg,transparent,transparent 4px,rgba(0,0,0,0.04) 4px,rgba(0,0,0,0.04) 8px)',
-                        backgroundColor: '#f4f4f5',
-                      }}
-                    />
-
-                    {/* 予約不可日・過去日のオーバーレイ */}
-                    {!isBookable && (
-                      <div
-                        className="absolute inset-0 pointer-events-none"
-                        style={{
-                          background: 'repeating-linear-gradient(-45deg,transparent,transparent 5px,rgba(0,0,0,0.04) 5px,rgba(0,0,0,0.04) 10px)',
-                          backgroundColor: 'rgba(240,240,240,0.75)',
-                          zIndex: 5,
-                        }}
-                      />
+                    {isBookable ? (
+                      <>
+                        {/* 営業時間前グレーゾーン */}
+                        <div className="absolute left-0 right-0 bg-[#f2f2f3] pointer-events-none"
+                          style={{ top: 0, height: openMin - dispStart }} />
+                        {/* 営業時間後グレーゾーン */}
+                        <div className="absolute left-0 right-0 bg-[#f2f2f3] pointer-events-none"
+                          style={{ top: closeMin - dispStart, height: dispEnd - closeMin }} />
+                      </>
+                    ) : (
+                      /* 予約不可日・過去日は列全体を均一にグレー */
+                      <div className="absolute inset-0 bg-[#efefef] pointer-events-none" style={{ zIndex: 5 }} />
                     )}
 
                     {/* 予約ブロック */}
