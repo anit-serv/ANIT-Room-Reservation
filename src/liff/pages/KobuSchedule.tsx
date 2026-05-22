@@ -278,7 +278,7 @@ export default function KobuSchedule({ profile }: Props) {
             </div>
 
             {/* グリッド本体 */}
-            <div className="relative flex" style={{ height: `${totalDisp}px` }}>
+            <div className="relative flex overflow-hidden" style={{ height: `${totalDisp}px` }}>
 
               {/* 時刻軸 */}
               <div className="w-9 flex-shrink-0 relative">
@@ -329,9 +329,9 @@ export default function KobuSchedule({ profile }: Props) {
                         {/* 営業時間前グレーゾーン */}
                         <div className="absolute left-0 right-0 bg-[#f0f0f0] pointer-events-none"
                           style={{ top: 0, height: openMin - dispStart }} />
-                        {/* 営業時間後グレーゾーン */}
-                        <div className="absolute left-0 right-0 bg-[#f0f0f0] pointer-events-none"
-                          style={{ top: closeMin - dispStart, height: dispEnd - closeMin }} />
+                        {/* 営業時間後グレーゾーン（bottom:0 で底面まで確実に塗る） */}
+                        <div className="absolute left-0 right-0 bottom-0 bg-[#f0f0f0] pointer-events-none"
+                          style={{ top: closeMin - dispStart }} />
                       </>
                     ) : (
                       /* 予約不可日・過去日は列全体を均一にグレー */
