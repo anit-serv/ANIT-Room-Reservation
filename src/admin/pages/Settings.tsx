@@ -275,7 +275,7 @@ export default function Settings() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold mb-6">設定</h1>
+      <h1 className="text-2xl font-bold mb-6">設定 - 農部</h1>
 
       {message && (
         <div className={message.type === 'success' ? 'banner-success' : 'banner-error'}>

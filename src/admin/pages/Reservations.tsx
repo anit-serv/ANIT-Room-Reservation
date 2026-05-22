@@ -77,7 +77,7 @@ export default function Reservations() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold mb-6">予約管理</h1>
+      <h1 className="text-2xl font-bold mb-6">予約管理 - 農部</h1>
 
       <div className="admin-card">
         <div className="filter-row">

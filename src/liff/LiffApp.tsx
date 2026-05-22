@@ -1,11 +1,15 @@
 import { useState, useEffect } from 'react'
 import liff from '@line/liff'
 import ReservationForm from './pages/ReservationForm'
-import MyReservations from './pages/MyReservations'
 import AllReservations from './pages/AllReservations'
+import KobuReservationForm from './pages/KobuReservationForm'
+import KobuAllReservations from './pages/KobuAllReservations'
+import MyReservations from './pages/MyReservations'
 import Skeleton from '../components/Skeleton'
 
-type Tab = 'register' | 'my' | 'all'
+type FacilityTab = 'nobu' | 'kobu'
+type SubView     = 'register' | 'all'
+type MainTab     = 'nobu' | 'kobu' | 'my'
 
 export type LiffProfile = {
   userId: string
@@ -14,23 +18,43 @@ export type LiffProfile = {
   idToken: string
 }
 
-const TABS: { id: Tab; icon: string; label: string }[] = [
-  { id: 'register', icon: 'edit_calendar', label: '予約登録' },
-  { id: 'my',       icon: 'event_note',    label: '自分の予約' },
-  { id: 'all',      icon: 'group',         label: '全登録表示' },
+const MAIN_TABS: { id: MainTab; icon: string; label: string }[] = [
+  { id: 'nobu', icon: 'grass',       label: '農部' },
+  { id: 'kobu', icon: 'meeting_room', label: '工部室' },
+  { id: 'my',   icon: 'event_note',  label: '自分の予約' },
 ]
 
+function FacilitySubNav({ active, onChange }: { active: SubView; onChange: (v: SubView) => void }) {
+  return (
+    <div className="flex gap-2 mb-4">
+      {(['register', 'all'] as SubView[]).map((v) => (
+        <button
+          key={v}
+          onClick={() => onChange(v)}
+          className={
+            'flex-1 py-2 rounded-lg text-[0.85rem] font-medium border transition ' +
+            (active === v
+              ? 'bg-brand text-white border-brand'
+              : 'bg-surface text-ink-sub border-line hover:border-brand')
+          }
+        >
+          {v === 'register' ? '予約登録' : '全体確認'}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 function App() {
-  const [activeTab, setActiveTab] = useState<Tab>('register')
-  const [profile, setProfile] = useState<LiffProfile | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [mainTab,    setMainTab]    = useState<MainTab>('nobu')
+  const [nobuSub,    setNobuSub]    = useState<SubView>('register')
+  const [kobuSub,    setKobuSub]    = useState<SubView>('register')
+  const [profile,    setProfile]    = useState<LiffProfile | null>(null)
+  const [error,      setError]      = useState<string | null>(null)
 
   useEffect(() => {
     const liffId = import.meta.env.VITE_LIFF_ID as string | undefined
-    if (!liffId) {
-      setError('LINE アプリ内からアクセスしてください')
-      return
-    }
+    if (!liffId) { setError('LINE アプリ内からアクセスしてください'); return }
     liff
       .init({ liffId })
       .then(async () => {
@@ -39,9 +63,9 @@ function App() {
         const idToken = liff.getIDToken()
         if (!idToken) throw new Error('IDトークンの取得に失敗しました')
         setProfile({
-          userId: lineProfile.userId,
+          userId:      lineProfile.userId,
           displayName: lineProfile.displayName,
-          pictureUrl: lineProfile.pictureUrl,
+          pictureUrl:  lineProfile.pictureUrl,
           idToken,
         })
         fetch('/api/reservations/sync', {
@@ -64,7 +88,7 @@ function App() {
   if (!profile) return (
     <div className="liff-shell">
       <nav className="flex bg-surface border-b border-line sticky top-0 z-10">
-        {TABS.map((_, i) => (
+        {MAIN_TABS.map((_, i) => (
           <div key={i} className="flex-1 px-1 py-2.5 flex flex-col items-center gap-1">
             <Skeleton width="22px" height="22px" />
             <Skeleton width="48px" height="10px" />
@@ -86,13 +110,13 @@ function App() {
   return (
     <div className="liff-shell">
       <nav className="flex bg-surface border-b border-line sticky top-0 z-10">
-        {TABS.map(({ id, icon, label }) => (
+        {MAIN_TABS.map(({ id, icon, label }) => (
           <button
             key={id}
-            onClick={() => setActiveTab(id)}
+            onClick={() => setMainTab(id)}
             className={
-              'flex-1 flex flex-col items-center gap-0.5 px-1 py-2.5 text-[0.7rem] border-b-2 transition-colors -webkit-tap-highlight-color-transparent ' +
-              (activeTab === id
+              'flex-1 flex flex-col items-center gap-0.5 px-1 py-2.5 text-[0.7rem] border-b-2 transition-colors ' +
+              (mainTab === id
                 ? 'text-brand border-brand font-semibold'
                 : 'text-ink-pale border-transparent')
             }
@@ -102,10 +126,23 @@ function App() {
           </button>
         ))}
       </nav>
+
       <main className="flex-1 p-4 overflow-y-auto">
-        {activeTab === 'register' && <ReservationForm profile={profile} />}
-        {activeTab === 'my'       && <MyReservations  profile={profile} />}
-        {activeTab === 'all'      && <AllReservations />}
+        {mainTab === 'nobu' && (
+          <>
+            <FacilitySubNav active={nobuSub} onChange={setNobuSub} />
+            {nobuSub === 'register' && <ReservationForm profile={profile} />}
+            {nobuSub === 'all'      && <AllReservations />}
+          </>
+        )}
+        {mainTab === 'kobu' && (
+          <>
+            <FacilitySubNav active={kobuSub} onChange={setKobuSub} />
+            {kobuSub === 'register' && <KobuReservationForm profile={profile} />}
+            {kobuSub === 'all'      && <KobuAllReservations />}
+          </>
+        )}
+        {mainTab === 'my' && <MyReservations profile={profile} />}
       </main>
     </div>
   )

@@ -103,6 +103,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (segments.length === 2) return handleTimeSlotPresetById(req, res, segments[1])
   }
 
+  // 工部室予約管理
+  if (segments[0] === 'kobu-reservations') {
+    if (segments.length === 1) return handleKobuReservationsList(req, res)
+    if (segments.length === 2) return handleKobuReservationById(req, res, segments[1])
+  }
+
+  // 工部室設定
+  if (path === 'kobu-settings') return handleKobuSettings(req, res)
+
   // 監査ログ
   if (path === 'logs') return handleLogs(req, res)
 
@@ -1121,6 +1130,174 @@ async function handleReservationById(req: VercelRequest, res: VercelResponse, id
       targetType: 'reservation', targetId: id, targetLabel: before.bandName,
       details: { bandName: before.bandName, date: before.date, userId: before.userId, status: before.status },
     })
+    return res.status(200).json({ success: true })
+  }
+
+  return res.status(405).json({ error: 'Method Not Allowed' })
+}
+
+// ─── 工部室 予約一覧 ─────────────────────────────────
+async function handleKobuReservationsList(req: VercelRequest, res: VercelResponse) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method Not Allowed' })
+  try {
+    await verifyAdmin(req.headers.authorization)
+  } catch (err: any) {
+    const status = err.message === 'Forbidden' ? 403 : 401
+    return res.status(status).json({ error: err.message })
+  }
+
+  const { date, q } = req.query as { date?: string; q?: string }
+  try {
+    let query: FirebaseFirestore.Query = db.collection('kobu_reservations').orderBy('date').orderBy('startTime')
+    if (date) query = query.where('date', '==', date)
+    const snap = await query.get()
+
+    let docs = snap.docs.map((d) => ({ id: d.id, ...d.data() } as any))
+    if (q) {
+      const lower = q.toLowerCase()
+      docs = docs.filter((r) => (r.bandName ?? '').toLowerCase().includes(lower))
+    }
+
+    const userIds = Array.from(new Set(docs.map((r) => r.userId).filter(Boolean)))
+    const userMap: Record<string, { displayName: string; pictureUrl: string | null }> = {}
+    if (userIds.length > 0) {
+      const userDocs = await db.getAll(...userIds.map((id) => db.collection('users').doc(id)))
+      userDocs.forEach((d) => {
+        if (d.exists) userMap[d.id] = { displayName: d.data()?.displayName ?? '', pictureUrl: d.data()?.pictureUrl ?? null }
+      })
+    }
+
+    const reservations = docs.map((r) => ({
+      id: r.id, userId: r.userId,
+      bandName: r.bandName, date: r.date, startTime: r.startTime, endTime: r.endTime,
+      status: r.status, createdAt: r.createdAt?.toMillis?.() ?? null,
+      userDisplayName: userMap[r.userId]?.displayName ?? '',
+      userPictureUrl:  userMap[r.userId]?.pictureUrl  ?? null,
+    }))
+    return res.status(200).json({ reservations })
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message })
+  }
+}
+
+// ─── 工部室 予約の編集・削除 ──────────────────────────
+async function handleKobuReservationById(req: VercelRequest, res: VercelResponse, id: string) {
+  let me: AuditActor
+  try {
+    me = await verifyAdmin(req.headers.authorization)
+  } catch (err: any) {
+    const status = err.message === 'Forbidden' ? 403 : 401
+    return res.status(status).json({ error: err.message })
+  }
+
+  const docRef = db.collection('kobu_reservations').doc(id)
+  const doc = await docRef.get()
+  if (!doc.exists) return res.status(404).json({ error: '予約が見つかりません' })
+  const before = doc.data()!
+
+  if (req.method === 'PUT') {
+    const { bandName, date, startTime, endTime } = (req.body ?? {}) as {
+      bandName?: string; date?: string; startTime?: string; endTime?: string
+    }
+    const update: Record<string, any> = {}
+    if (typeof bandName === 'string' && bandName.trim()) update.bandName = bandName.trim()
+    if (typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date)) update.date = date
+    if (typeof startTime === 'string') update.startTime = startTime
+    if (typeof endTime === 'string')   update.endTime   = endTime
+    if (Object.keys(update).length === 0) return res.status(400).json({ error: '更新項目がありません' })
+
+    const finalDate      = update.date      ?? before.date
+    const finalStartTime = update.startTime ?? before.startTime
+    const finalEndTime   = update.endTime   ?? before.endTime
+
+    if (finalStartTime >= finalEndTime) {
+      return res.status(400).json({ error: '開始時刻は終了時刻より前にしてください' })
+    }
+
+    const existingSnap = await db.collection('kobu_reservations').where('date', '==', finalDate).get()
+    for (const d of existingSnap.docs) {
+      if (d.id === id) continue
+      const data = d.data()
+      if (finalStartTime < data.endTime && data.startTime < finalEndTime) {
+        return res.status(400).json({ error: `${data.startTime}〜${data.endTime} に既に予約が入っています` })
+      }
+    }
+
+    await docRef.update(update)
+    await audit(me, 'kobu_reservation.update', {
+      targetType: 'kobu_reservation', targetId: id, targetLabel: before.bandName,
+      details: { before: { bandName: before.bandName, date: before.date, startTime: before.startTime, endTime: before.endTime }, after: update },
+    })
+    return res.status(200).json({ success: true })
+  }
+
+  if (req.method === 'DELETE') {
+    await docRef.delete()
+    await audit(me, 'kobu_reservation.delete', {
+      targetType: 'kobu_reservation', targetId: id, targetLabel: before.bandName,
+      details: { bandName: before.bandName, date: before.date, startTime: before.startTime, endTime: before.endTime },
+    })
+    return res.status(200).json({ success: true })
+  }
+
+  return res.status(405).json({ error: 'Method Not Allowed' })
+}
+
+// ─── 工部室 設定の取得・更新 ───────────────────────────
+async function handleKobuSettings(req: VercelRequest, res: VercelResponse) {
+  let me: AuditActor
+  try {
+    me = await verifyAdmin(req.headers.authorization)
+  } catch (err: any) {
+    const status = err.message === 'Forbidden' ? 403 : 401
+    return res.status(status).json({ error: err.message })
+  }
+
+  const DEFAULTS = {
+    availableDays: [0, 1, 2, 3, 4, 5, 6],
+    extraDates:    [] as string[],
+    excludedDates: [] as string[],
+    openTime:      '08:00',
+    closeTime:     '20:00',
+  }
+
+  if (req.method === 'GET') {
+    const doc  = await db.collection('settings').doc('kobu').get()
+    const data = doc.exists ? doc.data()! : {}
+    return res.status(200).json({
+      availableDays:  data.availableDays  ?? DEFAULTS.availableDays,
+      extraDates:     data.extraDates     ?? DEFAULTS.extraDates,
+      excludedDates:  data.excludedDates  ?? DEFAULTS.excludedDates,
+      openTime:       data.openTime       ?? DEFAULTS.openTime,
+      closeTime:      data.closeTime      ?? DEFAULTS.closeTime,
+    })
+  }
+
+  if (req.method === 'PUT') {
+    const { availableDays, extraDates, excludedDates, openTime, closeTime } = (req.body ?? {}) as {
+      availableDays?: number[]; extraDates?: string[]; excludedDates?: string[];
+      openTime?: string; closeTime?: string
+    }
+
+    if (!Array.isArray(availableDays) || !availableDays.every((d) => Number.isInteger(d) && d >= 0 && d <= 6)) {
+      return res.status(400).json({ error: '利用可能曜日が不正です' })
+    }
+    if (!Array.isArray(extraDates) || !Array.isArray(excludedDates)) {
+      return res.status(400).json({ error: '日付リストが不正です' })
+    }
+    if (openTime && closeTime && openTime >= closeTime) {
+      return res.status(400).json({ error: '開始時刻は終了時刻より前にしてください' })
+    }
+
+    await db.collection('settings').doc('kobu').set({
+      availableDays,
+      extraDates:    extraDates    ?? [],
+      excludedDates: excludedDates ?? [],
+      openTime:      openTime  ?? DEFAULTS.openTime,
+      closeTime:     closeTime ?? DEFAULTS.closeTime,
+    }, { merge: true })
+
+    await audit(me, 'kobu_settings.update', { targetType: 'settings', targetId: 'kobu' })
     return res.status(200).json({ success: true })
   }
 

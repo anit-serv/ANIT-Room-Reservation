@@ -4,11 +4,29 @@ import Skeleton from '../../components/Skeleton'
 
 type Props = { profile: LiffProfile }
 
-type Reservation = {
+type NobuReservation = {
   id: string
   bandName: string
-  date: string
+  date: string       // "YYYY-MM-DDTHH:MM-HH:MM"
   status: 'pending' | 'confirmed'
+  facility: 'nobu'
+}
+
+type KobuReservation = {
+  id: string
+  bandName: string
+  date: string       // "YYYY-MM-DD"
+  startTime: string
+  endTime: string
+  status: 'confirmed'
+  facility: 'kobu'
+}
+
+type Reservation = NobuReservation | KobuReservation
+
+function sortKey(r: Reservation): string {
+  if (r.facility === 'nobu') return r.date
+  return `${r.date}T${r.startTime}`
 }
 
 export default function MyReservations({ profile }: Props) {
@@ -21,12 +39,19 @@ export default function MyReservations({ profile }: Props) {
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch('/api/reservations/my', {
-        headers: { Authorization: `Bearer ${profile.idToken}` },
-      })
-      if (!res.ok) throw new Error()
-      const data = await res.json()
-      setReservations(data.reservations ?? [])
+      const headers = { Authorization: `Bearer ${profile.idToken}` }
+      const [nobuRes, kobuRes] = await Promise.all([
+        fetch('/api/reservations/my', { headers }),
+        fetch('/api/kobu-reservations/my', { headers }),
+      ])
+      if (!nobuRes.ok || !kobuRes.ok) throw new Error()
+      const [nobuData, kobuData] = await Promise.all([nobuRes.json(), kobuRes.json()])
+
+      const nobu: NobuReservation[] = (nobuData.reservations ?? []).map((r: any) => ({ ...r, facility: 'nobu' }))
+      const kobu: KobuReservation[] = (kobuData.reservations ?? []).map((r: any) => ({ ...r, facility: 'kobu' }))
+
+      const all: Reservation[] = [...nobu, ...kobu].sort((a, b) => sortKey(a).localeCompare(sortKey(b)))
+      setReservations(all)
     } catch {
       setError('予約の取得に失敗しました')
     } finally {
@@ -36,16 +61,22 @@ export default function MyReservations({ profile }: Props) {
 
   useEffect(() => { fetchReservations() }, [fetchReservations])
 
-  async function handleDelete(id: string, bandName: string) {
-    if (!confirm(`「${bandName}」の登録を削除しますか？`)) return
-    setDeleting(id)
+  async function handleDelete(r: Reservation) {
+    const label = r.facility === 'nobu'
+      ? `「${r.bandName}」の農部の登録を削除しますか？`
+      : `「${r.bandName}」の工部室の登録を削除しますか？`
+    if (!confirm(label)) return
+    setDeleting(r.id)
     try {
-      const res = await fetch(`/api/reservations/${id}`, {
+      const endpoint = r.facility === 'nobu'
+        ? `/api/reservations/${r.id}`
+        : `/api/kobu-reservations/${r.id}`
+      const res = await fetch(endpoint, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${profile.idToken}` },
       })
       if (!res.ok) throw new Error()
-      setReservations((prev) => prev.filter((r) => r.id !== id))
+      setReservations((prev) => prev.filter((x) => x.id !== r.id))
     } catch {
       alert('削除に失敗しました')
     } finally {
@@ -90,34 +121,61 @@ export default function MyReservations({ profile }: Props) {
       </div>
 
       {reservations.map((r) => {
-        const [datePart, timePart] = r.date.split('T')
-        const displayDate = datePart.slice(5).replace('-', '/')
-        const isConfirmed = r.status === 'confirmed'
-        const isDeleting  = deleting === r.id
+        const isDeleting = deleting === r.id
 
+        if (r.facility === 'nobu') {
+          const [datePart, timePart] = r.date.split('T')
+          const displayDate = datePart.slice(5).replace('-', '/')
+          const isConfirmed = r.status === 'confirmed'
+          const canDelete   = !isConfirmed
+
+          return (
+            <div key={r.id} className="reservation-card">
+              <div className={'w-1 self-stretch rounded ' + (isConfirmed ? 'bg-brand' : 'bg-warn')} />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-1.5 mb-0.5">
+                  <span className="text-[0.68rem] bg-line text-ink-sub px-1.5 py-0.5 rounded font-semibold">農部</span>
+                  <span className="font-bold text-ink truncate">{r.bandName}</span>
+                </div>
+                <div className="text-[0.82rem] text-ink-sub mb-2 flex items-center gap-1.5 flex-wrap">
+                  <span className="icon icon-sm text-ink-pale">calendar_month</span>{displayDate}
+                  <span className="icon icon-sm text-ink-pale">schedule</span>{timePart}
+                </div>
+                <span className={'badge ' + (isConfirmed ? 'badge-confirmed' : 'badge-pending')}>
+                  <span className="icon icon-sm">{isConfirmed ? 'check_circle' : 'hourglass_empty'}</span>
+                  {isConfirmed ? '抽選確定' : '抽選待ち'}
+                </span>
+              </div>
+              {canDelete && (
+                <button className="btn-danger" onClick={() => handleDelete(r)} disabled={isDeleting}>
+                  {isDeleting ? '...' : '削除'}
+                </button>
+              )}
+            </div>
+          )
+        }
+
+        // 工部室
+        const displayDate = r.date.slice(5).replace('-', '/')
         return (
           <div key={r.id} className="reservation-card">
-            <div className={'w-1 self-stretch rounded ' + (isConfirmed ? 'bg-brand' : 'bg-warn')} />
+            <div className="w-1 self-stretch rounded bg-brand" />
             <div className="flex-1 min-w-0">
-              <div className="font-bold text-ink truncate mb-0.5">{r.bandName}</div>
+              <div className="flex items-center gap-1.5 mb-0.5">
+                <span className="text-[0.68rem] bg-brand-light text-brand-dark px-1.5 py-0.5 rounded font-semibold">工部室</span>
+                <span className="font-bold text-ink truncate">{r.bandName}</span>
+              </div>
               <div className="text-[0.82rem] text-ink-sub mb-2 flex items-center gap-1.5 flex-wrap">
                 <span className="icon icon-sm text-ink-pale">calendar_month</span>{displayDate}
-                <span className="icon icon-sm text-ink-pale">schedule</span>{timePart}
+                <span className="icon icon-sm text-ink-pale">schedule</span>{r.startTime}〜{r.endTime}
               </div>
-              <span className={'badge ' + (isConfirmed ? 'badge-confirmed' : 'badge-pending')}>
-                <span className="icon icon-sm">{isConfirmed ? 'check_circle' : 'hourglass_empty'}</span>
-                {isConfirmed ? '抽選確定' : '抽選待ち'}
+              <span className="badge badge-confirmed">
+                <span className="icon icon-sm">check_circle</span>確定
               </span>
             </div>
-            {!isConfirmed && (
-              <button
-                className="btn-danger"
-                onClick={() => handleDelete(r.id, r.bandName)}
-                disabled={isDeleting}
-              >
-                {isDeleting ? '...' : '削除'}
-              </button>
-            )}
+            <button className="btn-danger" onClick={() => handleDelete(r)} disabled={isDeleting}>
+              {isDeleting ? '...' : '削除'}
+            </button>
           </div>
         )
       })}

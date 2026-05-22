@@ -7,6 +7,14 @@
         { "fieldPath": "bandName", "order": "ASCENDING" },
         { "fieldPath": "date",     "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "kobu_reservations",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "date",      "order": "ASCENDING" },
+        { "fieldPath": "startTime", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

@@ -2,8 +2,10 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "rewrites": [
-    { "source": "/api/admin/:path*", "destination": "/api/admin?_path=:path*" },
-    { "source": "/api/reservations/:path*", "destination": "/api/reservations?_path=:path*" },
+    { "source": "/api/admin/:path*",             "destination": "/api/admin?_path=:path*" },
+    { "source": "/api/reservations/:path*",      "destination": "/api/reservations?_path=:path*" },
+    { "source": "/api/kobu-reservations/:path*", "destination": "/api/kobu-reservations?_path=:path*" },
+    { "source": "/api/kobu-settings",            "destination": "/api/kobu-settings" },
     { "source": "/admin", "destination": "/index.html" },
     { "source": "/admin/:path*", "destination": "/index.html" }
   ],
