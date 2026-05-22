@@ -2,14 +2,12 @@ import { useState, useEffect } from 'react'
 import liff from '@line/liff'
 import ReservationForm from './pages/ReservationForm'
 import AllReservations from './pages/AllReservations'
-import KobuReservationForm from './pages/KobuReservationForm'
-import KobuAllReservations from './pages/KobuAllReservations'
+import KobuSchedule from './pages/KobuSchedule'
 import MyReservations from './pages/MyReservations'
 import Skeleton from '../components/Skeleton'
 
-type FacilityTab = 'nobu' | 'kobu'
-type SubView     = 'register' | 'all'
-type MainTab     = 'nobu' | 'kobu' | 'my'
+type SubView = 'register' | 'all'
+type MainTab = 'nobu' | 'kobu' | 'my'
 
 export type LiffProfile = {
   userId: string
@@ -19,12 +17,12 @@ export type LiffProfile = {
 }
 
 const MAIN_TABS: { id: MainTab; icon: string; label: string }[] = [
-  { id: 'nobu', icon: 'grass',       label: '農部' },
+  { id: 'nobu', icon: 'grass',        label: '農部' },
   { id: 'kobu', icon: 'meeting_room', label: '工部室' },
-  { id: 'my',   icon: 'event_note',  label: '自分の予約' },
+  { id: 'my',   icon: 'event_note',   label: '自分の予約' },
 ]
 
-function FacilitySubNav({ active, onChange }: { active: SubView; onChange: (v: SubView) => void }) {
+function NobuSubNav({ active, onChange }: { active: SubView; onChange: (v: SubView) => void }) {
   return (
     <div className="flex gap-2 mb-4">
       {(['register', 'all'] as SubView[]).map((v) => (
@@ -46,11 +44,10 @@ function FacilitySubNav({ active, onChange }: { active: SubView; onChange: (v: S
 }
 
 function App() {
-  const [mainTab,    setMainTab]    = useState<MainTab>('nobu')
-  const [nobuSub,    setNobuSub]    = useState<SubView>('register')
-  const [kobuSub,    setKobuSub]    = useState<SubView>('register')
-  const [profile,    setProfile]    = useState<LiffProfile | null>(null)
-  const [error,      setError]      = useState<string | null>(null)
+  const [mainTab, setMainTab] = useState<MainTab>('nobu')
+  const [nobuSub, setNobuSub] = useState<SubView>('register')
+  const [profile, setProfile] = useState<LiffProfile | null>(null)
+  const [error,   setError]   = useState<string | null>(null)
 
   useEffect(() => {
     const liffId = import.meta.env.VITE_LIFF_ID as string | undefined
@@ -130,19 +127,13 @@ function App() {
       <main className="flex-1 p-4 overflow-y-auto">
         {mainTab === 'nobu' && (
           <>
-            <FacilitySubNav active={nobuSub} onChange={setNobuSub} />
+            <NobuSubNav active={nobuSub} onChange={setNobuSub} />
             {nobuSub === 'register' && <ReservationForm profile={profile} />}
             {nobuSub === 'all'      && <AllReservations />}
           </>
         )}
-        {mainTab === 'kobu' && (
-          <>
-            <FacilitySubNav active={kobuSub} onChange={setKobuSub} />
-            {kobuSub === 'register' && <KobuReservationForm profile={profile} />}
-            {kobuSub === 'all'      && <KobuAllReservations />}
-          </>
-        )}
-        {mainTab === 'my' && <MyReservations profile={profile} />}
+        {mainTab === 'kobu' && <KobuSchedule profile={profile} />}
+        {mainTab === 'my'   && <MyReservations profile={profile} />}
       </main>
     </div>
   )
