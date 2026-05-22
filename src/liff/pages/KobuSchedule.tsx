@@ -249,34 +249,35 @@ export default function KobuSchedule({ profile }: Props) {
       {loading ? (
         <Skeleton width="100%" height="420px" />
       ) : dayMap !== null ? (
-        <div className="border border-line rounded-xl overflow-hidden shadow-[var(--shadow-card-sm)] bg-surface">
-          {/* ヘッダー行 */}
-          <div className="flex border-b border-line sticky top-0 bg-surface z-10">
-            <div className="w-9 flex-shrink-0" />
-            {weekDates.map((date) => {
-              const { md, wd } = formatDate(date)
-              const isToday     = date === today
-              const isPast      = date < today
-              const isAvailable = !isPast && isDateAvailable(date, settings, today)
-              return (
-                <div key={date}
-                  className={
-                    'flex-1 text-center py-1.5 border-l border-line text-[0.67rem] font-semibold leading-tight ' +
-                    (isToday
-                      ? 'bg-brand-light text-brand-dark'
-                      : !isAvailable
-                        ? 'bg-[#f0f0f0] text-ink-pale'
-                        : 'text-ink-sub')
-                  }>
-                  <div>{md}</div>
-                  <div>{wd}</div>
-                </div>
-              )
-            })}
-          </div>
+        <div className="border border-line rounded-xl shadow-[var(--shadow-card-sm)] bg-surface overflow-hidden">
+          {/* ヘッダー＋グリッドを同一スクロールコンテナに入れてスクロールバー幅を共有 */}
+          <div className="overflow-y-auto" style={{ maxHeight: '460px' }}>
+            {/* ヘッダー行（スクロールコンテナ内でsticky） */}
+            <div className="sticky top-0 bg-surface z-10 border-b border-line flex">
+              <div className="w-9 flex-shrink-0" />
+              {weekDates.map((date) => {
+                const { md, wd } = formatDate(date)
+                const isToday     = date === today
+                const isPast      = date < today
+                const isAvailable = !isPast && isDateAvailable(date, settings, today)
+                return (
+                  <div key={date}
+                    className={
+                      'flex-1 text-center py-1.5 border-l border-line text-[0.67rem] font-semibold leading-tight ' +
+                      (isToday
+                        ? 'bg-brand-light text-brand-dark'
+                        : !isAvailable
+                          ? 'bg-[#f0f0f0] text-ink-pale'
+                          : 'text-ink-sub')
+                    }>
+                    <div>{md}</div>
+                    <div>{wd}</div>
+                  </div>
+                )
+              })}
+            </div>
 
-          {/* スケジュールグリッド */}
-          <div className="overflow-y-auto" style={{ maxHeight: '420px' }}>
+            {/* グリッド本体 */}
             <div className="relative flex" style={{ height: `${totalDisp}px` }}>
 
               {/* 時刻軸 */}
@@ -326,15 +327,15 @@ export default function KobuSchedule({ profile }: Props) {
                     {isBookable ? (
                       <>
                         {/* 営業時間前グレーゾーン */}
-                        <div className="absolute left-0 right-0 bg-[#f2f2f3] pointer-events-none"
+                        <div className="absolute left-0 right-0 bg-[#f0f0f0] pointer-events-none"
                           style={{ top: 0, height: openMin - dispStart }} />
                         {/* 営業時間後グレーゾーン */}
-                        <div className="absolute left-0 right-0 bg-[#f2f2f3] pointer-events-none"
+                        <div className="absolute left-0 right-0 bg-[#f0f0f0] pointer-events-none"
                           style={{ top: closeMin - dispStart, height: dispEnd - closeMin }} />
                       </>
                     ) : (
                       /* 予約不可日・過去日は列全体を均一にグレー */
-                      <div className="absolute inset-0 bg-[#efefef] pointer-events-none" style={{ zIndex: 5 }} />
+                      <div className="absolute inset-0 bg-[#f0f0f0] pointer-events-none" style={{ zIndex: 5 }} />
                     )}
 
                     {/* 予約ブロック */}
