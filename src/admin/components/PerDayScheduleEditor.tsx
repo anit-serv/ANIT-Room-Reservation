@@ -20,6 +20,10 @@ type Props = {
   onDeletePreset?: (id: string) => Promise<void> | void
 }
 
+function todayJST(): string {
+  return new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10)
+}
+
 function getDateWarning(
   date: string,
   availableDays: number[],
@@ -27,6 +31,7 @@ function getDateWarning(
   excludedDates: string[],
 ): string | null {
   if (!date) return null
+  if (date < todayJST()) return '過去の日付は追加できません'
   if (excludedDates.includes(date)) return 'この日付は除外日に設定されているため追加できません'
   if (extraDates.includes(date)) return null
   const [y, m, d] = date.split('-').map(Number)
