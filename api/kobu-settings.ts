@@ -43,7 +43,7 @@ export default async function handler(_req: VercelRequest, res: VercelResponse) 
       availableDays:  data.availableDays  ?? DEFAULTS.availableDays,
       extraDates:     data.extraDates     ?? DEFAULTS.extraDates,
       excludedDates:  data.excludedDates  ?? DEFAULTS.excludedDates,
-      timeSlots:      timeSlots           ?? DEFAULTS.timeSlots,
+      timeSlots:      (timeSlots ?? DEFAULTS.timeSlots).filter((s: any) => !s.deleted),
       perDaySchedule: data.perDaySchedule ?? DEFAULTS.perDaySchedule,
     })
   } catch (err: any) {

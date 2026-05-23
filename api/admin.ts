@@ -1294,7 +1294,7 @@ async function handleKobuSettings(req: VercelRequest, res: VercelResponse) {
       availableDays:  data.availableDays  ?? DEFAULTS.availableDays,
       extraDates:     data.extraDates     ?? DEFAULTS.extraDates,
       excludedDates:  data.excludedDates  ?? DEFAULTS.excludedDates,
-      timeSlots:      timeSlots           ?? DEFAULTS.timeSlots,
+      timeSlots:      (timeSlots ?? DEFAULTS.timeSlots).filter((s: any) => !s.deleted),
       perDaySchedule: data.perDaySchedule ?? DEFAULTS.perDaySchedule,
     })
   }
@@ -1315,11 +1315,22 @@ async function handleKobuSettings(req: VercelRequest, res: VercelResponse) {
       return res.status(400).json({ error: '営業時間枠を1つ以上指定してください' })
     }
 
+    // 既存スロットを論理削除でマージ（削除されたスロットも残す）
+    const currentDoc = await db.collection('settings').doc('kobu').get()
+    const existingSlots: (TimeSlot & { deleted?: boolean })[] =
+      currentDoc.exists ? (currentDoc.data()!.timeSlots ?? []) : []
+    const newSlotValues = new Set((timeSlots as TimeSlot[]).map((s) => s.value))
+    const softDeleted = existingSlots
+      .filter((s) => !s.deleted && !newSlotValues.has(s.value))
+      .map((s) => ({ ...s, deleted: true }))
+    const activeSlots = (timeSlots as TimeSlot[]).map((s) => ({ ...s, deleted: false }))
+    const finalTimeSlots = [...activeSlots, ...softDeleted]
+
     await db.collection('settings').doc('kobu').set({
       availableDays,
       extraDates:     extraDates    ?? [],
       excludedDates:  excludedDates ?? [],
-      timeSlots,
+      timeSlots:      finalTimeSlots,
       perDaySchedule: perDaySchedule ?? DEFAULTS.perDaySchedule,
     }, { merge: true })
 

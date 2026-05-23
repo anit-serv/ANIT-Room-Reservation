@@ -39,7 +39,7 @@ function nowJST(): Date {
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*')
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS')
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, PATCH, OPTIONS')
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
   if (req.method === 'OPTIONS') return res.status(204).end()
 
@@ -219,9 +219,54 @@ async function handleAll(req: VercelRequest, res: VercelResponse) {
   }
 }
 
-// ─── 予約キャンセル（ユーザー自身・確定後も可） ─────────
+// ─── ヘルパー: 日付の有効な営業時間スロットを取得 ────────
+type SlotRange = { start: string; end: string }
+
+function getEffectiveSlots(date: string, settings: any): SlotRange[] {
+  let slots: { label: string; value: string; deleted?: boolean }[] = settings.timeSlots ?? []
+  slots = slots.filter((s) => !s.deleted)
+  if (!slots.length && (settings.openTime || settings.closeTime)) {
+    slots = [{ label: '', value: `${settings.openTime ?? '08:00'}-${settings.closeTime ?? '20:00'}` }]
+  }
+  if (!slots.length) slots = [{ label: '', value: '08:00-20:00' }]
+
+  const dateObj  = new Date(date + 'T00:00:00Z')
+  const dow      = dateObj.getUTCDay()
+  const perDay   = settings.perDaySchedule
+  if (perDay?.enabled) {
+    const byDate = perDay.byDate?.[date]
+    if (byDate?.length) slots = byDate
+    else {
+      const byWd = perDay.byWeekday?.[String(dow)]
+      if (byWd?.length) slots = byWd
+    }
+  }
+  return slots.map((s) => { const [start, end] = s.value.split('-'); return { start, end } })
+}
+
+// time が slot の内側にある場合、そのスロットの start を返す（外側なら null）
+function findSlotStart(time: string, slots: SlotRange[]): string | null {
+  const t = timeToMinutes(time)
+  const s = slots.find((sl) => timeToMinutes(sl.start) <= t && t < timeToMinutes(sl.end))
+  return s ? s.start : null
+}
+
+// time が slot の内側にある場合、そのスロットの end を返す（外側なら null）
+function findSlotEnd(time: string, slots: SlotRange[]): string | null {
+  const t = timeToMinutes(time)
+  const s = slots.find((sl) => timeToMinutes(sl.start) < t && t <= timeToMinutes(sl.end))
+  return s ? s.end : null
+}
+
+// ─── 予約キャンセルまたは変更のディスパッチ ──────────────
 async function handleById(req: VercelRequest, res: VercelResponse, docId: string) {
-  if (req.method !== 'DELETE') return res.status(405).json({ error: 'Method Not Allowed' })
+  if (req.method === 'DELETE') return handleDelete(req, res, docId)
+  if (req.method === 'PATCH')  return handleModify(req, res, docId)
+  return res.status(405).json({ error: 'Method Not Allowed' })
+}
+
+// ─── 予約キャンセル（ユーザー自身・確定後も可） ─────────
+async function handleDelete(req: VercelRequest, res: VercelResponse, docId: string) {
   try {
     const { userId } = await verifyLineToken(req.headers.authorization)
     const docRef = db.collection('kobu_reservations').doc(docId)
@@ -229,6 +274,83 @@ async function handleById(req: VercelRequest, res: VercelResponse, docId: string
     if (!doc.exists) return res.status(404).json({ error: '予約が見つかりません' })
     if (doc.data()!.userId !== userId) return res.status(403).json({ error: '権限がありません' })
     await docRef.delete()
+    return res.status(200).json({ success: true })
+  } catch (err: any) {
+    const status = err.message === 'Unauthorized' ? 401 : 500
+    return res.status(status).json({ error: err.message })
+  }
+}
+
+// ─── 予約時間変更（方向制約付き） ───────────────────────
+async function handleModify(req: VercelRequest, res: VercelResponse, docId: string) {
+  try {
+    const { userId } = await verifyLineToken(req.headers.authorization)
+    const { newStart, newEnd } = (req.body ?? {}) as { newStart?: string; newEnd?: string }
+
+    if (!newStart || !newEnd) {
+      return res.status(400).json({ error: 'newStart と newEnd は必須です' })
+    }
+    if (!isValidTime(newStart) || !isValidTime(newEnd)) {
+      return res.status(400).json({ error: '時刻の形式が不正です（HH:MM）' })
+    }
+    if (!isMultipleOf15(newStart) || !isMultipleOf15(newEnd)) {
+      return res.status(400).json({ error: '時刻は15分単位で指定してください' })
+    }
+    if (timeToMinutes(newStart) >= timeToMinutes(newEnd)) {
+      return res.status(400).json({ error: '開始時刻は終了時刻より前にしてください' })
+    }
+
+    const docRef = db.collection('kobu_reservations').doc(docId)
+    const [doc, settingsDoc] = await Promise.all([
+      docRef.get(),
+      db.collection('settings').doc('kobu').get(),
+    ])
+    if (!doc.exists) return res.status(404).json({ error: '予約が見つかりません' })
+    const data = doc.data()!
+    if (data.userId !== userId) return res.status(403).json({ error: '権限がありません' })
+
+    const today = nowJST().toISOString().slice(0, 10)
+    if (data.date < today) return res.status(400).json({ error: '過去の予約は変更できません' })
+
+    if (newStart === data.startTime && newEnd === data.endTime) {
+      return res.status(200).json({ success: true })
+    }
+
+    const slots = getEffectiveSlots(data.date, settingsDoc.data() ?? {})
+
+    // ① 開始時刻を早める場合の制約
+    if (timeToMinutes(newStart) < timeToMinutes(data.startTime)) {
+      const slotStart = findSlotStart(data.startTime, slots)
+      if (slotStart === null) {
+        return res.status(400).json({ error: '現在の開始時刻が営業時間外のため、開始時刻を早めることはできません' })
+      }
+      if (timeToMinutes(newStart) < timeToMinutes(slotStart)) {
+        return res.status(400).json({ error: `開始時刻は ${slotStart} より前にはできません` })
+      }
+    }
+
+    // ② 終了時刻を遅らせる場合の制約
+    if (timeToMinutes(newEnd) > timeToMinutes(data.endTime)) {
+      const slotEnd = findSlotEnd(data.endTime, slots)
+      if (slotEnd === null) {
+        return res.status(400).json({ error: '現在の終了時刻が営業時間外のため、終了時刻を遅くすることはできません' })
+      }
+      if (timeToMinutes(newEnd) > timeToMinutes(slotEnd)) {
+        return res.status(400).json({ error: `終了時刻は ${slotEnd} より後にはできません` })
+      }
+    }
+
+    // 他の予約との重複チェック（自分の予約は除外）
+    const existingSnap = await db.collection('kobu_reservations').where('date', '==', data.date).get()
+    for (const d of existingSnap.docs) {
+      if (d.id === docId) continue
+      const r = d.data()
+      if (timesOverlap(newStart, newEnd, r.startTime, r.endTime)) {
+        return res.status(409).json({ error: `${r.startTime}〜${r.endTime} に既に予約が入っています` })
+      }
+    }
+
+    await docRef.update({ startTime: newStart, endTime: newEnd, updatedAt: new Date() })
     return res.status(200).json({ success: true })
   } catch (err: any) {
     const status = err.message === 'Unauthorized' ? 401 : 500
