@@ -289,7 +289,7 @@ export default function Settings() {
         <button className="btn-icon-nav" onClick={() => setStep('editing')} disabled={saving}>
           <span className="icon">arrow_back</span>
         </button>
-        <h1 className="text-2xl font-bold">設定 - 農部</h1>
+        <h1 className="text-2xl font-bold">設定 - 農部生協</h1>
       </div>
       <p className="text-[0.88rem] text-ink-sub mb-6 ml-11">保存内容の確認</p>
 
@@ -329,7 +329,7 @@ export default function Settings() {
 
   if (step === 'saved') return (
     <div>
-      <h1 className="text-2xl font-bold mb-6">設定 - 農部</h1>
+      <h1 className="text-2xl font-bold mb-6">設定 - 農部生協</h1>
       <div className="admin-card flex flex-col items-center text-center py-10">
         <div className="w-20 h-20 rounded-full bg-brand-light flex items-center justify-center mb-5">
           <span className="icon text-brand" style={{ fontSize: 44 }}>check_circle</span>
@@ -345,7 +345,7 @@ export default function Settings() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold mb-6">設定 - 農部</h1>
+      <h1 className="text-2xl font-bold mb-6">設定 - 農部生協</h1>
 
       {message && (
         <div className={message.type === 'success' ? 'banner-success' : 'banner-error'}>

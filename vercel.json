@@ -4,8 +4,10 @@
   "rewrites": [
     { "source": "/api/admin/:path*",             "destination": "/api/admin?_path=:path*" },
     { "source": "/api/reservations/:path*",      "destination": "/api/reservations?_path=:path*" },
-    { "source": "/api/kobu-reservations/:path*", "destination": "/api/kobu-reservations?_path=:path*" },
-    { "source": "/api/kobu-settings",            "destination": "/api/kobu-settings" },
+    { "source": "/api/kobu-reservations/:path*",      "destination": "/api/kobu-reservations?_path=:path*" },
+    { "source": "/api/kobu-settings",                 "destination": "/api/kobu-settings" },
+    { "source": "/api/nobu-room-reservations/:path*", "destination": "/api/nobu-room-reservations?_path=:path*" },
+    { "source": "/api/nobu-room-settings",            "destination": "/api/nobu-room-settings" },
     { "source": "/admin", "destination": "/index.html" },
     { "source": "/admin/:path*", "destination": "/index.html" }
   ],

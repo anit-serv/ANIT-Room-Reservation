@@ -3,11 +3,12 @@ import liff from '@line/liff'
 import ReservationForm from './pages/ReservationForm'
 import AllReservations from './pages/AllReservations'
 import KobuSchedule from './pages/KobuSchedule'
+import NobuRoomSchedule from './pages/NobuRoomSchedule'
 import MyReservations from './pages/MyReservations'
 import Skeleton from '../components/Skeleton'
 
 type SubView = 'register' | 'all'
-type MainTab = 'nobu' | 'kobu' | 'my'
+type MainTab = 'nobu' | 'nobu-room' | 'kobu' | 'my'
 
 export type LiffProfile = {
   userId: string
@@ -17,9 +18,10 @@ export type LiffProfile = {
 }
 
 const MAIN_TABS: { id: MainTab; icon: string; label: string }[] = [
-  { id: 'nobu', icon: 'grass',        label: '農部' },
-  { id: 'kobu', icon: 'meeting_room', label: '工部室' },
-  { id: 'my',   icon: 'event_note',   label: '自分の予約' },
+  { id: 'nobu',     icon: 'grass',        label: '農部生協' },
+  { id: 'nobu-room', icon: 'door_open',   label: '農部室' },
+  { id: 'kobu',     icon: 'meeting_room', label: '工部室' },
+  { id: 'my',       icon: 'event_note',   label: '自分の予約' },
 ]
 
 function NobuSubNav({ active, onChange }: { active: SubView; onChange: (v: SubView) => void }) {
@@ -43,18 +45,19 @@ function NobuSubNav({ active, onChange }: { active: SubView; onChange: (v: SubVi
   )
 }
 
-type EditTarget = { facility: 'kobu' | 'nobu'; id: string }
+type EditTarget = { facility: 'kobu' | 'nobu' | 'nobu-room'; id: string }
 type KobuEditTarget = { id: string; date: string; bandName: string; startTime: string; endTime: string }
 
 function App() {
-  const [mainTab,       setMainTab]       = useState<MainTab>('nobu')
-  const [nobuSub,       setNobuSub]       = useState<SubView>('register')
-  const [profile,       setProfile]       = useState<LiffProfile | null>(null)
-  const [error,         setError]         = useState<string | null>(null)
-  const [editTarget,    setEditTarget]    = useState<EditTarget | null>(null)
-  const [kobuEditTarget, setKobuEditTarget] = useState<KobuEditTarget | null>(null)
+  const [mainTab,            setMainTab]            = useState<MainTab>('nobu')
+  const [nobuSub,            setNobuSub]            = useState<SubView>('register')
+  const [profile,            setProfile]            = useState<LiffProfile | null>(null)
+  const [error,              setError]              = useState<string | null>(null)
+  const [editTarget,         setEditTarget]         = useState<EditTarget | null>(null)
+  const [kobuEditTarget,     setKobuEditTarget]     = useState<KobuEditTarget | null>(null)
+  const [nobuRoomEditTarget, setNobuRoomEditTarget] = useState<KobuEditTarget | null>(null)
 
-  function handleEditRequest(facility: 'kobu' | 'nobu', id: string) {
+  function handleEditRequest(facility: 'kobu' | 'nobu' | 'nobu-room', id: string) {
     setEditTarget({ facility, id })
     setMainTab('my')
   }
@@ -62,6 +65,11 @@ function App() {
   function handleKobuEdit(target: KobuEditTarget) {
     setKobuEditTarget(target)
     setMainTab('kobu')
+  }
+
+  function handleNobuRoomEdit(target: KobuEditTarget) {
+    setNobuRoomEditTarget(target)
+    setMainTab('nobu-room')
   }
 
   useEffect(() => {
@@ -152,6 +160,13 @@ function App() {
             )}
           </>
         )}
+        {mainTab === 'nobu-room' && (
+          <NobuRoomSchedule
+            profile={profile}
+            initialEdit={nobuRoomEditTarget}
+            onEditHandled={() => setNobuRoomEditTarget(null)}
+          />
+        )}
         {mainTab === 'kobu' && (
           <KobuSchedule
             profile={profile}
@@ -165,6 +180,7 @@ function App() {
             initialEdit={editTarget}
             onEditHandled={() => setEditTarget(null)}
             onKobuEdit={handleKobuEdit}
+            onNobuRoomEdit={handleNobuRoomEdit}
           />
         )}
       </main>

@@ -5,9 +5,10 @@ import Skeleton from '../../components/Skeleton'
 
 type Props = {
   profile: LiffProfile
-  initialEdit?: { facility: 'kobu' | 'nobu'; id: string } | null
+  initialEdit?: { facility: 'kobu' | 'nobu' | 'nobu-room'; id: string } | null
   onEditHandled?: () => void
   onKobuEdit?: (r: { id: string; date: string; bandName: string; startTime: string; endTime: string }) => void
+  onNobuRoomEdit?: (r: { id: string; date: string; bandName: string; startTime: string; endTime: string }) => void
 }
 
 type NobuReservation = {
@@ -28,14 +29,25 @@ type KobuReservation = {
   facility: 'kobu'
 }
 
-type Reservation = NobuReservation | KobuReservation
+type NobuRoomReservation = {
+  id: string
+  bandName: string
+  date: string       // "YYYY-MM-DD"
+  startTime: string
+  endTime: string
+  status: 'confirmed'
+  facility: 'nobu-room'
+}
+
+type Reservation = NobuReservation | KobuReservation | NobuRoomReservation
 
 function sortKey(r: Reservation): string {
   if (r.facility === 'nobu') return r.date
   return `${r.date}T${r.startTime}`
 }
 
-export default function MyReservations({ profile, initialEdit, onEditHandled, onKobuEdit }: Props) {
+
+export default function MyReservations({ profile, initialEdit, onEditHandled, onKobuEdit, onNobuRoomEdit }: Props) {
   const [reservations,  setReservations]  = useState<Reservation[]>([])
   const [loading,       setLoading]       = useState(true)
   const [error,         setError]         = useState<string | null>(null)
@@ -47,22 +59,27 @@ export default function MyReservations({ profile, initialEdit, onEditHandled, on
     setError(null)
     try {
       const headers = { Authorization: `Bearer ${profile.getAccessToken()}` }
-      const [nobuRes, kobuRes] = await Promise.all([
+      const [nobuRes, kobuRes, nobuRoomRes] = await Promise.all([
         fetch('/api/reservations/my', { headers }),
         fetch('/api/kobu-reservations/my', { headers }),
+        fetch('/api/nobu-room-reservations/my', { headers }),
       ])
-      if (!nobuRes.ok || !kobuRes.ok) {
-        const failedRes = !nobuRes.ok ? nobuRes : kobuRes
-        const label = !nobuRes.ok ? '農部' : '工部室'
-        const body = await failedRes.json().catch(() => ({}))
-        throw new Error(`${label} API: ${failedRes.status} ${body.error ?? ''}`)
+      const failed = [
+        { res: nobuRes,     label: '農部生協' },
+        { res: kobuRes,     label: '工部室' },
+        { res: nobuRoomRes, label: '農部室' },
+      ].find(({ res }) => !res.ok)
+      if (failed) {
+        const body = await failed.res.json().catch(() => ({}))
+        throw new Error(`${failed.label} API: ${failed.res.status} ${body.error ?? ''}`)
       }
-      const [nobuData, kobuData] = await Promise.all([nobuRes.json(), kobuRes.json()])
+      const [nobuData, kobuData, nobuRoomData] = await Promise.all([nobuRes.json(), kobuRes.json(), nobuRoomRes.json()])
 
-      const nobu: NobuReservation[] = (nobuData.reservations ?? []).map((r: any) => ({ ...r, facility: 'nobu' }))
-      const kobu: KobuReservation[] = (kobuData.reservations ?? []).map((r: any) => ({ ...r, facility: 'kobu' }))
+      const nobu: NobuReservation[]         = (nobuData.reservations ?? []).map((r: any) => ({ ...r, facility: 'nobu' }))
+      const kobu: KobuReservation[]         = (kobuData.reservations ?? []).map((r: any) => ({ ...r, facility: 'kobu' }))
+      const nobuRoom: NobuRoomReservation[] = (nobuRoomData.reservations ?? []).map((r: any) => ({ ...r, facility: 'nobu-room' }))
 
-      const all: Reservation[] = [...nobu, ...kobu].sort((a, b) => sortKey(a).localeCompare(sortKey(b)))
+      const all: Reservation[] = [...nobu, ...kobu, ...nobuRoom].sort((a, b) => sortKey(a).localeCompare(sortKey(b)))
       setReservations(all)
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : '予約の取得に失敗しました')
@@ -75,22 +92,34 @@ export default function MyReservations({ profile, initialEdit, onEditHandled, on
 
   useEffect(() => {
     if (!initialEdit || loading) return
-    const r = reservations.find((x) => x.id === initialEdit.id && x.facility === 'nobu')
-    if (!r) return
-    setModifyingNobu(r as NobuReservation)
-    onEditHandled?.()
+    if (initialEdit.facility === 'nobu') {
+      const r = reservations.find((x) => x.id === initialEdit.id && x.facility === 'nobu')
+      if (!r) return
+      setModifyingNobu(r as NobuReservation)
+      onEditHandled?.()
+    } else if (initialEdit.facility === 'kobu') {
+      const r = reservations.find((x) => x.id === initialEdit.id && x.facility === 'kobu')
+      if (!r) return
+      onKobuEdit?.(r as KobuReservation)
+      onEditHandled?.()
+    } else if (initialEdit.facility === 'nobu-room') {
+      const r = reservations.find((x) => x.id === initialEdit.id && x.facility === 'nobu-room')
+      if (!r) return
+      onNobuRoomEdit?.(r as NobuRoomReservation)
+      onEditHandled?.()
+    }
   }, [initialEdit, loading, reservations])
 
   async function handleDelete(r: Reservation) {
-    const label = r.facility === 'nobu'
-      ? `「${r.bandName}」の農部の登録を削除しますか？`
-      : `「${r.bandName}」の工部室の登録を削除しますか？`
-    if (!confirm(label)) return
+    const facilityLabel = r.facility === 'nobu' ? '農部生協' : r.facility === 'kobu' ? '工部室' : '農部室'
+    if (!confirm(`「${r.bandName}」の${facilityLabel}の登録を削除しますか？`)) return
     setDeleting(r.id)
     try {
       const endpoint = r.facility === 'nobu'
         ? `/api/reservations/${r.id}`
-        : `/api/kobu-reservations/${r.id}`
+        : r.facility === 'kobu'
+          ? `/api/kobu-reservations/${r.id}`
+          : `/api/nobu-room-reservations/${r.id}`
       const res = await fetch(endpoint, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${profile.getAccessToken()}` },
@@ -184,6 +213,37 @@ export default function MyReservations({ profile, initialEdit, onEditHandled, on
                     <span className="icon" style={{ fontSize: 20 }}>{isDeleting ? 'hourglass_empty' : 'delete'}</span>
                   </button>
                 )}
+              </div>
+            </div>
+          )
+        }
+
+        // 農部室
+        if (r.facility === 'nobu-room') {
+          const displayDate = r.date.slice(5).replace('-', '/')
+          return (
+            <div key={r.id} className="reservation-card">
+              <div className="w-1 self-stretch rounded bg-orange-400" />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-1.5 mb-0.5">
+                  <span className="text-[0.68rem] bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded font-semibold">農部室</span>
+                  <span className="font-bold text-ink truncate">{r.bandName}</span>
+                </div>
+                <div className="text-[0.82rem] text-ink-sub mb-2 flex items-center gap-1.5 flex-wrap">
+                  <span className="icon icon-sm text-ink-pale">calendar_month</span>{displayDate}
+                  <span className="icon icon-sm text-ink-pale">schedule</span>{r.startTime}〜{r.endTime}
+                </div>
+                <span className="badge badge-confirmed">
+                  <span className="icon icon-sm">check_circle</span>確定
+                </span>
+              </div>
+              <div className="flex gap-1">
+                <button className="btn-icon" onClick={() => onNobuRoomEdit?.(r)} disabled={isDeleting} title="変更">
+                  <span className="icon" style={{ fontSize: 20 }}>edit</span>
+                </button>
+                <button className="btn-icon-danger" onClick={() => handleDelete(r)} disabled={isDeleting} title="削除">
+                  <span className="icon" style={{ fontSize: 20 }}>{isDeleting ? 'hourglass_empty' : 'delete'}</span>
+                </button>
               </div>
             </div>
           )

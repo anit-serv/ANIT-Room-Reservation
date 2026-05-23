@@ -2,9 +2,11 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 import AdminLayout from './AdminLayout'
 import Login from './Login'
 import Dashboard from './pages/Dashboard'
-import NobuReservations from './pages/Reservations'
+import SeikyoReservations from './pages/Reservations'
+import NobuRoomReservations from './pages/NobuRoomReservations'
 import KobuReservations from './pages/KobuReservations'
-import NobuSettings from './pages/Settings'
+import SeikyoSettings from './pages/Settings'
+import NobuRoomSettings from './pages/NobuRoomSettings'
 import KobuSettings from './pages/KobuSettings'
 import Users from './pages/Users'
 import Admins from './pages/Admins'
@@ -17,10 +19,12 @@ export default function AdminApp() {
       <Route element={<AdminLayout />}>
         <Route index element={<Dashboard />} />
         <Route path="reservations" element={<Navigate to="/admin/reservations/nobu" replace />} />
-        <Route path="reservations/nobu" element={<NobuReservations />} />
+        <Route path="reservations/nobu" element={<SeikyoReservations />} />
+        <Route path="reservations/nobu-room" element={<NobuRoomReservations />} />
         <Route path="reservations/kobu" element={<KobuReservations />} />
         <Route path="settings" element={<Navigate to="/admin/settings/nobu" replace />} />
-        <Route path="settings/nobu" element={<NobuSettings />} />
+        <Route path="settings/nobu" element={<SeikyoSettings />} />
+        <Route path="settings/nobu-room" element={<NobuRoomSettings />} />
         <Route path="settings/kobu" element={<KobuSettings />} />
         <Route path="users" element={<Users />} />
         <Route path="admins" element={<Admins />} />

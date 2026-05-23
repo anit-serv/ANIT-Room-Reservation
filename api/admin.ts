@@ -112,6 +112,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // 工部室設定
   if (path === 'kobu-settings') return handleKobuSettings(req, res)
 
+  // 農部室予約管理
+  if (segments[0] === 'nobu-room-reservations') {
+    if (segments.length === 1) return handleNobuRoomReservationsList(req, res)
+    if (segments.length === 2) return handleNobuRoomReservationById(req, res, segments[1])
+  }
+
+  // 農部室設定
+  if (path === 'nobu-room-settings') return handleNobuRoomSettings(req, res)
+
   // 監査ログ
   if (path === 'logs') return handleLogs(req, res)
 
@@ -1336,6 +1345,206 @@ async function handleKobuSettings(req: VercelRequest, res: VercelResponse) {
 
     await audit(me, 'kobu_settings.update', {
       targetType: 'settings', targetId: 'kobu',
+      details: {
+        availableDays,
+        timeSlotsCount:     timeSlots.length,
+        extraDatesCount:    (extraDates    ?? []).length,
+        excludedDatesCount: (excludedDates ?? []).length,
+        perDayEnabled:      perDaySchedule?.enabled ?? false,
+      },
+    })
+    return res.status(200).json({ success: true })
+  }
+
+  return res.status(405).json({ error: 'Method Not Allowed' })
+}
+
+// ─── 農部室 予約一覧 ──────────────────────────────────
+async function handleNobuRoomReservationsList(req: VercelRequest, res: VercelResponse) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method Not Allowed' })
+  try {
+    await verifyAdmin(req.headers.authorization)
+  } catch (err: any) {
+    const status = err.message === 'Forbidden' ? 403 : 401
+    return res.status(status).json({ error: err.message })
+  }
+
+  const { date, q } = req.query as { date?: string; q?: string }
+  try {
+    let query: FirebaseFirestore.Query = db.collection('nobu_room_reservations')
+    if (date) query = query.where('date', '==', date)
+    const snap = await query.get()
+
+    let docs = snap.docs.map((d) => ({ id: d.id, ...d.data() } as any))
+    if (q) {
+      const lower = q.toLowerCase()
+      docs = docs.filter((r) => (r.bandName ?? '').toLowerCase().includes(lower))
+    }
+    docs.sort((a: any, b: any) =>
+      a.date !== b.date
+        ? (a.date ?? '').localeCompare(b.date ?? '')
+        : (a.startTime ?? '').localeCompare(b.startTime ?? '')
+    )
+
+    const userIds = Array.from(new Set(docs.map((r) => r.userId).filter(Boolean)))
+    const userMap: Record<string, { displayName: string; pictureUrl: string | null }> = {}
+    if (userIds.length > 0) {
+      const userDocs = await db.getAll(...userIds.map((id) => db.collection('users').doc(id)))
+      userDocs.forEach((d) => {
+        if (d.exists) userMap[d.id] = { displayName: d.data()?.displayName ?? '', pictureUrl: d.data()?.pictureUrl ?? null }
+      })
+    }
+
+    const reservations = docs.map((r) => ({
+      id: r.id, userId: r.userId,
+      bandName: r.bandName, date: r.date, startTime: r.startTime, endTime: r.endTime,
+      status: r.status, createdAt: r.createdAt?.toMillis?.() ?? null,
+      userDisplayName: userMap[r.userId]?.displayName ?? '',
+      userPictureUrl:  userMap[r.userId]?.pictureUrl  ?? null,
+    }))
+    return res.status(200).json({ reservations })
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message })
+  }
+}
+
+// ─── 農部室 予約の編集・削除 ──────────────────────────
+async function handleNobuRoomReservationById(req: VercelRequest, res: VercelResponse, id: string) {
+  let me: AuditActor
+  try {
+    me = await verifyAdmin(req.headers.authorization)
+  } catch (err: any) {
+    const status = err.message === 'Forbidden' ? 403 : 401
+    return res.status(status).json({ error: err.message })
+  }
+
+  const docRef = db.collection('nobu_room_reservations').doc(id)
+  const doc = await docRef.get()
+  if (!doc.exists) return res.status(404).json({ error: '予約が見つかりません' })
+  const before = doc.data()!
+
+  if (req.method === 'PUT') {
+    const { bandName, date, startTime, endTime } = (req.body ?? {}) as {
+      bandName?: string; date?: string; startTime?: string; endTime?: string
+    }
+    const update: Record<string, any> = {}
+    if (typeof bandName === 'string' && bandName.trim()) update.bandName = bandName.trim()
+    if (typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date)) update.date = date
+    if (typeof startTime === 'string') update.startTime = startTime
+    if (typeof endTime === 'string')   update.endTime   = endTime
+    if (Object.keys(update).length === 0) return res.status(400).json({ error: '更新項目がありません' })
+
+    const finalDate      = update.date      ?? before.date
+    const finalStartTime = update.startTime ?? before.startTime
+    const finalEndTime   = update.endTime   ?? before.endTime
+
+    if (finalStartTime >= finalEndTime) {
+      return res.status(400).json({ error: '開始時刻は終了時刻より前にしてください' })
+    }
+
+    const existingSnap = await db.collection('nobu_room_reservations').where('date', '==', finalDate).get()
+    for (const d of existingSnap.docs) {
+      if (d.id === id) continue
+      const data = d.data()
+      if (finalStartTime < data.endTime && data.startTime < finalEndTime) {
+        return res.status(400).json({ error: `${data.startTime}〜${data.endTime} に既に予約が入っています` })
+      }
+    }
+
+    await docRef.update(update)
+    await audit(me, 'nobu_room_reservation.update', {
+      targetType: 'nobu_room_reservation', targetId: id, targetLabel: before.bandName,
+      details: { before: { bandName: before.bandName, date: before.date, startTime: before.startTime, endTime: before.endTime }, after: update },
+    })
+    return res.status(200).json({ success: true })
+  }
+
+  if (req.method === 'DELETE') {
+    await docRef.delete()
+    await audit(me, 'nobu_room_reservation.delete', {
+      targetType: 'nobu_room_reservation', targetId: id, targetLabel: before.bandName,
+      details: { bandName: before.bandName, date: before.date, startTime: before.startTime, endTime: before.endTime },
+    })
+    return res.status(200).json({ success: true })
+  }
+
+  return res.status(405).json({ error: 'Method Not Allowed' })
+}
+
+// ─── 農部室 設定の取得・更新 ───────────────────────────
+async function handleNobuRoomSettings(req: VercelRequest, res: VercelResponse) {
+  let me: AuditActor
+  try {
+    me = await verifyAdmin(req.headers.authorization)
+  } catch (err: any) {
+    const status = err.message === 'Forbidden' ? 403 : 401
+    return res.status(status).json({ error: err.message })
+  }
+
+  const NR_DEFAULTS = {
+    availableDays:  [0, 1, 2, 3, 4, 5, 6] as number[],
+    extraDates:     [] as string[],
+    excludedDates:  [] as string[],
+    timeSlots:      [{ label: '8:00~20:00', value: '08:00-20:00' }] as TimeSlot[],
+    perDaySchedule: { enabled: false, byWeekday: {} as Record<string, TimeSlot[]>, byDate: {} as Record<string, TimeSlot[]> },
+  }
+
+  if (req.method === 'GET') {
+    const doc  = await db.collection('settings').doc('nobu-room').get()
+    const data = doc.exists ? doc.data()! : {}
+
+    let timeSlots = data.timeSlots as TimeSlot[] | undefined
+    if (!timeSlots && (data.openTime || data.closeTime)) {
+      const open  = data.openTime  ?? '08:00'
+      const close = data.closeTime ?? '20:00'
+      timeSlots = [{ label: `${open}〜${close}`, value: `${open}-${close}` }]
+    }
+
+    return res.status(200).json({
+      availableDays:  data.availableDays  ?? NR_DEFAULTS.availableDays,
+      extraDates:     data.extraDates     ?? NR_DEFAULTS.extraDates,
+      excludedDates:  data.excludedDates  ?? NR_DEFAULTS.excludedDates,
+      timeSlots:      (timeSlots ?? NR_DEFAULTS.timeSlots).filter((s: any) => !s.deleted),
+      perDaySchedule: data.perDaySchedule ?? NR_DEFAULTS.perDaySchedule,
+    })
+  }
+
+  if (req.method === 'PUT') {
+    const { availableDays, extraDates, excludedDates, timeSlots, perDaySchedule } = (req.body ?? {}) as {
+      availableDays?: number[]; extraDates?: string[]; excludedDates?: string[];
+      timeSlots?: TimeSlot[]; perDaySchedule?: PerDaySchedule
+    }
+
+    if (!Array.isArray(availableDays) || !availableDays.every((d) => Number.isInteger(d) && d >= 0 && d <= 6)) {
+      return res.status(400).json({ error: '利用可能曜日が不正です' })
+    }
+    if (!Array.isArray(extraDates) || !Array.isArray(excludedDates)) {
+      return res.status(400).json({ error: '日付リストが不正です' })
+    }
+    if (!Array.isArray(timeSlots) || timeSlots.length === 0) {
+      return res.status(400).json({ error: '営業時間枠を1つ以上指定してください' })
+    }
+
+    const currentDoc = await db.collection('settings').doc('nobu-room').get()
+    const existingSlots: (TimeSlot & { deleted?: boolean })[] =
+      currentDoc.exists ? (currentDoc.data()!.timeSlots ?? []) : []
+    const newSlotValues = new Set((timeSlots as TimeSlot[]).map((s) => s.value))
+    const softDeleted = existingSlots
+      .filter((s) => !s.deleted && !newSlotValues.has(s.value))
+      .map((s) => ({ ...s, deleted: true }))
+    const activeSlots = (timeSlots as TimeSlot[]).map((s) => ({ ...s, deleted: false }))
+    const finalTimeSlots = [...activeSlots, ...softDeleted]
+
+    await db.collection('settings').doc('nobu-room').set({
+      availableDays,
+      extraDates:     extraDates    ?? [],
+      excludedDates:  excludedDates ?? [],
+      timeSlots:      finalTimeSlots,
+      perDaySchedule: perDaySchedule ?? NR_DEFAULTS.perDaySchedule,
+    }, { merge: true })
+
+    await audit(me, 'nobu_room_settings.update', {
+      targetType: 'settings', targetId: 'nobu-room',
       details: {
         availableDays,
         timeSlotsCount:     timeSlots.length,

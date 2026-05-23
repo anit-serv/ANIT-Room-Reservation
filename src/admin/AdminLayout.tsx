@@ -95,7 +95,11 @@ export default function AdminLayout() {
                 <div className="flex flex-col gap-0.5 mt-0.5">
                   <NavLink to="/admin/reservations/nobu"
                     className={({ isActive }) => SUBLINK_BASE + (isActive ? LINK_ACTIVE : LINK_IDLE)}>
-                    農部
+                    農部生協
+                  </NavLink>
+                  <NavLink to="/admin/reservations/nobu-room"
+                    className={({ isActive }) => SUBLINK_BASE + (isActive ? LINK_ACTIVE : LINK_IDLE)}>
+                    農部室
                   </NavLink>
                   <NavLink to="/admin/reservations/kobu"
                     className={({ isActive }) => SUBLINK_BASE + (isActive ? LINK_ACTIVE : LINK_IDLE)}>
@@ -125,7 +129,11 @@ export default function AdminLayout() {
                 <div className="flex flex-col gap-0.5 mt-0.5">
                   <NavLink to="/admin/settings/nobu"
                     className={({ isActive }) => SUBLINK_BASE + (isActive ? LINK_ACTIVE : LINK_IDLE)}>
-                    農部
+                    農部生協
+                  </NavLink>
+                  <NavLink to="/admin/settings/nobu-room"
+                    className={({ isActive }) => SUBLINK_BASE + (isActive ? LINK_ACTIVE : LINK_IDLE)}>
+                    農部室
                   </NavLink>
                   <NavLink to="/admin/settings/kobu"
                     className={({ isActive }) => SUBLINK_BASE + (isActive ? LINK_ACTIVE : LINK_IDLE)}>
@@ -163,7 +171,11 @@ export default function AdminLayout() {
               <div className="flex gap-1 px-1 pt-1 pb-2 border-t border-line overflow-x-auto">
                 <NavLink to="/admin/reservations/nobu"
                   className={({ isActive }) => SUBLINK_MOB + (isActive ? LINK_ACTIVE : LINK_IDLE)}>
-                  <span className="icon icon-sm">event_note</span>農部
+                  <span className="icon icon-sm">event_note</span>農部生協
+                </NavLink>
+                <NavLink to="/admin/reservations/nobu-room"
+                  className={({ isActive }) => SUBLINK_MOB + (isActive ? LINK_ACTIVE : LINK_IDLE)}>
+                  <span className="icon icon-sm">event_note</span>農部室
                 </NavLink>
                 <NavLink to="/admin/reservations/kobu"
                   className={({ isActive }) => SUBLINK_MOB + (isActive ? LINK_ACTIVE : LINK_IDLE)}>
@@ -177,7 +189,11 @@ export default function AdminLayout() {
               <div className="flex gap-1 px-1 pt-1 pb-2 border-t border-line overflow-x-auto">
                 <NavLink to="/admin/settings/nobu"
                   className={({ isActive }) => SUBLINK_MOB + (isActive ? LINK_ACTIVE : LINK_IDLE)}>
-                  <span className="icon icon-sm">settings</span>農部
+                  <span className="icon icon-sm">settings</span>農部生協
+                </NavLink>
+                <NavLink to="/admin/settings/nobu-room"
+                  className={({ isActive }) => SUBLINK_MOB + (isActive ? LINK_ACTIVE : LINK_IDLE)}>
+                  <span className="icon icon-sm">settings</span>農部室
                 </NavLink>
                 <NavLink to="/admin/settings/kobu"
                   className={({ isActive }) => SUBLINK_MOB + (isActive ? LINK_ACTIVE : LINK_IDLE)}>
