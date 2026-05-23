@@ -12,6 +12,7 @@ const LINK_BASE    = 'flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-[0.9
 const LINK_ACTIVE  = 'bg-brand-light text-brand-dark font-semibold'
 const LINK_IDLE    = 'text-ink-sub hover:bg-bg hover:text-ink'
 const SUBLINK_BASE = 'flex items-center gap-2 pl-8 pr-3 py-2 rounded-lg text-[0.85rem] font-medium transition-colors no-underline '
+const SUBLINK_MOB  = 'flex items-center gap-2 px-3 py-2 rounded-lg text-[0.85rem] font-medium transition-colors no-underline flex-shrink-0 '
 
 export default function AdminLayout() {
   const navigate = useNavigate()
@@ -65,7 +66,9 @@ export default function AdminLayout() {
     <div className="flex min-h-dvh max-md:flex-col">
       <aside className={SIDEBAR_CLS}>
         <div className="text-base font-bold px-3 pb-4 pt-2 text-ink max-md:hidden">部屋予約 管理</div>
-        <nav className="flex flex-col gap-1 flex-1 max-md:overflow-x-auto">
+
+        {/* ナビ行：デスクトップ＝縦、モバイル＝横スクロール */}
+        <nav className="flex flex-col gap-1 flex-1 max-md:flex-row max-md:overflow-x-auto">
 
           <NavLink to="/admin" end
             className={({ isActive }) => LINK_BASE + (isActive ? LINK_ACTIVE : LINK_IDLE)}>
@@ -74,7 +77,7 @@ export default function AdminLayout() {
           </NavLink>
 
           {/* 予約管理 アコーディオン */}
-          <div>
+          <div className="max-md:flex-shrink-0">
             <button
               onClick={() => setReservationsExpanded(v => !v)}
               className={LINK_BASE + (reservationsOpen ? LINK_ACTIVE : LINK_IDLE) + ' w-full justify-between'}
@@ -86,7 +89,8 @@ export default function AdminLayout() {
               <span className={`icon transition-transform duration-200 ${reservationsExpanded ? 'rotate-180' : ''}`}
                 style={{ fontSize: 16 }}>expand_more</span>
             </button>
-            <div className={`grid transition-all duration-200 ease-out ${reservationsExpanded ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
+            {/* デスクトップのみ：インライン展開 */}
+            <div className={`grid transition-all duration-200 ease-out max-md:hidden ${reservationsExpanded ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
               <div className="overflow-hidden min-h-0">
                 <div className="flex flex-col gap-0.5 mt-0.5">
                   <NavLink to="/admin/reservations/nobu"
@@ -103,7 +107,7 @@ export default function AdminLayout() {
           </div>
 
           {/* 設定 アコーディオン */}
-          <div>
+          <div className="max-md:flex-shrink-0">
             <button
               onClick={() => setSettingsExpanded(v => !v)}
               className={LINK_BASE + (settingsOpen ? LINK_ACTIVE : LINK_IDLE) + ' w-full justify-between'}
@@ -115,7 +119,8 @@ export default function AdminLayout() {
               <span className={`icon transition-transform duration-200 ${settingsExpanded ? 'rotate-180' : ''}`}
                 style={{ fontSize: 16 }}>expand_more</span>
             </button>
-            <div className={`grid transition-all duration-200 ease-out ${settingsExpanded ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
+            {/* デスクトップのみ：インライン展開 */}
+            <div className={`grid transition-all duration-200 ease-out max-md:hidden ${settingsExpanded ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
               <div className="overflow-hidden min-h-0">
                 <div className="flex flex-col gap-0.5 mt-0.5">
                   <NavLink to="/admin/settings/nobu"
@@ -150,6 +155,39 @@ export default function AdminLayout() {
           </NavLink>
 
         </nav>
+
+        {/* モバイルのみ：ナビ行の下にサブメニューを展開 */}
+        <div className="md:hidden">
+          <div className={`grid transition-all duration-200 ease-out ${reservationsExpanded ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
+            <div className="overflow-hidden min-h-0">
+              <div className="flex gap-1 px-1 pt-1 pb-2 border-t border-line overflow-x-auto">
+                <NavLink to="/admin/reservations/nobu"
+                  className={({ isActive }) => SUBLINK_MOB + (isActive ? LINK_ACTIVE : LINK_IDLE)}>
+                  <span className="icon icon-sm">event_note</span>農部
+                </NavLink>
+                <NavLink to="/admin/reservations/kobu"
+                  className={({ isActive }) => SUBLINK_MOB + (isActive ? LINK_ACTIVE : LINK_IDLE)}>
+                  <span className="icon icon-sm">event_note</span>工部室
+                </NavLink>
+              </div>
+            </div>
+          </div>
+          <div className={`grid transition-all duration-200 ease-out ${settingsExpanded ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
+            <div className="overflow-hidden min-h-0">
+              <div className="flex gap-1 px-1 pt-1 pb-2 border-t border-line overflow-x-auto">
+                <NavLink to="/admin/settings/nobu"
+                  className={({ isActive }) => SUBLINK_MOB + (isActive ? LINK_ACTIVE : LINK_IDLE)}>
+                  <span className="icon icon-sm">settings</span>農部
+                </NavLink>
+                <NavLink to="/admin/settings/kobu"
+                  className={({ isActive }) => SUBLINK_MOB + (isActive ? LINK_ACTIVE : LINK_IDLE)}>
+                  <span className="icon icon-sm">settings</span>工部室
+                </NavLink>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div className="flex items-center gap-2 px-3 py-2.5 text-[0.85rem] text-ink-sub border-t border-line mt-2 max-md:hidden">
           <span className="icon">account_circle</span>
           <span className="truncate">{me.displayName}</span>
