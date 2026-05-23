@@ -76,6 +76,7 @@ export default function MyReservations({ profile }: Props) {
   const [error,        setError]        = useState<string | null>(null)
   const [deleting,     setDeleting]     = useState<string | null>(null)
   const [modifying,    setModifying]    = useState<KobuReservation | null>(null)
+  const [modifyingNobu, setModifyingNobu] = useState<NobuReservation | null>(null)
 
   const fetchReservations = useCallback(async () => {
     setLoading(true)
@@ -167,6 +168,14 @@ export default function MyReservations({ profile }: Props) {
         </span>
       </div>
 
+      {modifyingNobu && (
+        <NobuModifyModal
+          reservation={modifyingNobu}
+          profile={profile}
+          onClose={() => setModifyingNobu(null)}
+          onUpdated={fetchReservations}
+        />
+      )}
       {modifying && (
         <KobuModifyModal
           reservation={modifying}
@@ -202,11 +211,16 @@ export default function MyReservations({ profile }: Props) {
                   {isConfirmed ? '抽選確定' : '抽選待ち'}
                 </span>
               </div>
-              {canDelete && (
-                <button className="btn-danger" onClick={() => handleDelete(r)} disabled={isDeleting}>
-                  {isDeleting ? '...' : '削除'}
+              <div className="flex flex-col gap-1.5">
+                <button className="btn-outline text-[0.8rem] px-2 py-1" onClick={() => setModifyingNobu(r)} disabled={isDeleting}>
+                  変更
                 </button>
-              )}
+                {canDelete && (
+                  <button className="btn-danger text-[0.8rem] px-2 py-1" onClick={() => handleDelete(r)} disabled={isDeleting}>
+                    {isDeleting ? '...' : '削除'}
+                  </button>
+                )}
+              </div>
             </div>
           )
         }
@@ -253,6 +267,7 @@ function KobuModifyModal({
   onClose: () => void
   onUpdated: () => void
 }) {
+  const [newBandName, setNewBandName] = useState(reservation.bandName)
   const [newStart, setNewStart] = useState(reservation.startTime)
   const [newEnd,   setNewEnd]   = useState(reservation.endTime)
   const [error,    setError]    = useState<string | null>(null)
@@ -301,7 +316,10 @@ function KobuModifyModal({
   }, [endOptions])
 
   async function handleSubmit() {
-    if (newStart === reservation.startTime && newEnd === reservation.endTime) { onClose(); return }
+    const noChange = newBandName.trim() === reservation.bandName
+      && newStart === reservation.startTime && newEnd === reservation.endTime
+    if (noChange) { onClose(); return }
+    if (!newBandName.trim()) { setError('バンド名を入力してください'); return }
     setSaving(true)
     setError(null)
     try {
@@ -311,7 +329,7 @@ function KobuModifyModal({
           'Content-Type': 'application/json',
           Authorization: `Bearer ${profile.getAccessToken()}`,
         },
-        body: JSON.stringify({ newStart, newEnd }),
+        body: JSON.stringify({ bandName: newBandName.trim(), newStart, newEnd }),
       })
       if (!res.ok) throw new Error((await res.json()).error ?? '変更に失敗しました')
       onUpdated()
@@ -326,15 +344,24 @@ function KobuModifyModal({
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal-card max-w-[360px]" onClick={(e) => e.stopPropagation()}>
-        <h3 className="text-base font-semibold mb-0.5">予約時間を変更</h3>
+        <h3 className="text-base font-semibold mb-0.5">予約を変更</h3>
         <p className="text-[0.82rem] text-ink-sub mb-4">
-          {reservation.date.slice(5).replace('-', '/')} — {reservation.bandName}
+          工部室 — {reservation.date.slice(5).replace('-', '/')}
         </p>
 
         {!constraints ? (
           <div className="text-center py-6 text-ink-pale text-[0.9rem]">読み込み中...</div>
         ) : (
           <div className="flex flex-col gap-4">
+            <div>
+              <label className="text-[0.85rem] font-medium mb-1 block">バンド名</label>
+              <input
+                className="text-input"
+                value={newBandName}
+                onChange={(e) => setNewBandName(e.target.value)}
+                placeholder="バンド名"
+              />
+            </div>
             <div>
               <label className="text-[0.85rem] font-medium mb-1 block">開始時刻</label>
               <select className="text-input" value={newStart} onChange={(e) => setNewStart(e.target.value)}>
@@ -361,6 +388,121 @@ function KobuModifyModal({
         <div className="flex gap-2 mt-4">
           <button className="btn-outline flex-1" onClick={onClose} disabled={saving}>キャンセル</button>
           <button className="btn-primary flex-1" onClick={handleSubmit} disabled={saving || !constraints}>
+            {saving ? '変更中...' : '変更する'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── 農部予約変更モーダル ─────────────────────────────
+type NobuTimeSlot = { label: string; value: string }
+
+function NobuModifyModal({
+  reservation, profile, onClose, onUpdated,
+}: {
+  reservation: NobuReservation
+  profile: LiffProfile
+  onClose: () => void
+  onUpdated: () => void
+}) {
+  const currentSlot = reservation.date.split('T')[1] // e.g. "18:00-20:00"
+  const [newBandName, setNewBandName] = useState(reservation.bandName)
+  const [newTimeSlot, setNewTimeSlot] = useState(currentSlot)
+  const [slots,       setSlots]       = useState<NobuTimeSlot[] | null>(null)
+  const [error,       setError]       = useState<string | null>(null)
+  const [saving,      setSaving]      = useState(false)
+  const isConfirmed = reservation.status === 'confirmed'
+
+  useEffect(() => {
+    const dateOnly = reservation.date.split('T')[0]
+    fetch('/api/settings')
+      .then((r) => r.json())
+      .then((data) => {
+        const dateEntry = (data.availableDatesWithToday ?? []).find((d: any) => d.value === dateOnly)
+        setSlots(dateEntry?.timeSlots ?? data.timeSlots ?? [])
+      })
+      .catch(() => setSlots([]))
+  }, [reservation])
+
+  async function handleSubmit() {
+    const noChange = newBandName.trim() === reservation.bandName && newTimeSlot === currentSlot
+    if (noChange) { onClose(); return }
+    if (!newBandName.trim()) { setError('バンド名を入力してください'); return }
+    setSaving(true)
+    setError(null)
+    try {
+      const body: Record<string, string> = {}
+      if (newBandName.trim() !== reservation.bandName) body.bandName = newBandName.trim()
+      if (newTimeSlot !== currentSlot) body.timeSlot = newTimeSlot
+      const res = await fetch(`/api/reservations/${reservation.id}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${profile.getAccessToken()}`,
+        },
+        body: JSON.stringify(body),
+      })
+      if (!res.ok) throw new Error((await res.json()).error ?? '変更に失敗しました')
+      onUpdated()
+      onClose()
+    } catch (err: any) {
+      setError(err.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const dateOnly    = reservation.date.split('T')[0]
+  const displayDate = dateOnly.slice(5).replace('-', '/')
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal-card max-w-[360px]" onClick={(e) => e.stopPropagation()}>
+        <h3 className="text-base font-semibold mb-0.5">予約を変更</h3>
+        <p className="text-[0.82rem] text-ink-sub mb-4">農部 — {displayDate}</p>
+
+        {slots === null ? (
+          <div className="text-center py-6 text-ink-pale text-[0.9rem]">読み込み中...</div>
+        ) : (
+          <div className="flex flex-col gap-4">
+            <div>
+              <label className="text-[0.85rem] font-medium mb-1 block">バンド名</label>
+              <input
+                className="text-input"
+                value={newBandName}
+                onChange={(e) => setNewBandName(e.target.value)}
+                placeholder="バンド名"
+              />
+            </div>
+            <div>
+              <label className="text-[0.85rem] font-medium mb-1 block">時間枠</label>
+              {isConfirmed ? (
+                <p className="text-input bg-bg text-ink-sub cursor-not-allowed">
+                  {slots.find((s) => s.value === currentSlot)?.label ?? currentSlot}
+                </p>
+              ) : slots.length > 0 ? (
+                <select className="text-input" value={newTimeSlot} onChange={(e) => setNewTimeSlot(e.target.value)}>
+                  {slots.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+                </select>
+              ) : (
+                <p className="text-input bg-bg text-ink-sub">
+                  {currentSlot}
+                </p>
+              )}
+              {isConfirmed && (
+                <p className="text-[0.78rem] text-ink-sub mt-1">抽選確定済みのため時間枠は変更できません</p>
+              )}
+            </div>
+          </div>
+        )}
+
+        {error && <div className="banner-error mt-3">{error}</div>}
+
+        <div className="flex gap-2 mt-4">
+          <button className="btn-outline flex-1" onClick={onClose} disabled={saving}>キャンセル</button>
+          <button className="btn-primary flex-1" onClick={handleSubmit} disabled={saving || slots === null}>
             {saving ? '変更中...' : '変更する'}
           </button>
         </div>

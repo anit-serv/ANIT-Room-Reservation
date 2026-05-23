@@ -285,7 +285,9 @@ async function handleDelete(req: VercelRequest, res: VercelResponse, docId: stri
 async function handleModify(req: VercelRequest, res: VercelResponse, docId: string) {
   try {
     const { userId } = await verifyLineToken(req.headers.authorization)
-    const { newStart, newEnd } = (req.body ?? {}) as { newStart?: string; newEnd?: string }
+    const { newStart, newEnd, bandName: newBandName } = (req.body ?? {}) as {
+      newStart?: string; newEnd?: string; bandName?: string
+    }
 
     if (!newStart || !newEnd) {
       return res.status(400).json({ error: 'newStart と newEnd は必須です' })
@@ -312,7 +314,16 @@ async function handleModify(req: VercelRequest, res: VercelResponse, docId: stri
     const today = nowJST().toISOString().slice(0, 10)
     if (data.date < today) return res.status(400).json({ error: '過去の予約は変更できません' })
 
-    if (newStart === data.startTime && newEnd === data.endTime) {
+    const updates: Record<string, any> = {}
+
+    // バンド名変更
+    if (newBandName !== undefined) {
+      const trimmed = newBandName.trim()
+      if (!trimmed) return res.status(400).json({ error: 'バンド名は空にできません' })
+      if (trimmed !== data.bandName) updates.bandName = trimmed
+    }
+
+    if (newStart === data.startTime && newEnd === data.endTime && Object.keys(updates).length === 0) {
       return res.status(200).json({ success: true })
     }
 
@@ -350,7 +361,10 @@ async function handleModify(req: VercelRequest, res: VercelResponse, docId: stri
       }
     }
 
-    await docRef.update({ startTime: newStart, endTime: newEnd, updatedAt: new Date() })
+    if (newStart !== data.startTime) updates.startTime = newStart
+    if (newEnd   !== data.endTime)   updates.endTime   = newEnd
+    updates.updatedAt = new Date()
+    await docRef.update(updates)
     return res.status(200).json({ success: true })
   } catch (err: any) {
     const status = err.message === 'Unauthorized' ? 401 : 500

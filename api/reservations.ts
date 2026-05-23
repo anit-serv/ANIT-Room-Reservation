@@ -17,7 +17,7 @@ const db = admin.firestore()
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*')
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS')
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, PATCH, OPTIONS')
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
   if (req.method === 'OPTIONS') return res.status(204).end()
 
@@ -187,9 +187,15 @@ async function handleAll(req: VercelRequest, res: VercelResponse) {
   }
 }
 
-// ─── 予約の削除 ─────────────────────────────────────
+// ─── 予約の削除または変更のディスパッチ ─────────────
 async function handleById(req: VercelRequest, res: VercelResponse, docId: string) {
-  if (req.method !== 'DELETE') return res.status(405).json({ error: 'Method Not Allowed' })
+  if (req.method === 'DELETE') return handleDelete(req, res, docId)
+  if (req.method === 'PATCH')  return handleModify(req, res, docId)
+  return res.status(405).json({ error: 'Method Not Allowed' })
+}
+
+// ─── 予約の削除 ─────────────────────────────────────
+async function handleDelete(req: VercelRequest, res: VercelResponse, docId: string) {
   try {
     const { userId } = await verifyLineToken(req.headers.authorization)
     const docRef = db.collection('reservations').doc(docId)
@@ -198,6 +204,59 @@ async function handleById(req: VercelRequest, res: VercelResponse, docId: string
     if (doc.data()!.userId !== userId) return res.status(403).json({ error: '権限がありません' })
     if (doc.data()!.status === 'confirmed') return res.status(400).json({ error: '抽選確定済みは削除できません' })
     await docRef.delete()
+    return res.status(200).json({ success: true })
+  } catch (err: any) {
+    const status = err.message === 'Unauthorized' ? 401 : 500
+    return res.status(status).json({ error: err.message })
+  }
+}
+
+// ─── 予約の変更（バンド名・時間枠） ──────────────────
+async function handleModify(req: VercelRequest, res: VercelResponse, docId: string) {
+  try {
+    const { userId } = await verifyLineToken(req.headers.authorization)
+    const { bandName: newBandName, timeSlot: newTimeSlot } = (req.body ?? {}) as {
+      bandName?: string; timeSlot?: string
+    }
+
+    const docRef = db.collection('reservations').doc(docId)
+    const doc    = await docRef.get()
+    if (!doc.exists) return res.status(404).json({ error: '予約が見つかりません' })
+    const data = doc.data()!
+    if (data.userId !== userId) return res.status(403).json({ error: '権限がありません' })
+
+    const dateOnly = (data.date as string).split('T')[0]
+    const updates: Record<string, any> = {}
+
+    // バンド名変更
+    if (newBandName !== undefined) {
+      const trimmed = newBandName.trim()
+      if (!trimmed) return res.status(400).json({ error: 'バンド名は空にできません' })
+      if (trimmed !== data.bandName) {
+        const dupSnap = await db.collection('reservations')
+          .where('bandName', '==', trimmed)
+          .where('date', '>=', `${dateOnly}T00:00`)
+          .where('date', '<=', `${dateOnly}T23:59`)
+          .get()
+        if (!dupSnap.empty && dupSnap.docs.some((d) => d.id !== docId)) {
+          return res.status(400).json({ error: `${dateOnly} には「${trimmed}」が既に登録されています` })
+        }
+        updates.bandName = trimmed
+      }
+    }
+
+    // 時間枠変更（抽選待ちのみ）
+    if (newTimeSlot !== undefined) {
+      if (data.status === 'confirmed') {
+        return res.status(400).json({ error: '抽選確定済みの予約は時間枠を変更できません' })
+      }
+      const newDate = `${dateOnly}T${newTimeSlot}`
+      if (newDate !== data.date) updates.date = newDate
+    }
+
+    if (Object.keys(updates).length === 0) return res.status(200).json({ success: true })
+    updates.updatedAt = new Date()
+    await docRef.update(updates)
     return res.status(200).json({ success: true })
   } catch (err: any) {
     const status = err.message === 'Unauthorized' ? 401 : 500
