@@ -129,7 +129,7 @@ export default function KobuReservations() {
                         <button className="btn-icon" onClick={() => setEditing(r)}>
                           <span className="icon">edit</span>
                         </button>
-                        <button className="btn-icon" onClick={() => handleDelete(r)}>
+                        <button className="btn-icon-danger" onClick={() => handleDelete(r)}>
                           <span className="icon">delete</span>
                         </button>
                       </div>
@@ -196,7 +196,7 @@ function KobuMobileCard({ r, onEdit, onDelete }: {
               <button className="btn-outline py-1.5 text-[0.85rem]" onClick={onEdit}>
                 <span className="icon icon-sm">edit</span> 編集
               </button>
-              <button className="btn-icon" onClick={onDelete}>
+              <button className="btn-icon-danger" onClick={onDelete}>
                 <span className="icon">delete</span>
               </button>
             </div>

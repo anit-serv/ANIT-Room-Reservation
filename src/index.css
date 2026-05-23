@@ -148,7 +148,11 @@
 }
 @utility btn-icon {
   @apply w-9 h-9 flex items-center justify-center rounded-md border border-line bg-white text-ink-pale cursor-pointer transition;
-  @apply hover:text-danger hover:border-danger hover:bg-danger-light;
+  @apply hover:text-green-700 hover:border-green-400 hover:bg-green-50;
+}
+@utility btn-icon-danger {
+  @apply w-9 h-9 flex items-center justify-center rounded-md border border-line bg-white text-danger cursor-pointer transition;
+  @apply hover:border-danger hover:bg-danger-light;
 }
 @utility btn-icon-nav {
   @apply w-9 h-9 flex items-center justify-center rounded-md border border-line bg-white text-ink-pale cursor-pointer transition;

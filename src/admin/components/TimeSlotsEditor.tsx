@@ -170,7 +170,7 @@ export default function TimeSlotsEditor({
             <span className="text-[0.8rem] text-ink-pale min-w-[100px]">
               {s.label || '未設定'}
             </span>
-            <button className="btn-icon" onClick={() => remove(i)}>
+            <button className="btn-icon-danger" onClick={() => remove(i)}>
               <span className="icon">delete</span>
             </button>
           </div>

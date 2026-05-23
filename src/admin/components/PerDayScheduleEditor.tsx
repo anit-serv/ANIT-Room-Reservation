@@ -181,7 +181,7 @@ function OverrideCard({ title, onRemove, children }: { title: string; onRemove: 
     <div className="bg-bg border border-line rounded-[10px] p-3 mb-2">
       <div className="flex justify-between items-center mb-2">
         <strong>{title}</strong>
-        <button className="btn-icon" onClick={onRemove}>
+        <button className="btn-icon-danger" onClick={onRemove}>
           <span className="icon">delete</span>
         </button>
       </div>

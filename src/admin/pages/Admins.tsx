@@ -195,7 +195,7 @@ export default function Admins() {
                       </button>
                     )}
                     {!a.isSuperAdmin && me?.userId !== a.userId && (
-                      <button className="btn-icon" onClick={() => removeAdmin(a)} title="削除">
+                      <button className="btn-icon-danger" onClick={() => removeAdmin(a)} title="削除">
                         <span className="icon">person_remove</span>
                       </button>
                     )}
@@ -260,7 +260,7 @@ export default function Admins() {
                     </td>
                     <td className="cell-actions">
                       {!inv.used && !expired && (
-                        <button className="btn-icon" onClick={() => revokeInvitation(inv.token)}>
+                        <button className="btn-icon-danger" onClick={() => revokeInvitation(inv.token)}>
                           <span className="icon">delete</span>
                         </button>
                       )}
@@ -344,7 +344,7 @@ function AdminMobileCard({
                     <span className="icon">star</span>
                   </button>
                 )}
-                <button className="btn-icon" onClick={onRemove} title="削除">
+                <button className="btn-icon-danger" onClick={onRemove} title="削除">
                   <span className="icon">person_remove</span>
                 </button>
               </div>
@@ -403,7 +403,7 @@ function InvitationMobileCard({
             </div>
             {!inv.used && !expired && (
               <div className="pt-2">
-                <button className="btn-icon" onClick={onRevoke}>
+                <button className="btn-icon-danger" onClick={onRevoke}>
                   <span className="icon">delete</span>
                 </button>
               </div>

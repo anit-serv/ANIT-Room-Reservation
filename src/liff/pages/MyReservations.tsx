@@ -180,7 +180,7 @@ export default function MyReservations({ profile, initialEdit, onEditHandled, on
                   <span className="icon" style={{ fontSize: 20 }}>edit</span>
                 </button>
                 {canDelete && (
-                  <button className="btn-icon text-danger" onClick={() => handleDelete(r)} disabled={isDeleting} title="削除">
+                  <button className="btn-icon-danger" onClick={() => handleDelete(r)} disabled={isDeleting} title="削除">
                     <span className="icon" style={{ fontSize: 20 }}>{isDeleting ? 'hourglass_empty' : 'delete'}</span>
                   </button>
                 )}
@@ -211,7 +211,7 @@ export default function MyReservations({ profile, initialEdit, onEditHandled, on
               <button className="btn-icon" onClick={() => onKobuEdit?.(r)} disabled={isDeleting} title="変更">
                 <span className="icon" style={{ fontSize: 20 }}>edit</span>
               </button>
-              <button className="btn-icon text-danger" onClick={() => handleDelete(r)} disabled={isDeleting} title="削除">
+              <button className="btn-icon-danger" onClick={() => handleDelete(r)} disabled={isDeleting} title="削除">
                 <span className="icon" style={{ fontSize: 20 }}>{isDeleting ? 'hourglass_empty' : 'delete'}</span>
               </button>
             </div>
