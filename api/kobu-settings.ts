@@ -18,9 +18,8 @@ const DEFAULTS = {
   availableDays:  [0, 1, 2, 3, 4, 5, 6] as number[],
   extraDates:     [] as string[],
   excludedDates:  [] as string[],
-  openTime:       '08:00',
-  closeTime:      '20:00',
-  maxAdvanceDays: 365,
+  timeSlots:      [{ label: '8:00~20:00', value: '08:00-20:00' }],
+  perDaySchedule: { enabled: false, byWeekday: {} as Record<string, any[]>, byDate: {} as Record<string, any[]> },
 }
 
 export default async function handler(_req: VercelRequest, res: VercelResponse) {
@@ -31,13 +30,21 @@ export default async function handler(_req: VercelRequest, res: VercelResponse) 
   try {
     const doc  = await db.collection('settings').doc('kobu').get()
     const data = doc.exists ? doc.data()! : {}
+
+    // 旧形式（openTime/closeTime）から新形式（timeSlots）へ自動移行
+    let timeSlots = data.timeSlots
+    if (!timeSlots && (data.openTime || data.closeTime)) {
+      const open  = data.openTime  ?? '08:00'
+      const close = data.closeTime ?? '20:00'
+      timeSlots = [{ label: `${open}〜${close}`, value: `${open}-${close}` }]
+    }
+
     return res.status(200).json({
       availableDays:  data.availableDays  ?? DEFAULTS.availableDays,
       extraDates:     data.extraDates     ?? DEFAULTS.extraDates,
       excludedDates:  data.excludedDates  ?? DEFAULTS.excludedDates,
-      openTime:       data.openTime       ?? DEFAULTS.openTime,
-      closeTime:      data.closeTime      ?? DEFAULTS.closeTime,
-      maxAdvanceDays: data.maxAdvanceDays ?? DEFAULTS.maxAdvanceDays,
+      timeSlots:      timeSlots           ?? DEFAULTS.timeSlots,
+      perDaySchedule: data.perDaySchedule ?? DEFAULTS.perDaySchedule,
     })
   } catch (err: any) {
     return res.status(500).json({ error: err.message })

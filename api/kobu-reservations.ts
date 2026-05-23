@@ -15,8 +15,6 @@ if (!admin.apps.length) {
 }
 const db = admin.firestore()
 
-const OPEN_TIME  = '08:00'
-const CLOSE_TIME = '20:00'
 
 function timeToMinutes(t: string): number {
   const [h, m] = t.split(':').map(Number)
@@ -74,10 +72,6 @@ async function handleCreate(req: VercelRequest, res: VercelResponse) {
     if (timeToMinutes(startTime) >= timeToMinutes(endTime)) {
       return res.status(400).json({ error: '開始時刻は終了時刻より前にしてください' })
     }
-    if (startTime < OPEN_TIME || endTime > CLOSE_TIME) {
-      return res.status(400).json({ error: `予約可能時間は${OPEN_TIME}〜${CLOSE_TIME}です` })
-    }
-
     const today = nowJST().toISOString().slice(0, 10)
     const maxDate = new Date(nowJST())
     maxDate.setFullYear(maxDate.getFullYear() + 1)
@@ -103,6 +97,34 @@ async function handleCreate(req: VercelRequest, res: VercelResponse) {
     const isAvailable = (availableDays.includes(dayOfWeek) || extraDates.includes(date)) && !excludedDates.includes(date)
     if (!isAvailable) {
       return res.status(400).json({ error: 'この日は工部室を予約できません' })
+    }
+
+    // 有効な営業時間枠を取得（旧形式との互換含む）
+    let timeSlots: { label: string; value: string }[] = settings.timeSlots ?? []
+    if (!timeSlots.length && (settings.openTime || settings.closeTime)) {
+      timeSlots = [{ label: '', value: `${settings.openTime ?? '08:00'}-${settings.closeTime ?? '20:00'}` }]
+    }
+    if (!timeSlots.length) timeSlots = [{ label: '', value: '08:00-20:00' }]
+    // 曜日・日付別オーバーライド
+    const perDay = settings.perDaySchedule
+    if (perDay?.enabled) {
+      const byDate = perDay.byDate?.[date]
+      if (byDate?.length) { timeSlots = byDate }
+      else {
+        const byWd = perDay.byWeekday?.[String(dayOfWeek)]
+        if (byWd?.length) timeSlots = byWd
+      }
+    }
+    // 予約ブロックが1つのスロット内に収まるか検証
+    const startMin = timeToMinutes(startTime)
+    const endMin   = timeToMinutes(endTime)
+    const fitsInSlot = timeSlots.some(s => {
+      const [a, b] = s.value.split('-')
+      return startMin >= timeToMinutes(a) && endMin <= timeToMinutes(b)
+    })
+    if (!fitsInSlot) {
+      const slotStr = timeSlots.map(s => s.value.replace('-', '〜')).join(' / ')
+      return res.status(400).json({ error: `予約可能時間は ${slotStr} です` })
     }
 
     const existingSnap = await db.collection('kobu_reservations').where('date', '==', date).get()
@@ -182,11 +204,11 @@ async function handleAll(req: VercelRequest, res: VercelResponse) {
       .where('date', '<=', weekEnd)
       .get()
 
-    const dayMap: Record<string, { bandName: string; startTime: string; endTime: string }[]> = {}
+    const dayMap: Record<string, { id: string; userId: string; bandName: string; startTime: string; endTime: string }[]> = {}
     snap.forEach((doc) => {
       const d = doc.data()
       if (!dayMap[d.date]) dayMap[d.date] = []
-      dayMap[d.date].push({ bandName: d.bandName, startTime: d.startTime, endTime: d.endTime })
+      dayMap[d.date].push({ id: doc.id, userId: d.userId, bandName: d.bandName, startTime: d.startTime, endTime: d.endTime })
     })
     for (const day of Object.values(dayMap)) {
       day.sort((a, b) => a.startTime.localeCompare(b.startTime))

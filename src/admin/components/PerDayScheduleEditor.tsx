@@ -13,7 +13,6 @@ type Props = {
   schedule: PerDaySchedule
   onChange: (s: PerDaySchedule) => void
   availableDays: number[]
-  extraDates: string[]
   presets?: TimeSlotPreset[]
   onSavePreset?: (name: string, slots: TimeSlot[]) => Promise<void> | void
   onDeletePreset?: (id: string) => Promise<void> | void
@@ -32,7 +31,7 @@ export function findAllConflicts(s: PerDaySchedule): boolean {
 }
 
 export default function PerDayScheduleEditor({
-  schedule, onChange, availableDays, extraDates, presets, onSavePreset, onDeletePreset,
+  schedule, onChange, availableDays, presets, onSavePreset, onDeletePreset,
 }: Props) {
   const [pickWeekday, setPickWeekday] = useState<string>('')
   const [pickDate, setPickDate]       = useState<string>('')
@@ -72,7 +71,6 @@ export default function PerDayScheduleEditor({
   }
 
   const weekdayOptions = availableDays.filter((d) => !schedule.byWeekday[String(d)])
-  const dateOptions = extraDates.filter((d) => !schedule.byDate[d])
 
   return (
     <div>
@@ -111,31 +109,28 @@ export default function PerDayScheduleEditor({
             )}
           </OverrideSection>
 
-          <OverrideSection title="日付別オーバーライド（追加日のみ対象）">
+          <OverrideSection title="日付別オーバーライド">
             {Object.entries(schedule.byDate).map(([date, slots]) => (
               <OverrideCard key={date} title={date} onRemove={() => removeDate(date)}>
                 <TimeSlotsEditor slots={slots} onChange={(s) => updateDate(date, s)}
                   presets={presets} onSavePreset={onSavePreset} onDeletePreset={onDeletePreset} />
               </OverrideCard>
             ))}
-            {dateOptions.length > 0 ? (
-              <div className="flex gap-2 mt-2">
-                <select className="text-input w-auto" value={pickDate}
-                  onChange={(e) => setPickDate(e.target.value)}>
-                  <option value="">日付を選択</option>
-                  {dateOptions.map((d) => (
-                    <option key={d} value={d}>{d}</option>
-                  ))}
-                </select>
-                <button className="btn-outline w-auto px-3 py-2" onClick={addDate}>
-                  <span className="icon icon-sm">add</span> 日付を追加
-                </button>
-              </div>
-            ) : (
-              <div className="text-ink-pale text-[0.85rem] mt-2">
-                追加日に登録がないため日付オーバーライドできません
-              </div>
-            )}
+            <div className="flex gap-2 mt-2">
+              <input
+                type="date"
+                className="text-input w-auto"
+                value={pickDate}
+                onChange={(e) => setPickDate(e.target.value)}
+              />
+              <button
+                className="btn-outline w-auto px-3 py-2"
+                onClick={addDate}
+                disabled={!pickDate || !!schedule.byDate[pickDate]}
+              >
+                <span className="icon icon-sm">add</span> 日付を追加
+              </button>
+            </div>
           </OverrideSection>
         </>
       )}

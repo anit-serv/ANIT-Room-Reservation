@@ -165,7 +165,8 @@ async function handleAuthCallback(req: VercelRequest, res: VercelResponse) {
       }).toString(),
       { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
     )
-    const idToken: string = tokenRes.data.id_token
+    const idToken: string     = tokenRes.data.id_token
+    const accessToken: string = tokenRes.data.access_token
 
     const verifyRes = await axios.post(
       'https://api.line.me/oauth2/v2.1/verify',
@@ -216,12 +217,23 @@ async function handleAuthCallback(req: VercelRequest, res: VercelResponse) {
           addedBy: invData!.createdBy ?? null,
         })
         await invRef.update({ used: true, usedAt: new Date(), usedBy: userId })
+
+        // 招待者をアクターとして取得
+        const inviterUserId = (invData!.createdBy ?? null) as string | null
+        let inviterActor: AuditActor = { userId: 'system', displayName: 'システム' }
+        if (inviterUserId) {
+          const inviterDoc = await db.collection('admins').doc(inviterUserId).get()
+          inviterActor = {
+            userId: inviterUserId,
+            displayName: inviterDoc.data()?.displayName ?? inviterUserId,
+          }
+        }
         await audit(
-          { userId, displayName },
+          inviterActor,
           'admin.add',
-          { targetType: 'admin', targetId: userId, targetLabel: displayName, details: { via: 'invitation', invitedBy: invData!.createdBy ?? null } }
+          { targetType: 'admin', targetId: userId, targetLabel: displayName }
         )
-        return res.redirect(302, `${loginUrl}?token=${encodeURIComponent(idToken)}`)
+        return res.redirect(302, `${loginUrl}?token=${encodeURIComponent(accessToken)}`)
       }
       // 招待トークンが無効でも、既存管理者なら通常ログインさせる
     }
@@ -230,7 +242,7 @@ async function handleAuthCallback(req: VercelRequest, res: VercelResponse) {
     if (!adminDoc.exists) {
       return res.redirect(302, `${loginUrl}?error=not_admin`)
     }
-    return res.redirect(302, `${loginUrl}?token=${encodeURIComponent(idToken)}`)
+    return res.redirect(302, `${loginUrl}?token=${encodeURIComponent(accessToken)}`)
   } catch (err) {
     console.error('OAuth callback error:', err)
     return res.redirect(302, `${loginUrl}?error=invalid`)
@@ -1148,7 +1160,7 @@ async function handleKobuReservationsList(req: VercelRequest, res: VercelRespons
 
   const { date, q } = req.query as { date?: string; q?: string }
   try {
-    let query: FirebaseFirestore.Query = db.collection('kobu_reservations').orderBy('date').orderBy('startTime')
+    let query: FirebaseFirestore.Query = db.collection('kobu_reservations')
     if (date) query = query.where('date', '==', date)
     const snap = await query.get()
 
@@ -1157,6 +1169,11 @@ async function handleKobuReservationsList(req: VercelRequest, res: VercelRespons
       const lower = q.toLowerCase()
       docs = docs.filter((r) => (r.bandName ?? '').toLowerCase().includes(lower))
     }
+    docs.sort((a: any, b: any) =>
+      a.date !== b.date
+        ? (a.date ?? '').localeCompare(b.date ?? '')
+        : (a.startTime ?? '').localeCompare(b.startTime ?? '')
+    )
 
     const userIds = Array.from(new Set(docs.map((r) => r.userId).filter(Boolean)))
     const userMap: Record<string, { displayName: string; pictureUrl: string | null }> = {}
@@ -1254,29 +1271,38 @@ async function handleKobuSettings(req: VercelRequest, res: VercelResponse) {
   }
 
   const DEFAULTS = {
-    availableDays: [0, 1, 2, 3, 4, 5, 6],
-    extraDates:    [] as string[],
-    excludedDates: [] as string[],
-    openTime:      '08:00',
-    closeTime:     '20:00',
+    availableDays:  [0, 1, 2, 3, 4, 5, 6] as number[],
+    extraDates:     [] as string[],
+    excludedDates:  [] as string[],
+    timeSlots:      [{ label: '8:00~20:00', value: '08:00-20:00' }] as TimeSlot[],
+    perDaySchedule: { enabled: false, byWeekday: {} as Record<string, TimeSlot[]>, byDate: {} as Record<string, TimeSlot[]> },
   }
 
   if (req.method === 'GET') {
     const doc  = await db.collection('settings').doc('kobu').get()
     const data = doc.exists ? doc.data()! : {}
+
+    // 旧形式（openTime/closeTime）から新形式（timeSlots）へ自動移行
+    let timeSlots = data.timeSlots as TimeSlot[] | undefined
+    if (!timeSlots && (data.openTime || data.closeTime)) {
+      const open  = data.openTime  ?? '08:00'
+      const close = data.closeTime ?? '20:00'
+      timeSlots = [{ label: `${open}〜${close}`, value: `${open}-${close}` }]
+    }
+
     return res.status(200).json({
       availableDays:  data.availableDays  ?? DEFAULTS.availableDays,
       extraDates:     data.extraDates     ?? DEFAULTS.extraDates,
       excludedDates:  data.excludedDates  ?? DEFAULTS.excludedDates,
-      openTime:       data.openTime       ?? DEFAULTS.openTime,
-      closeTime:      data.closeTime      ?? DEFAULTS.closeTime,
+      timeSlots:      timeSlots           ?? DEFAULTS.timeSlots,
+      perDaySchedule: data.perDaySchedule ?? DEFAULTS.perDaySchedule,
     })
   }
 
   if (req.method === 'PUT') {
-    const { availableDays, extraDates, excludedDates, openTime, closeTime } = (req.body ?? {}) as {
+    const { availableDays, extraDates, excludedDates, timeSlots, perDaySchedule } = (req.body ?? {}) as {
       availableDays?: number[]; extraDates?: string[]; excludedDates?: string[];
-      openTime?: string; closeTime?: string
+      timeSlots?: TimeSlot[]; perDaySchedule?: PerDaySchedule
     }
 
     if (!Array.isArray(availableDays) || !availableDays.every((d) => Number.isInteger(d) && d >= 0 && d <= 6)) {
@@ -1285,19 +1311,28 @@ async function handleKobuSettings(req: VercelRequest, res: VercelResponse) {
     if (!Array.isArray(extraDates) || !Array.isArray(excludedDates)) {
       return res.status(400).json({ error: '日付リストが不正です' })
     }
-    if (openTime && closeTime && openTime >= closeTime) {
-      return res.status(400).json({ error: '開始時刻は終了時刻より前にしてください' })
+    if (!Array.isArray(timeSlots) || timeSlots.length === 0) {
+      return res.status(400).json({ error: '営業時間枠を1つ以上指定してください' })
     }
 
     await db.collection('settings').doc('kobu').set({
       availableDays,
-      extraDates:    extraDates    ?? [],
-      excludedDates: excludedDates ?? [],
-      openTime:      openTime  ?? DEFAULTS.openTime,
-      closeTime:     closeTime ?? DEFAULTS.closeTime,
+      extraDates:     extraDates    ?? [],
+      excludedDates:  excludedDates ?? [],
+      timeSlots,
+      perDaySchedule: perDaySchedule ?? DEFAULTS.perDaySchedule,
     }, { merge: true })
 
-    await audit(me, 'kobu_settings.update', { targetType: 'settings', targetId: 'kobu' })
+    await audit(me, 'kobu_settings.update', {
+      targetType: 'settings', targetId: 'kobu',
+      details: {
+        availableDays,
+        timeSlotsCount:     timeSlots.length,
+        extraDatesCount:    (extraDates    ?? []).length,
+        excludedDatesCount: (excludedDates ?? []).length,
+        perDayEnabled:      perDaySchedule?.enabled ?? false,
+      },
+    })
     return res.status(200).json({ success: true })
   }
 

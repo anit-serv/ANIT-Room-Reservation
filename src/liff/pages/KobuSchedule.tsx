@@ -4,17 +4,21 @@ import Skeleton from '../../components/Skeleton'
 
 type Props = { profile: LiffProfile }
 
+type TimeSlot      = { label: string; value: string }
+type PerDaySchedule = { enabled: boolean; byWeekday: Record<string, TimeSlot[]>; byDate: Record<string, TimeSlot[]> }
+
 type KobuSettings = {
   availableDays:  number[]
   extraDates:     string[]
   excludedDates:  string[]
-  openTime:       string
-  closeTime:      string
+  timeSlots:      TimeSlot[]
+  perDaySchedule: PerDaySchedule
 }
 
-type BookingBlock = { bandName: string; startTime: string; endTime: string }
+type BookingBlock = { id: string; userId: string; bandName: string; startTime: string; endTime: string }
 type DayMap       = Record<string, BookingBlock[]>
 type ModalState   = { date: string }
+type DetailModal  = { block: BookingBlock; date: string }
 
 // ─── 時刻ユーティリティ ───────────────────────────────
 function toMinutes(t: string): number {
@@ -57,26 +61,93 @@ function isDateAvailable(date: string, settings: KobuSettings, today: string): b
   return settings.availableDays.includes(wd) || settings.extraDates.includes(date)
 }
 
-// ─── 時間オプション生成 ───────────────────────────────
-function buildStartOptions(date: string, dayMap: DayMap, openMin: number, closeMin: number): string[] {
-  const blocks = dayMap[date] ?? []
-  const opts: string[] = []
-  for (let m = openMin; m < closeMin; m += 15) {
-    if (!blocks.some(b => m >= toMinutes(b.startTime) && m < toMinutes(b.endTime))) {
-      opts.push(minutesToTime(m))
-    }
-  }
-  return opts
+// ─── タイムスロットユーティリティ ────────────────────
+function getEffectiveSlots(date: string, settings: KobuSettings): TimeSlot[] {
+  const { perDaySchedule, timeSlots } = settings
+  if (!perDaySchedule?.enabled) return timeSlots ?? []
+  if (perDaySchedule.byDate?.[date]?.length)  return perDaySchedule.byDate[date]
+  const wd = String(new Date(date + 'T00:00:00Z').getUTCDay())
+  if (perDaySchedule.byWeekday?.[wd]?.length) return perDaySchedule.byWeekday[wd]
+  return timeSlots ?? []
 }
 
-function buildEndOptions(startMinutes: number, date: string, dayMap: DayMap, closeMin: number): string[] {
+function slotsRange(slots: TimeSlot[]): { open: number; close: number } {
+  if (!slots.length) return { open: 8 * 60, close: 20 * 60 }
+  const starts = slots.map(s => toMinutes(s.value.split('-')[0]))
+  const ends   = slots.map(s => toMinutes(s.value.split('-')[1]))
+  return { open: Math.min(...starts), close: Math.max(...ends) }
+}
+
+function isMinInSlots(minute: number, slots: TimeSlot[]): boolean {
+  return slots.some(s => {
+    const [a, b] = s.value.split('-').map(toMinutes)
+    return minute >= a && minute < b
+  })
+}
+
+function computeGrayZones(slots: TimeSlot[], dispStart: number, dispEnd: number): { top: number; height: number }[] {
+  const sorted = [...slots]
+    .map(s => { const [a, b] = s.value.split('-').map(toMinutes); return { a, b } })
+    .filter(r => r.b > r.a).sort((x, y) => x.a - y.a)
+  const zones: { top: number; height: number }[] = []
+  let cur = dispStart
+  for (const { a, b } of sorted) {
+    if (a > cur) zones.push({ top: cur - dispStart, height: a - cur })
+    cur = Math.max(cur, b)
+  }
+  if (cur < dispEnd) zones.push({ top: cur - dispStart, height: dispEnd - cur })
+  return zones
+}
+
+// ─── 時間オプション生成 ───────────────────────────────
+function buildStartOptions(date: string, dayMap: DayMap, slots: TimeSlot[]): string[] {
   const blocks = dayMap[date] ?? []
-  const nextStart = blocks
-    .map(b => toMinutes(b.startTime))
-    .filter(m => m > startMinutes)
-    .reduce((min, m) => Math.min(min, m), closeMin)
   const opts: string[] = []
-  for (let m = startMinutes + 15; m <= nextStart; m += 15) opts.push(minutesToTime(m))
+  for (const s of slots) {
+    const [a, b] = s.value.split('-').map(toMinutes)
+    for (let m = a; m < b; m += 15) {
+      if (!blocks.some(blk => m >= toMinutes(blk.startTime) && m < toMinutes(blk.endTime)))
+        opts.push(minutesToTime(m))
+    }
+  }
+  return opts.sort()
+}
+
+function prevMonth(ym: string): string {
+  const [y, m] = ym.split('-').map(Number)
+  return m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, '0')}`
+}
+
+function nextMonth(ym: string): string {
+  const [y, m] = ym.split('-').map(Number)
+  return m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`
+}
+
+function getCalendarDays(ym: string): (string | null)[] {
+  const [y, m] = ym.split('-').map(Number)
+  const firstDay    = new Date(Date.UTC(y, m - 1, 1))
+  const daysInMonth = new Date(Date.UTC(y, m, 0)).getUTCDate()
+  let pad = firstDay.getUTCDay() - 1
+  if (pad < 0) pad = 6
+  const days: (string | null)[] = Array(pad).fill(null)
+  for (let d = 1; d <= daysInMonth; d++)
+    days.push(`${ym}-${String(d).padStart(2, '0')}`)
+  while (days.length % 7 !== 0) days.push(null)
+  return days
+}
+
+function buildEndOptions(startMinutes: number, date: string, dayMap: DayMap, slots: TimeSlot[]): string[] {
+  const blocks = dayMap[date] ?? []
+  const slot = slots.find(s => {
+    const [a, b] = s.value.split('-').map(toMinutes)
+    return startMinutes >= a && startMinutes < b
+  })
+  if (!slot) return []
+  const slotEnd = toMinutes(slot.value.split('-')[1])
+  const nextBlock = blocks.map(b => toMinutes(b.startTime)).filter(m => m > startMinutes)
+    .reduce((min, m) => Math.min(min, m), slotEnd)
+  const opts: string[] = []
+  for (let m = startMinutes + 15; m <= nextBlock; m += 15) opts.push(minutesToTime(m))
   return opts
 }
 
@@ -93,6 +164,11 @@ export default function KobuSchedule({ profile }: Props) {
   const [modalEnd,     setModalEnd]     = useState('')
   const [submitting,   setSubmitting]   = useState(false)
   const [submitError,  setSubmitError]  = useState<string | null>(null)
+  const [calendarOpen, setCalendarOpen] = useState(false)
+  const [calMonth,     setCalMonth]     = useState('')
+  const [detailModal,  setDetailModal]  = useState<DetailModal | null>(null)
+  const [cancelling,   setCancelling]   = useState(false)
+  const [cancelError,  setCancelError]  = useState<string | null>(null)
 
   // 設定取得
   useEffect(() => {
@@ -124,32 +200,29 @@ export default function KobuSchedule({ profile }: Props) {
   // ─── タップ処理 ───────────────────────────────────────
   function handleDayTap(e: React.MouseEvent<HTMLDivElement>, date: string) {
     if (!dayMap || !settings) return
-
-    const today    = todayJST()
-    const openMin  = toMinutes(settings.openTime)
-    const closeMin = toMinutes(settings.closeTime)
-    const dispStart = openMin - 60
-
-    // 予約不可日
+    const today = todayJST()
     if (!isDateAvailable(date, settings, today)) return
 
-    const rect      = e.currentTarget.getBoundingClientRect()
-    const yOffset   = e.clientY - rect.top
-    const rawMinutes = dispStart + Math.round(yOffset / 15) * 15
+    const effectiveSlots = getEffectiveSlots(date, settings)
+    const rect       = e.currentTarget.getBoundingClientRect()
+    const yOffset    = e.clientY - rect.top
+    const rawMinutes = dispStart + Math.floor(yOffset / 15) * 15
 
-    // 営業時間外
-    if (rawMinutes < openMin || rawMinutes >= closeMin) return
+    if (!isMinInSlots(rawMinutes, effectiveSlots)) return
 
-    const startMinutes = Math.max(openMin, Math.min(rawMinutes, closeMin - 15))
+    const activeSlot = effectiveSlots.find(s => {
+      const [a, b] = s.value.split('-').map(toMinutes)
+      return rawMinutes >= a && rawMinutes < b
+    })!
+    const slotStart = toMinutes(activeSlot.value.split('-')[0])
+    const slotEnd   = toMinutes(activeSlot.value.split('-')[1])
+    const startMinutes = Math.max(slotStart, Math.min(rawMinutes, slotEnd - 15))
 
-    // 既存予約ブロックの上
     const blocks = dayMap[date] ?? []
     if (blocks.some(b => startMinutes >= toMinutes(b.startTime) && startMinutes < toMinutes(b.endTime))) return
 
-    const nextStart = blocks
-      .map(b => toMinutes(b.startTime))
-      .filter(m => m > startMinutes)
-      .reduce((min, m) => Math.min(min, m), closeMin)
+    const nextStart = blocks.map(b => toMinutes(b.startTime)).filter(m => m > startMinutes)
+      .reduce((min, m) => Math.min(min, m), slotEnd)
     const defaultEnd = Math.min(startMinutes + 60, nextStart)
 
     setModal({ date })
@@ -162,8 +235,8 @@ export default function KobuSchedule({ profile }: Props) {
   function handleStartChange(newStart: string) {
     setModalStart(newStart)
     if (!modal || !dayMap || !settings) return
-    const closeMin = toMinutes(settings.closeTime)
-    const endOpts  = buildEndOptions(toMinutes(newStart), modal.date, dayMap, closeMin)
+    const effectiveSlots = getEffectiveSlots(modal.date, settings)
+    const endOpts  = buildEndOptions(toMinutes(newStart), modal.date, dayMap, effectiveSlots)
     const targetEnd = toMinutes(newStart) + 60
     const best = endOpts.reduce((prev, curr) =>
       Math.abs(toMinutes(curr) - targetEnd) < Math.abs(toMinutes(prev) - targetEnd) ? curr : prev,
@@ -179,7 +252,7 @@ export default function KobuSchedule({ profile }: Props) {
     try {
       const res = await fetch('/api/kobu-reservations', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${profile.idToken}` },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${profile.getAccessToken()}` },
         body: JSON.stringify({ bandName: bandName.trim(), date: modal.date, startTime: modalStart, endTime: modalEnd }),
       })
       if (!res.ok) throw new Error((await res.json()).error ?? '登録に失敗しました')
@@ -192,12 +265,37 @@ export default function KobuSchedule({ profile }: Props) {
     }
   }
 
+  // ─── 既存予約タップ ───────────────────────────────────
+  function handleBlockTap(e: React.MouseEvent, block: BookingBlock, date: string) {
+    e.stopPropagation()
+    setDetailModal({ block, date })
+    setCancelError(null)
+  }
+
+  async function handleCancel() {
+    if (!detailModal) return
+    setCancelling(true)
+    setCancelError(null)
+    try {
+      const res = await fetch(`/api/kobu-reservations/${detailModal.block.id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${profile.getAccessToken()}` },
+      })
+      if (!res.ok) throw new Error((await res.json()).error ?? '削除に失敗しました')
+      setDetailModal(null)
+      fetchWeek(weekStart)
+    } catch (err: unknown) {
+      setCancelError(err instanceof Error ? err.message : '削除に失敗しました')
+    } finally {
+      setCancelling(false)
+    }
+  }
+
   // ─── 表示範囲の計算 ───────────────────────────────────
-  const openMin    = settings ? toMinutes(settings.openTime)  : toMinutes('08:00')
-  const closeMin   = settings ? toMinutes(settings.closeTime) : toMinutes('20:00')
-  const dispStart  = openMin  - 60  // 1時間前
-  const dispEnd    = closeMin + 60  // 1時間後
-  const totalDisp  = dispEnd - dispStart
+  const { open: openMin, close: closeMin } = slotsRange(settings?.timeSlots ?? [])
+  const dispStart = openMin  - 60  // 1時間前
+  const dispEnd   = closeMin + 60  // 1時間後
+  const totalDisp = dispEnd - dispStart
 
   // 1時間ごとのラベル
   const startHour = Math.floor(dispStart / 60)
@@ -223,20 +321,83 @@ export default function KobuSchedule({ profile }: Props) {
   return (
     <div>
       {/* 週ナビゲーション */}
-      <div className="flex items-center gap-1.5 mb-2 flex-wrap">
-        <button className="btn-icon" onClick={() => setWeekStart(addDays(weekStart, -7))}>
+      <div className="flex items-center gap-1.5 mb-2 flex-wrap relative">
+        <button className="btn-icon-nav" onClick={() => {
+          setCalMonth(weekStart.slice(0, 7))
+          setCalendarOpen(v => !v)
+        }}>
+          <span className="icon">calendar_month</span>
+        </button>
+        <button className="btn-icon-nav" onClick={() => setWeekStart(addDays(weekStart, -7))}>
           <span className="icon">chevron_left</span>
         </button>
         <span className="text-[0.88rem] font-semibold text-ink min-w-[108px] text-center">
           {startMd} 〜 {endMd}
         </span>
-        <button className="btn-icon" onClick={() => setWeekStart(addDays(weekStart, 7))}>
+        <button className="btn-icon-nav" onClick={() => setWeekStart(addDays(weekStart, 7))}>
           <span className="icon">chevron_right</span>
         </button>
         <button className="btn-outline w-auto px-2.5 py-1 text-[0.78rem]"
           onClick={() => setWeekStart(getMondayOfWeek(today))}>
           今週
         </button>
+
+        {calendarOpen && (
+          <>
+            <div className="fixed inset-0 z-20" onClick={() => setCalendarOpen(false)} />
+            <div className="absolute top-full left-0 mt-1.5 bg-surface border border-line rounded-xl shadow-lg z-30 p-3 select-none"
+              style={{ width: 252 }}>
+              {/* 月ナビ */}
+              <div className="flex items-center justify-between mb-2">
+                <button className="btn-icon-nav" onClick={() => setCalMonth(prevMonth(calMonth))}>
+                  <span className="icon">chevron_left</span>
+                </button>
+                <span className="text-[0.84rem] font-semibold text-ink">
+                  {(() => { const [y, mo] = calMonth.split('-').map(Number); return `${y}年${mo}月` })()}
+                </span>
+                <button className="btn-icon-nav" onClick={() => setCalMonth(nextMonth(calMonth))}>
+                  <span className="icon">chevron_right</span>
+                </button>
+              </div>
+              {/* 曜日ヘッダー */}
+              <div className="grid grid-cols-7 mb-0.5">
+                {['月','火','水','木','金','土','日'].map(d => (
+                  <div key={d} className="text-center text-[0.63rem] text-ink-pale font-semibold py-0.5">{d}</div>
+                ))}
+              </div>
+              {/* 日付グリッド */}
+              <div className="grid grid-cols-7 gap-y-0.5">
+                {getCalendarDays(calMonth).map((date, i) => {
+                  if (!date) return <div key={i} />
+                  const inSelected  = getMondayOfWeek(date) === weekStart
+                  const isToday     = date === today
+                  const isAvailable = isDateAvailable(date, settings, today)
+                  return (
+                    <button
+                      key={date}
+                      className={
+                        'text-center text-[0.75rem] py-1.5 rounded leading-none transition-colors ' +
+                        (inSelected
+                          ? 'bg-brand text-white font-semibold'
+                          : isToday
+                            ? 'bg-brand-light text-brand-dark font-semibold'
+                            : isAvailable
+                              ? 'text-ink hover:bg-[#f0f0f0]'
+                              : 'text-[#c8c8c8] cursor-default')
+                      }
+                      onClick={() => {
+                        setWeekStart(getMondayOfWeek(date))
+                        setCalendarOpen(false)
+                      }}
+                    >
+                      {parseInt(date.slice(8))}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          </>
+        )}
       </div>
 
       <p className="text-[0.75rem] text-ink-pale mb-2 flex items-center gap-1">
@@ -326,12 +487,10 @@ export default function KobuSchedule({ profile }: Props) {
 
                     {isBookable ? (
                       <>
-                        {/* 営業時間前グレーゾーン */}
-                        <div className="absolute left-0 right-0 bg-[#f0f0f0] pointer-events-none"
-                          style={{ top: 0, height: openMin - dispStart }} />
-                        {/* 営業時間後グレーゾーン（bottom:0 で底面まで確実に塗る） */}
-                        <div className="absolute left-0 right-0 bottom-0 bg-[#f0f0f0] pointer-events-none"
-                          style={{ top: closeMin - dispStart }} />
+                        {computeGrayZones(getEffectiveSlots(date, settings), dispStart, dispEnd).map((z, gi) => (
+                          <div key={gi} className="absolute left-0 right-0 bg-[#f0f0f0] pointer-events-none"
+                            style={{ top: z.top, height: z.height }} />
+                        ))}
                       </>
                     ) : (
                       /* 予約不可日・過去日は列全体を均一にグレー */
@@ -342,20 +501,18 @@ export default function KobuSchedule({ profile }: Props) {
                     {blocks.map((b, i) => {
                       const top    = toMinutes(b.startTime) - dispStart
                       const height = toMinutes(b.endTime) - toMinutes(b.startTime)
+                      const isOwn  = b.userId === profile.userId
                       return (
                         <div key={i}
-                          className="absolute inset-x-0.5 rounded overflow-hidden pointer-events-none z-10"
-                          style={{
-                            top,
-                            height,
-                            backgroundColor: isBookable ? undefined : undefined,
-                          }}>
+                          className="absolute inset-x-0.5 rounded overflow-hidden z-10 cursor-pointer active:brightness-90"
+                          style={{ top, height }}
+                          onClick={(e) => handleBlockTap(e, b, date)}>
                           <div className={
                             'w-full h-full ' +
                             (isBookable ? 'bg-brand' : 'bg-brand/50')
                           }>
                             <div className="text-[0.6rem] font-semibold px-1 pt-0.5 truncate leading-tight text-white">
-                              {b.bandName}
+                              {b.bandName}{isOwn ? ' ✎' : ''}
                             </div>
                             {height >= 30 && (
                               <div className="text-[0.53rem] px-1 text-white/75 leading-tight">
@@ -373,6 +530,57 @@ export default function KobuSchedule({ profile }: Props) {
           </div>
         </div>
       ) : null}
+
+      {/* 予約詳細モーダル（ライトボックス） */}
+      {detailModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/50" onClick={() => !cancelling && setDetailModal(null)} />
+          <div className="relative bg-surface rounded-2xl shadow-[var(--shadow-modal)] w-full max-w-[320px] overflow-hidden">
+            {/* ヘッダー */}
+            <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-line">
+              <p className="text-base font-bold text-ink">予約詳細</p>
+              <button className="btn-icon" onClick={() => setDetailModal(null)} disabled={cancelling}>
+                <span className="icon">close</span>
+              </button>
+            </div>
+
+            {/* 内容 */}
+            <div className="px-5 py-4 space-y-3">
+              <div className="flex items-center gap-2.5">
+                <span className="icon text-brand" style={{ fontSize: 20 }}>groups</span>
+                <span className="text-[0.95rem] font-semibold text-ink">{detailModal.block.bandName}</span>
+              </div>
+              <div className="flex items-center gap-2.5">
+                <span className="icon text-ink-pale" style={{ fontSize: 20 }}>calendar_today</span>
+                <span className="text-[0.88rem] text-ink-sub">
+                  {formatDate(detailModal.date).md}（{formatDate(detailModal.date).wd}）
+                </span>
+              </div>
+              <div className="flex items-center gap-2.5">
+                <span className="icon text-ink-pale" style={{ fontSize: 20 }}>schedule</span>
+                <span className="text-[0.88rem] text-ink-sub">
+                  {detailModal.block.startTime} 〜 {detailModal.block.endTime}
+                </span>
+              </div>
+            </div>
+
+            {/* キャンセルボタン（自分の予約のみ） */}
+            {detailModal.block.userId === profile.userId && (
+              <div className="px-5 pb-5">
+                {cancelError && <div className="banner-error">{cancelError}</div>}
+                <button
+                  className="btn-danger w-full flex items-center justify-center gap-1.5 py-2.5"
+                  onClick={handleCancel}
+                  disabled={cancelling}
+                >
+                  <span className="icon" style={{ fontSize: 16 }}>delete</span>
+                  {cancelling ? '削除中...' : '予約を取り消す'}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* 予約モーダル（ボトムシート） */}
       {modal && dayMap && (
@@ -411,7 +619,7 @@ export default function KobuSchedule({ profile }: Props) {
                 <label className="block text-[0.8rem] text-ink-sub mb-1">開始</label>
                 <select className="text-input" value={modalStart}
                   onChange={(e) => handleStartChange(e.target.value)}>
-                  {buildStartOptions(modal.date, dayMap, openMin, closeMin).map((t) => (
+                  {buildStartOptions(modal.date, dayMap, getEffectiveSlots(modal.date, settings)).map((t) => (
                     <option key={t} value={t}>{t}</option>
                   ))}
                 </select>
@@ -420,7 +628,7 @@ export default function KobuSchedule({ profile }: Props) {
                 <label className="block text-[0.8rem] text-ink-sub mb-1">終了</label>
                 <select className="text-input" value={modalEnd}
                   onChange={(e) => setModalEnd(e.target.value)}>
-                  {buildEndOptions(toMinutes(modalStart), modal.date, dayMap, closeMin).map((t) => (
+                  {buildEndOptions(toMinutes(modalStart), modal.date, dayMap, getEffectiveSlots(modal.date, settings)).map((t) => (
                     <option key={t} value={t}>{t}</option>
                   ))}
                 </select>

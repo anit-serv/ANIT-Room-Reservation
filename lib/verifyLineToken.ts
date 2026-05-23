@@ -10,22 +10,23 @@ export async function verifyLineToken(authHeader: string | undefined): Promise<L
   if (!authHeader?.startsWith('Bearer ')) {
     throw new Error('Unauthorized')
   }
-  const idToken = authHeader.slice(7)
+  const accessToken = authHeader.slice(7)
 
-  const params = new URLSearchParams({
-    id_token: idToken,
-    client_id: process.env.LINE_LOGIN_CHANNEL_ID!,
-  })
-
-  const res = await axios.post(
-    'https://api.line.me/oauth2/v2.1/verify',
-    params.toString(),
-    { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
-  )
+  let res
+  try {
+    res = await axios.get('https://api.line.me/v2/profile', {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    })
+  } catch (err: any) {
+    const detail = err.response
+      ? `LINE ${err.response.status}: ${JSON.stringify(err.response.data)}`
+      : err.message
+    throw new Error(detail)
+  }
 
   return {
-    userId: res.data.sub as string,
-    name: res.data.name as string | undefined,
-    picture: res.data.picture as string | undefined,
+    userId:  res.data.userId      as string,
+    name:    res.data.displayName as string | undefined,
+    picture: res.data.pictureUrl  as string | undefined,
   }
 }

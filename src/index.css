@@ -150,6 +150,10 @@
   @apply w-9 h-9 flex items-center justify-center rounded-md border border-line bg-white text-ink-pale cursor-pointer transition;
   @apply hover:text-danger hover:border-danger hover:bg-danger-light;
 }
+@utility btn-icon-nav {
+  @apply w-9 h-9 flex items-center justify-center rounded-md border border-line bg-white text-ink-pale cursor-pointer transition;
+  @apply hover:text-brand-dark hover:border-brand hover:bg-brand-light;
+}
 
 /* ── 入力 ─────────────────────────────────────────── */
 @utility text-input {

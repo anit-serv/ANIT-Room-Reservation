@@ -46,7 +46,7 @@ export default function ReservationForm({ profile }: Props) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${profile.idToken}`,
+          Authorization: `Bearer ${profile.getAccessToken()}`,
         },
         body: JSON.stringify({
           bandName: bandName.trim(),

@@ -13,7 +13,7 @@ export type LiffProfile = {
   userId: string
   displayName: string
   pictureUrl?: string
-  idToken: string
+  getAccessToken: () => string
 }
 
 const MAIN_TABS: { id: MainTab; icon: string; label: string }[] = [
@@ -57,17 +57,17 @@ function App() {
       .then(async () => {
         if (!liff.isLoggedIn()) { liff.login(); return }
         const lineProfile = await liff.getProfile()
-        const idToken = liff.getIDToken()
-        if (!idToken) throw new Error('IDトークンの取得に失敗しました')
+        const accessToken = liff.getAccessToken()
+        if (!accessToken) throw new Error('アクセストークンの取得に失敗しました')
         setProfile({
-          userId:      lineProfile.userId,
-          displayName: lineProfile.displayName,
-          pictureUrl:  lineProfile.pictureUrl,
-          idToken,
+          userId:         lineProfile.userId,
+          displayName:    lineProfile.displayName,
+          pictureUrl:     lineProfile.pictureUrl,
+          getAccessToken: () => liff.getAccessToken() ?? '',
         })
         fetch('/api/reservations/sync', {
           method: 'POST',
-          headers: { Authorization: `Bearer ${idToken}` },
+          headers: { Authorization: `Bearer ${accessToken}` },
         }).catch(() => {})
       })
       .catch((err: Error) => setError(err.message))

@@ -91,7 +91,7 @@ export default function KobuReservationForm({ profile }: Props) {
     try {
       const res = await fetch('/api/kobu-reservations', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${profile.idToken}` },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${profile.getAccessToken()}` },
         body: JSON.stringify({ bandName: bandName.trim(), date: selectedDate, startTime, endTime }),
       })
       if (!res.ok) throw new Error((await res.json()).error ?? '登録に失敗しました')

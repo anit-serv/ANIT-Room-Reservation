@@ -39,12 +39,17 @@ export default function MyReservations({ profile }: Props) {
     setLoading(true)
     setError(null)
     try {
-      const headers = { Authorization: `Bearer ${profile.idToken}` }
+      const headers = { Authorization: `Bearer ${profile.getAccessToken()}` }
       const [nobuRes, kobuRes] = await Promise.all([
         fetch('/api/reservations/my', { headers }),
         fetch('/api/kobu-reservations/my', { headers }),
       ])
-      if (!nobuRes.ok || !kobuRes.ok) throw new Error()
+      if (!nobuRes.ok || !kobuRes.ok) {
+        const failedRes = !nobuRes.ok ? nobuRes : kobuRes
+        const label = !nobuRes.ok ? '農部' : '工部室'
+        const body = await failedRes.json().catch(() => ({}))
+        throw new Error(`${label} API: ${failedRes.status} ${body.error ?? ''}`)
+      }
       const [nobuData, kobuData] = await Promise.all([nobuRes.json(), kobuRes.json()])
 
       const nobu: NobuReservation[] = (nobuData.reservations ?? []).map((r: any) => ({ ...r, facility: 'nobu' }))
@@ -52,12 +57,12 @@ export default function MyReservations({ profile }: Props) {
 
       const all: Reservation[] = [...nobu, ...kobu].sort((a, b) => sortKey(a).localeCompare(sortKey(b)))
       setReservations(all)
-    } catch {
-      setError('予約の取得に失敗しました')
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : '予約の取得に失敗しました')
     } finally {
       setLoading(false)
     }
-  }, [profile.idToken])
+  }, [profile])
 
   useEffect(() => { fetchReservations() }, [fetchReservations])
 
@@ -73,7 +78,7 @@ export default function MyReservations({ profile }: Props) {
         : `/api/kobu-reservations/${r.id}`
       const res = await fetch(endpoint, {
         method: 'DELETE',
-        headers: { Authorization: `Bearer ${profile.idToken}` },
+        headers: { Authorization: `Bearer ${profile.getAccessToken()}` },
       })
       if (!res.ok) throw new Error()
       setReservations((prev) => prev.filter((x) => x.id !== r.id))

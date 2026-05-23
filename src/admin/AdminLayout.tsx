@@ -21,6 +21,14 @@ export default function AdminLayout() {
   const reservationsOpen = location.pathname.startsWith('/admin/reservations')
   const settingsOpen     = location.pathname.startsWith('/admin/settings')
 
+  const [reservationsExpanded, setReservationsExpanded] = useState(reservationsOpen)
+  const [settingsExpanded,     setSettingsExpanded]     = useState(settingsOpen)
+
+  useEffect(() => {
+    if (reservationsOpen) setReservationsExpanded(true)
+    if (settingsOpen)     setSettingsExpanded(true)
+  }, [reservationsOpen, settingsOpen])
+
   useEffect(() => {
     const token = getAdminToken()
     if (!token) { navigate('/admin/login', { replace: true }); return }
@@ -67,37 +75,59 @@ export default function AdminLayout() {
 
           {/* 予約管理 アコーディオン */}
           <div>
-            <div className={LINK_BASE + (reservationsOpen ? LINK_ACTIVE : LINK_IDLE) + ' cursor-default select-none'}>
-              <span className="icon">event_note</span>
-              <span>予約管理</span>
-            </div>
-            <div className="flex flex-col gap-0.5 mt-0.5">
-              <NavLink to="/admin/reservations/nobu"
-                className={({ isActive }) => SUBLINK_BASE + (isActive ? LINK_ACTIVE : LINK_IDLE)}>
-                農部
-              </NavLink>
-              <NavLink to="/admin/reservations/kobu"
-                className={({ isActive }) => SUBLINK_BASE + (isActive ? LINK_ACTIVE : LINK_IDLE)}>
-                工部室
-              </NavLink>
+            <button
+              onClick={() => setReservationsExpanded(v => !v)}
+              className={LINK_BASE + (reservationsOpen ? LINK_ACTIVE : LINK_IDLE) + ' w-full justify-between'}
+            >
+              <span className="flex items-center gap-2.5">
+                <span className="icon">event_note</span>
+                <span>予約管理</span>
+              </span>
+              <span className={`icon transition-transform duration-200 ${reservationsExpanded ? 'rotate-180' : ''}`}
+                style={{ fontSize: 16 }}>expand_more</span>
+            </button>
+            <div className={`grid transition-all duration-200 ease-out max-md:block ${reservationsExpanded ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
+              <div className="overflow-hidden min-h-0 max-md:overflow-visible">
+                <div className="flex flex-col gap-0.5 mt-0.5 max-md:flex-row">
+                  <NavLink to="/admin/reservations/nobu"
+                    className={({ isActive }) => SUBLINK_BASE + (isActive ? LINK_ACTIVE : LINK_IDLE)}>
+                    農部
+                  </NavLink>
+                  <NavLink to="/admin/reservations/kobu"
+                    className={({ isActive }) => SUBLINK_BASE + (isActive ? LINK_ACTIVE : LINK_IDLE)}>
+                    工部室
+                  </NavLink>
+                </div>
+              </div>
             </div>
           </div>
 
           {/* 設定 アコーディオン */}
           <div>
-            <div className={LINK_BASE + (settingsOpen ? LINK_ACTIVE : LINK_IDLE) + ' cursor-default select-none'}>
-              <span className="icon">settings</span>
-              <span>設定</span>
-            </div>
-            <div className="flex flex-col gap-0.5 mt-0.5">
-              <NavLink to="/admin/settings/nobu"
-                className={({ isActive }) => SUBLINK_BASE + (isActive ? LINK_ACTIVE : LINK_IDLE)}>
-                農部
-              </NavLink>
-              <NavLink to="/admin/settings/kobu"
-                className={({ isActive }) => SUBLINK_BASE + (isActive ? LINK_ACTIVE : LINK_IDLE)}>
-                工部室
-              </NavLink>
+            <button
+              onClick={() => setSettingsExpanded(v => !v)}
+              className={LINK_BASE + (settingsOpen ? LINK_ACTIVE : LINK_IDLE) + ' w-full justify-between'}
+            >
+              <span className="flex items-center gap-2.5">
+                <span className="icon">settings</span>
+                <span>設定</span>
+              </span>
+              <span className={`icon transition-transform duration-200 ${settingsExpanded ? 'rotate-180' : ''}`}
+                style={{ fontSize: 16 }}>expand_more</span>
+            </button>
+            <div className={`grid transition-all duration-200 ease-out max-md:block ${settingsExpanded ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
+              <div className="overflow-hidden min-h-0 max-md:overflow-visible">
+                <div className="flex flex-col gap-0.5 mt-0.5 max-md:flex-row">
+                  <NavLink to="/admin/settings/nobu"
+                    className={({ isActive }) => SUBLINK_BASE + (isActive ? LINK_ACTIVE : LINK_IDLE)}>
+                    農部
+                  </NavLink>
+                  <NavLink to="/admin/settings/kobu"
+                    className={({ isActive }) => SUBLINK_BASE + (isActive ? LINK_ACTIVE : LINK_IDLE)}>
+                    工部室
+                  </NavLink>
+                </div>
+              </div>
             </div>
           </div>
 

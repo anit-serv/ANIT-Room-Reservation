@@ -47,6 +47,8 @@ export default function Settings() {
   const [editingScheduled, setEditingScheduled] = useState(false)
   const [saving, setSaving]               = useState(false)
   const [message, setMessage]             = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [step,         setStep]         = useState<'editing' | 'confirming' | 'saved'>('editing')
+  const [savedMessage, setSavedMessage] = useState('')
   const [presets, setPresets]             = useState<TimeSlotPreset[]>([])
   const [lotteryTime, setLotteryTime] = useState('21:00')
 
@@ -155,25 +157,27 @@ export default function Settings() {
     )
   }, [current, availableDays, timeSlots, extraDates, excludedDates, perDaySchedule, lotteryTime])
 
+  const effectiveDirty = isDirty && step !== 'saved'
+
   useEffect(() => {
     const handler = (e: BeforeUnloadEvent) => {
-      if (isDirty) e.preventDefault()
+      if (effectiveDirty) e.preventDefault()
     }
     window.addEventListener('beforeunload', handler)
     return () => window.removeEventListener('beforeunload', handler)
-  }, [isDirty])
+  }, [effectiveDirty])
 
   const blocker = useBlocker(
     useCallback(({ currentLocation, nextLocation }: { currentLocation: { pathname: string }; nextLocation: { pathname: string } }) =>
-      isDirty && currentLocation.pathname !== nextLocation.pathname,
-    [isDirty])
+      effectiveDirty && currentLocation.pathname !== nextLocation.pathname,
+    [effectiveDirty])
   )
 
   const defaultConflicts = findConflicts(timeSlots)
   const hasOverrideConflict = findAllConflicts(perDaySchedule)
   const hasDateOverlap = extraDates.some((d) => excludedDates.includes(d))
 
-  async function save() {
+  function goToConfirm() {
     setMessage(null)
     if (lotteryTimeInvalid) {
       setMessage({ type: 'error', text: '抽選時刻は01:00以降を指定してください' })
@@ -206,13 +210,18 @@ export default function Settings() {
       setMessage({ type: 'error', text: '同じ日付が追加日と除外日の両方に指定されています' })
       return
     }
+    setStep('confirming')
+  }
+
+  async function save() {
+    setMessage(null)
     const currentMin = minEffectiveDate()
     let finalEffective = effectiveFrom
     if (finalEffective < currentMin) {
       finalEffective = currentMin
       setEffectiveFrom(currentMin)
       setMinDate(currentMin)
-      setMessage({ type: 'error', text: `日付が変わったため適用日を ${currentMin} に繰り上げました。問題なければもう一度保存してください` })
+      setMessage({ type: 'error', text: `日付が変わったため適用日を ${currentMin} に繰り上げました。内容を確認してもう一度「保存する」を押してください` })
       return
     }
 
@@ -234,16 +243,17 @@ export default function Settings() {
       const lotteryJson = await lotteryRes.json()
       if (!lotteryRes.ok) throw new Error(lotteryJson.error ?? '抽選時刻の保存に失敗しました')
       const result = await res.json()
-      setMessage({
-        type: 'success',
-        text: lotteryJson.cronWarning
-          ? `保存しました（⚠️ cron-job.org: ${lotteryJson.cronWarning}）`
-          : `${result.effectiveFrom} から適用予定で保存しました`,
-      })
+      setSavedMessage(
+        lotteryJson.cronWarning
+          ? `⚠️ cron-job.org: ${lotteryJson.cronWarning}`
+          : `${result.effectiveFrom} から適用予定`
+      )
       setEditingScheduled(false)
+      setStep('saved')
       load()
     } catch (err: any) {
       setMessage({ type: 'error', text: err.message })
+      setStep('editing')
     } finally {
       setSaving(false)
     }
@@ -270,6 +280,66 @@ export default function Settings() {
           <Skeleton width="100%" height="60px" />
         </div>
       ))}
+    </div>
+  )
+
+  if (step === 'confirming') return (
+    <div>
+      <div className="flex items-center gap-2 mb-1">
+        <button className="btn-icon-nav" onClick={() => setStep('editing')} disabled={saving}>
+          <span className="icon">arrow_back</span>
+        </button>
+        <h1 className="text-2xl font-bold">設定 - 農部</h1>
+      </div>
+      <p className="text-[0.88rem] text-ink-sub mb-6 ml-11">保存内容の確認</p>
+
+      <div className="admin-card">
+        <table className="w-full text-[0.9rem]">
+          <tbody>
+            {([
+              ['適用日',               effectiveFrom],
+              ['登録可能曜日',          availableDays.length === 0 ? 'なし' : availableDays.map(d => WEEK_DAYS[d]).join('・')],
+              ['抽選時刻',              lotteryTime],
+              ['デフォルト時間枠',       `${timeSlots.length}件`],
+              ['追加日',               `${extraDates.length}件`],
+              ['除外日',               `${excludedDates.length}件`],
+              ['曜日/日付別スケジュール', perDaySchedule.enabled ? '有効' : '無効'],
+            ] as [string, string][]).map(([label, value]) => (
+              <tr key={label} className="border-b border-line last:border-0">
+                <td className="py-3 pr-4 text-ink-sub font-medium w-44 text-[0.88rem]">{label}</td>
+                <td className="py-3 font-semibold text-ink">{value}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {message && <div className="banner-error">{message.text}</div>}
+
+      <div className="flex gap-3">
+        <button className="btn-outline flex-1 max-w-[180px]" onClick={() => setStep('editing')} disabled={saving}>
+          修正する
+        </button>
+        <button className="btn-primary flex-1 max-w-[180px]" onClick={save} disabled={saving}>
+          {saving ? '保存中...' : '保存する'}
+        </button>
+      </div>
+    </div>
+  )
+
+  if (step === 'saved') return (
+    <div>
+      <h1 className="text-2xl font-bold mb-6">設定 - 農部</h1>
+      <div className="admin-card flex flex-col items-center text-center py-10">
+        <div className="w-20 h-20 rounded-full bg-brand-light flex items-center justify-center mb-5">
+          <span className="icon text-brand" style={{ fontSize: 44 }}>check_circle</span>
+        </div>
+        <h2 className="text-xl font-bold text-ink mb-2">保存が完了しました</h2>
+        <p className="text-[0.9rem] text-ink-sub mb-8">{savedMessage}</p>
+        <button className="btn-outline max-w-[240px]" onClick={() => { setStep('editing'); setMessage(null) }}>
+          引き続き編集する
+        </button>
+      </div>
     </div>
   )
 
@@ -428,8 +498,8 @@ export default function Settings() {
         />
       </div>
 
-      <button className="btn-primary max-w-[300px]" onClick={save} disabled={saving}>
-        {saving ? '保存中...' : editingScheduled ? '上書き保存' : '保存'}
+      <button className="btn-primary max-w-[300px]" onClick={goToConfirm}>
+        {editingScheduled ? '上書き内容を確認する' : '確認する'}
       </button>
 
       {blocker.state === 'blocked' && (

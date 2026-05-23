@@ -31,7 +31,10 @@ export default function KobuReservations() {
       if (dateFilter) params.set('date', dateFilter)
       if (search)     params.set('q', search)
       const res = await adminFetch(`/api/admin/kobu-reservations?${params}`)
-      if (!res.ok) throw new Error('取得に失敗しました')
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(body.error ?? '取得に失敗しました')
+      }
       const data = await res.json()
       setReservations(data.reservations)
     } catch (err: any) {
