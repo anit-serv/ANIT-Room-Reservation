@@ -464,7 +464,7 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled }: Pr
           {/* ヘッダー＋グリッドを同一スクロールコンテナに入れてスクロールバー幅を共有 */}
           <div className="overflow-y-auto" style={{ maxHeight: '460px' }}>
             {/* ヘッダー行（スクロールコンテナ内でsticky） */}
-            <div className="sticky top-0 bg-surface z-10 border-b border-line flex">
+            <div className="sticky top-0 bg-surface z-20 border-b border-line flex">
               <div className="w-9 flex-shrink-0" />
               {weekDates.map((date) => {
                 const { md, wd } = formatDate(date)
