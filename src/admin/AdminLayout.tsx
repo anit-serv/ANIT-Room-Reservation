@@ -79,7 +79,7 @@ export default function AdminLayout() {
           {/* 予約管理 アコーディオン */}
           <div className="max-md:flex-shrink-0">
             <button
-              onClick={() => setReservationsExpanded(v => !v)}
+              onClick={() => { setReservationsExpanded(v => !v); setSettingsExpanded(false) }}
               className={LINK_BASE + (reservationsOpen ? LINK_ACTIVE : LINK_IDLE) + ' w-full justify-between'}
             >
               <span className="flex items-center gap-2.5">
@@ -109,7 +109,7 @@ export default function AdminLayout() {
           {/* 設定 アコーディオン */}
           <div className="max-md:flex-shrink-0">
             <button
-              onClick={() => setSettingsExpanded(v => !v)}
+              onClick={() => { setSettingsExpanded(v => !v); setReservationsExpanded(false) }}
               className={LINK_BASE + (settingsOpen ? LINK_ACTIVE : LINK_IDLE) + ' w-full justify-between'}
             >
               <span className="flex items-center gap-2.5">
