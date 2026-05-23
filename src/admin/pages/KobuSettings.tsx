@@ -280,6 +280,8 @@ export default function KobuSettings() {
           schedule={perDaySchedule}
           onChange={setPerDaySchedule}
           availableDays={availableDays}
+          extraDates={extraDates}
+          excludedDates={excludedDates}
           presets={presets}
           onSavePreset={savePreset}
           onDeletePreset={deletePreset}

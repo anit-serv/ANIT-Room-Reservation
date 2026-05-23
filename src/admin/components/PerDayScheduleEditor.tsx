@@ -13,9 +13,26 @@ type Props = {
   schedule: PerDaySchedule
   onChange: (s: PerDaySchedule) => void
   availableDays: number[]
+  extraDates?: string[]
+  excludedDates?: string[]
   presets?: TimeSlotPreset[]
   onSavePreset?: (name: string, slots: TimeSlot[]) => Promise<void> | void
   onDeletePreset?: (id: string) => Promise<void> | void
+}
+
+function getDateWarning(
+  date: string,
+  availableDays: number[],
+  extraDates: string[],
+  excludedDates: string[],
+): string | null {
+  if (!date) return null
+  if (excludedDates.includes(date)) return 'この日付は除外日に設定されているため追加できません'
+  if (extraDates.includes(date)) return null
+  const [y, m, d] = date.split('-').map(Number)
+  const dow = new Date(y, m - 1, d).getDay()
+  if (!availableDays.includes(dow)) return `${WEEK_DAYS[dow]}曜日は営業曜日ではないため追加できません`
+  return null
 }
 
 export function findAllConflicts(s: PerDaySchedule): boolean {
@@ -31,7 +48,7 @@ export function findAllConflicts(s: PerDaySchedule): boolean {
 }
 
 export default function PerDayScheduleEditor({
-  schedule, onChange, availableDays, presets, onSavePreset, onDeletePreset,
+  schedule, onChange, availableDays, extraDates = [], excludedDates = [], presets, onSavePreset, onDeletePreset,
 }: Props) {
   const [pickWeekday, setPickWeekday] = useState<string>('')
   const [pickDate, setPickDate]       = useState<string>('')
@@ -71,6 +88,7 @@ export default function PerDayScheduleEditor({
   }
 
   const weekdayOptions = availableDays.filter((d) => !schedule.byWeekday[String(d)])
+  const dateWarning = getDateWarning(pickDate, availableDays, extraDates, excludedDates)
 
   return (
     <div>
@@ -116,7 +134,7 @@ export default function PerDayScheduleEditor({
                   presets={presets} onSavePreset={onSavePreset} onDeletePreset={onDeletePreset} />
               </OverrideCard>
             ))}
-            <div className="flex gap-2 mt-2">
+            <div className="flex gap-2 mt-2 items-center flex-wrap">
               <input
                 type="date"
                 className="text-input w-auto"
@@ -126,11 +144,17 @@ export default function PerDayScheduleEditor({
               <button
                 className="btn-outline w-auto px-3 py-2"
                 onClick={addDate}
-                disabled={!pickDate || !!schedule.byDate[pickDate]}
+                disabled={!pickDate || !!schedule.byDate[pickDate] || !!dateWarning}
               >
                 <span className="icon icon-sm">add</span> 日付を追加
               </button>
             </div>
+            {dateWarning && (
+              <p className="mt-2 text-warn text-[0.85rem] flex items-center gap-1">
+                <span className="icon icon-sm">warning</span>
+                {dateWarning}
+              </p>
+            )}
           </OverrideSection>
         </>
       )}
