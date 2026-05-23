@@ -678,24 +678,42 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled }: Pr
                 />
               </div>
 
-              <div className="flex gap-3 mb-5">
-                <div className="flex-1">
-                  <label className="block text-[0.8rem] text-ink-sub mb-1">開始</label>
-                  <select className="text-input" value={modalStart}
-                    onChange={(e) => handleStartChange(e.target.value)}>
+              <div className="mb-5 space-y-3">
+                <div>
+                  <label className="block text-[0.8rem] text-ink-sub mb-1.5">開始</label>
+                  <div className="flex gap-1.5 overflow-x-auto pb-1" style={{ WebkitOverflowScrolling: 'touch' }}>
                     {buildStartOptions(modal.date, effectiveDayMap, effectiveSlots).map((t) => (
-                      <option key={t} value={t}>{t}</option>
+                      <button
+                        key={t}
+                        type="button"
+                        className={
+                          'flex-shrink-0 px-3 py-2 rounded-lg text-[0.82rem] border-[1.5px] transition ' +
+                          (t === modalStart
+                            ? 'bg-brand border-brand text-white font-semibold'
+                            : 'bg-surface border-line text-ink-sub')
+                        }
+                        onClick={() => handleStartChange(t)}
+                      >{t}</button>
                     ))}
-                  </select>
+                  </div>
                 </div>
-                <div className="flex-1">
-                  <label className="block text-[0.8rem] text-ink-sub mb-1">終了</label>
-                  <select className="text-input" value={modalEnd}
-                    onChange={(e) => setModalEnd(e.target.value)}>
+                <div>
+                  <label className="block text-[0.8rem] text-ink-sub mb-1.5">終了</label>
+                  <div className="flex gap-1.5 overflow-x-auto pb-1" style={{ WebkitOverflowScrolling: 'touch' }}>
                     {buildEndOptions(toMinutes(modalStart), modal.date, effectiveDayMap, effectiveSlots).map((t) => (
-                      <option key={t} value={t}>{t}</option>
+                      <button
+                        key={t}
+                        type="button"
+                        className={
+                          'flex-shrink-0 px-3 py-2 rounded-lg text-[0.82rem] border-[1.5px] transition ' +
+                          (t === modalEnd
+                            ? 'bg-brand border-brand text-white font-semibold'
+                            : 'bg-surface border-line text-ink-sub')
+                        }
+                        onClick={() => setModalEnd(t)}
+                      >{t}</button>
                     ))}
-                  </select>
+                  </div>
                 </div>
               </div>
 

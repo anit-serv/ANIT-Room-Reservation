@@ -312,9 +312,21 @@ function NobuModifyModal({
                   {slots.find((s) => s.value === currentSlot)?.label ?? currentSlot}
                 </p>
               ) : slots.length > 0 ? (
-                <select className="text-input" value={newTimeSlot} onChange={(e) => setNewTimeSlot(e.target.value)}>
-                  {slots.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
-                </select>
+                <div className="flex flex-col gap-1.5">
+                  {slots.map((s) => (
+                    <button
+                      key={s.value}
+                      type="button"
+                      className={
+                        'w-full px-3 py-2.5 rounded-lg text-[0.85rem] border-[1.5px] text-left transition ' +
+                        (s.value === newTimeSlot
+                          ? 'bg-brand border-brand text-white font-semibold'
+                          : 'bg-surface border-line text-ink-sub')
+                      }
+                      onClick={() => setNewTimeSlot(s.value)}
+                    >{s.label}</button>
+                  ))}
+                </div>
               ) : (
                 <p className="text-input bg-bg text-ink-sub">
                   {currentSlot}
