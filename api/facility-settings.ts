@@ -14,6 +14,11 @@ if (!admin.apps.length) {
 }
 const db = admin.firestore()
 
+const SETTINGS_DOC: Record<string, string> = {
+  kobu:       'kobu',
+  'nobu-room': 'nobu-room',
+}
+
 const DEFAULTS = {
   availableDays:  [0, 1, 2, 3, 4, 5, 6] as number[],
   extraDates:     [] as string[],
@@ -22,16 +27,19 @@ const DEFAULTS = {
   perDaySchedule: { enabled: false, byWeekday: {} as Record<string, any[]>, byDate: {} as Record<string, any[]> },
 }
 
-export default async function handler(_req: VercelRequest, res: VercelResponse) {
+export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*')
-  if (_req.method === 'OPTIONS') return res.status(204).end()
-  if (_req.method !== 'GET') return res.status(405).json({ error: 'Method Not Allowed' })
+  if (req.method === 'OPTIONS') return res.status(204).end()
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method Not Allowed' })
+
+  const f = req.query.facility as string
+  const docId = SETTINGS_DOC[f]
+  if (!docId) return res.status(400).json({ error: 'Invalid facility' })
 
   try {
-    const doc  = await db.collection('settings').doc('kobu').get()
+    const doc  = await db.collection('settings').doc(docId).get()
     const data = doc.exists ? doc.data()! : {}
 
-    // 旧形式（openTime/closeTime）から新形式（timeSlots）へ自動移行
     let timeSlots = data.timeSlots
     if (!timeSlots && (data.openTime || data.closeTime)) {
       const open  = data.openTime  ?? '08:00'
