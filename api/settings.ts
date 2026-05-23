@@ -46,11 +46,11 @@ function todayJST(): string {
 
 function pickTimeSlotsForDate(date: string, settings: Settings): TimeSlot[] {
   const sched = settings.perDaySchedule
-  const defaultSlots = settings.timeSlots ?? DEFAULT_TIME_SLOTS
+  const defaultSlots = (settings.timeSlots?.length ? settings.timeSlots : null) ?? DEFAULT_TIME_SLOTS
   if (!sched?.enabled) return defaultSlots
-  if (sched.byDate && sched.byDate[date]) return sched.byDate[date]
+  if (sched.byDate?.[date]?.length) return sched.byDate[date]
   const weekday = new Date(date + 'T00:00:00Z').getUTCDay()
-  if (sched.byWeekday && sched.byWeekday[String(weekday)]) return sched.byWeekday[String(weekday)]
+  if (sched.byWeekday?.[String(weekday)]?.length) return sched.byWeekday[String(weekday)]
   return defaultSlots
 }
 
@@ -131,7 +131,7 @@ export default async function handler(_req: VercelRequest, res: VercelResponse) 
       availableDates:          buildDateList(data, false),
       availableDatesWithToday: buildDateList(data, true),
       // 後方互換のため timeSlots（デフォルト）も返す
-      timeSlots:    data.timeSlots ?? DEFAULT_TIME_SLOTS,
+      timeSlots:    (data.timeSlots?.length ? data.timeSlots : null) ?? DEFAULT_TIME_SLOTS,
       lotteryTime:  data.lotteryTime ?? '21:00',
     })
   } catch (err: any) {

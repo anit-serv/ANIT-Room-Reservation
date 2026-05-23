@@ -161,15 +161,17 @@ async function handleAll(req: VercelRequest, res: VercelResponse) {
       .where('date', '<=', `${date}T23:59`)
       .get()
 
-    const slotMap: Record<string, { bandName: string; status: string; order?: number }[]> = {}
+    const slotMap: Record<string, { id: string; userId: string; bandName: string; status: string; order?: number }[]> = {}
     snapshot.forEach((doc) => {
       const data = doc.data()
       const ts = data.date.split('T')[1]
       if (!slotMap[ts]) slotMap[ts] = []
       slotMap[ts].push({
+        id:       doc.id,
+        userId:   data.userId,
         bandName: data.bandName ?? '(バンド名なし)',
-        status: data.status,
-        order: data.order,
+        status:   data.status,
+        order:    data.order,
       })
     })
 

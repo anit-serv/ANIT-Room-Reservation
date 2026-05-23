@@ -2,7 +2,12 @@ import { useState, useEffect } from 'react'
 import type { LiffProfile } from '../LiffApp'
 import Skeleton from '../../components/Skeleton'
 
-type Props = { profile: LiffProfile }
+type KobuEditTarget = { id: string; date: string; bandName: string; startTime: string; endTime: string }
+type Props = {
+  profile: LiffProfile
+  initialEdit?: KobuEditTarget | null
+  onEditHandled?: () => void
+}
 
 type TimeSlot      = { label: string; value: string }
 type PerDaySchedule = { enabled: boolean; byWeekday: Record<string, TimeSlot[]>; byDate: Record<string, TimeSlot[]> }
@@ -152,7 +157,7 @@ function buildEndOptions(startMinutes: number, date: string, dayMap: DayMap, slo
 }
 
 // ─── メインコンポーネント ──────────────────────────────
-export default function KobuSchedule({ profile }: Props) {
+export default function KobuSchedule({ profile, initialEdit, onEditHandled }: Props) {
   const [settings,     setSettings]     = useState<KobuSettings | null>(null)
   const [weekStart,    setWeekStart]    = useState(() => getMondayOfWeek(todayJST()))
   const [dayMap,       setDayMap]       = useState<DayMap | null>(null)
@@ -162,6 +167,7 @@ export default function KobuSchedule({ profile }: Props) {
   const [bandName,     setBandName]     = useState('')
   const [modalStart,   setModalStart]   = useState('')
   const [modalEnd,     setModalEnd]     = useState('')
+  const [editingId,    setEditingId]    = useState<string | null>(null)
   const [submitting,   setSubmitting]   = useState(false)
   const [submitError,  setSubmitError]  = useState<string | null>(null)
   const [calendarOpen, setCalendarOpen] = useState(false)
@@ -169,6 +175,7 @@ export default function KobuSchedule({ profile }: Props) {
   const [detailModal,  setDetailModal]  = useState<DetailModal | null>(null)
   const [cancelling,   setCancelling]   = useState(false)
   const [cancelError,  setCancelError]  = useState<string | null>(null)
+  const [pendingEdit,  setPendingEdit]  = useState<KobuEditTarget | null>(null)
 
   // 設定取得
   useEffect(() => {
@@ -180,6 +187,26 @@ export default function KobuSchedule({ profile }: Props) {
 
   // 週データ取得
   useEffect(() => { fetchWeek(weekStart) }, [weekStart])
+
+  // 外部から編集ターゲットが渡された場合、対象週に移動してボトムシートを開く
+  useEffect(() => {
+    if (!initialEdit) return
+    setPendingEdit(initialEdit)
+    setWeekStart(getMondayOfWeek(initialEdit.date))
+    onEditHandled?.()
+  }, [initialEdit])
+
+  // dayMapが読み込まれたらpendingEditを適用
+  useEffect(() => {
+    if (!pendingEdit || !dayMap) return
+    setModal({ date: pendingEdit.date })
+    setBandName(pendingEdit.bandName)
+    setModalStart(pendingEdit.startTime)
+    setModalEnd(pendingEdit.endTime)
+    setEditingId(pendingEdit.id)
+    setSubmitError(null)
+    setPendingEdit(null)
+  }, [pendingEdit, dayMap])
 
   async function fetchWeek(start: string) {
     setLoading(true)
@@ -229,6 +256,7 @@ export default function KobuSchedule({ profile }: Props) {
     setModalStart(minutesToTime(startMinutes))
     setModalEnd(minutesToTime(defaultEnd))
     setBandName('')
+    setEditingId(null)
     setSubmitError(null)
   }
 
@@ -250,16 +278,26 @@ export default function KobuSchedule({ profile }: Props) {
     setSubmitting(true)
     setSubmitError(null)
     try {
-      const res = await fetch('/api/kobu-reservations', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${profile.getAccessToken()}` },
-        body: JSON.stringify({ bandName: bandName.trim(), date: modal.date, startTime: modalStart, endTime: modalEnd }),
-      })
-      if (!res.ok) throw new Error((await res.json()).error ?? '登録に失敗しました')
+      let res: Response
+      if (editingId) {
+        res = await fetch(`/api/kobu-reservations/${editingId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${profile.getAccessToken()}` },
+          body: JSON.stringify({ bandName: bandName.trim(), newStart: modalStart, newEnd: modalEnd }),
+        })
+      } else {
+        res = await fetch('/api/kobu-reservations', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${profile.getAccessToken()}` },
+          body: JSON.stringify({ bandName: bandName.trim(), date: modal.date, startTime: modalStart, endTime: modalEnd }),
+        })
+      }
+      if (!res.ok) throw new Error((await res.json()).error ?? (editingId ? '変更に失敗しました' : '登録に失敗しました'))
       setModal(null)
+      setEditingId(null)
       fetchWeek(weekStart)
     } catch (err: unknown) {
-      setSubmitError(err instanceof Error ? err.message : '登録に失敗しました')
+      setSubmitError(err instanceof Error ? err.message : '失敗しました')
     } finally {
       setSubmitting(false)
     }
@@ -270,6 +308,18 @@ export default function KobuSchedule({ profile }: Props) {
     e.stopPropagation()
     setDetailModal({ block, date })
     setCancelError(null)
+  }
+
+  function handleEditFromDetail() {
+    if (!detailModal) return
+    const { block, date } = detailModal
+    setModal({ date })
+    setBandName(block.bandName)
+    setModalStart(block.startTime)
+    setModalEnd(block.endTime)
+    setEditingId(block.id)
+    setDetailModal(null)
+    setSubmitError(null)
   }
 
   async function handleCancel() {
@@ -564,9 +614,17 @@ export default function KobuSchedule({ profile }: Props) {
               </div>
             </div>
 
-            {/* キャンセルボタン（自分の予約のみ） */}
+            {/* 自分の予約のみ：編集・キャンセル */}
             {detailModal.block.userId === profile.userId && (
-              <div className="px-5 pb-5">
+              <div className="px-5 pb-5 flex flex-col gap-2">
+                <button
+                  className="btn-outline w-full flex items-center justify-center gap-1.5 py-2.5"
+                  onClick={handleEditFromDetail}
+                  disabled={cancelling}
+                >
+                  <span className="icon" style={{ fontSize: 16 }}>edit</span>
+                  予約を編集する
+                </button>
                 {cancelError && <div className="banner-error">{cancelError}</div>}
                 <button
                   className="btn-danger w-full flex items-center justify-center gap-1.5 py-2.5"
@@ -583,70 +641,77 @@ export default function KobuSchedule({ profile }: Props) {
       )}
 
       {/* 予約モーダル（ボトムシート） */}
-      {modal && dayMap && (
-        <div className="fixed inset-0 z-50 flex flex-col justify-end">
-          <div className="absolute inset-0 bg-black/40" onClick={() => !submitting && setModal(null)} />
-          <div className="relative bg-surface rounded-t-2xl px-5 pt-4 pb-8 shadow-xl">
-            <div className="w-10 h-1 bg-line rounded-full mx-auto mb-4" />
+      {modal && dayMap && (() => {
+        const closeFn = () => { if (!submitting) { setModal(null); setEditingId(null) } }
+        const effectiveDayMap = editingId
+          ? { ...dayMap, [modal.date]: (dayMap[modal.date] ?? []).filter(b => b.id !== editingId) }
+          : dayMap
+        const effectiveSlots = getEffectiveSlots(modal.date, settings)
+        return (
+          <div className="fixed inset-0 z-50 flex flex-col justify-end">
+            <div className="absolute inset-0 bg-black/40" onClick={closeFn} />
+            <div className="relative bg-surface rounded-t-2xl px-5 pt-4 pb-8 shadow-xl">
+              <div className="w-10 h-1 bg-line rounded-full mx-auto mb-4" />
 
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <p className="text-base font-bold text-ink">工部室を予約</p>
-                <p className="text-[0.82rem] text-ink-sub">
-                  {formatDate(modal.date).md}（{formatDate(modal.date).wd}）
-                </p>
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <p className="text-base font-bold text-ink">{editingId ? '予約を変更' : '工部室を予約'}</p>
+                  <p className="text-[0.82rem] text-ink-sub">
+                    {formatDate(modal.date).md}（{formatDate(modal.date).wd}）
+                  </p>
+                </div>
+                <button className="btn-icon" onClick={closeFn} disabled={submitting}>
+                  <span className="icon">close</span>
+                </button>
               </div>
-              <button className="btn-icon" onClick={() => setModal(null)} disabled={submitting}>
-                <span className="icon">close</span>
-              </button>
-            </div>
 
-            {submitError && <div className="banner-error">{submitError}</div>}
+              {submitError && <div className="banner-error">{submitError}</div>}
 
-            <div className="form-row mb-3">
-              <label>バンド名</label>
-              <input
-                className="text-input"
-                type="text"
-                placeholder="バンド名を入力"
-                value={bandName}
-                onChange={(e) => setBandName(e.target.value)}
-              />
-            </div>
-
-            <div className="flex gap-3 mb-5">
-              <div className="flex-1">
-                <label className="block text-[0.8rem] text-ink-sub mb-1">開始</label>
-                <select className="text-input" value={modalStart}
-                  onChange={(e) => handleStartChange(e.target.value)}>
-                  {buildStartOptions(modal.date, dayMap, getEffectiveSlots(modal.date, settings)).map((t) => (
-                    <option key={t} value={t}>{t}</option>
-                  ))}
-                </select>
+              <div className="form-row mb-3">
+                <label>バンド名</label>
+                <input
+                  className="text-input"
+                  type="text"
+                  placeholder="バンド名を入力"
+                  value={bandName}
+                  onChange={(e) => setBandName(e.target.value)}
+                />
               </div>
-              <div className="flex-1">
-                <label className="block text-[0.8rem] text-ink-sub mb-1">終了</label>
-                <select className="text-input" value={modalEnd}
-                  onChange={(e) => setModalEnd(e.target.value)}>
-                  {buildEndOptions(toMinutes(modalStart), modal.date, dayMap, getEffectiveSlots(modal.date, settings)).map((t) => (
-                    <option key={t} value={t}>{t}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
 
-            <div className="flex gap-2">
-              <button className="btn-outline flex-1" onClick={() => setModal(null)} disabled={submitting}>
-                キャンセル
-              </button>
-              <button className="btn-primary flex-1" onClick={handleSubmit}
-                disabled={submitting || !bandName.trim() || !modalEnd}>
-                {submitting ? '送信中...' : '予約する'}
-              </button>
+              <div className="flex gap-3 mb-5">
+                <div className="flex-1">
+                  <label className="block text-[0.8rem] text-ink-sub mb-1">開始</label>
+                  <select className="text-input" value={modalStart}
+                    onChange={(e) => handleStartChange(e.target.value)}>
+                    {buildStartOptions(modal.date, effectiveDayMap, effectiveSlots).map((t) => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex-1">
+                  <label className="block text-[0.8rem] text-ink-sub mb-1">終了</label>
+                  <select className="text-input" value={modalEnd}
+                    onChange={(e) => setModalEnd(e.target.value)}>
+                    {buildEndOptions(toMinutes(modalStart), modal.date, effectiveDayMap, effectiveSlots).map((t) => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex gap-2">
+                <button className="btn-outline flex-1" onClick={closeFn} disabled={submitting}>
+                  キャンセル
+                </button>
+                <button className="btn-primary flex-1" onClick={handleSubmit}
+                  disabled={submitting || !bandName.trim() || !modalEnd}>
+                  {submitting ? (editingId ? '変更中...' : '送信中...') : (editingId ? '変更する' : '予約する')}
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )
+      })()}
     </div>
   )
 }

@@ -43,11 +43,26 @@ function NobuSubNav({ active, onChange }: { active: SubView; onChange: (v: SubVi
   )
 }
 
+type EditTarget = { facility: 'kobu' | 'nobu'; id: string }
+type KobuEditTarget = { id: string; date: string; bandName: string; startTime: string; endTime: string }
+
 function App() {
-  const [mainTab, setMainTab] = useState<MainTab>('nobu')
-  const [nobuSub, setNobuSub] = useState<SubView>('register')
-  const [profile, setProfile] = useState<LiffProfile | null>(null)
-  const [error,   setError]   = useState<string | null>(null)
+  const [mainTab,       setMainTab]       = useState<MainTab>('nobu')
+  const [nobuSub,       setNobuSub]       = useState<SubView>('register')
+  const [profile,       setProfile]       = useState<LiffProfile | null>(null)
+  const [error,         setError]         = useState<string | null>(null)
+  const [editTarget,    setEditTarget]    = useState<EditTarget | null>(null)
+  const [kobuEditTarget, setKobuEditTarget] = useState<KobuEditTarget | null>(null)
+
+  function handleEditRequest(facility: 'kobu' | 'nobu', id: string) {
+    setEditTarget({ facility, id })
+    setMainTab('my')
+  }
+
+  function handleKobuEdit(target: KobuEditTarget) {
+    setKobuEditTarget(target)
+    setMainTab('kobu')
+  }
 
   useEffect(() => {
     const liffId = import.meta.env.VITE_LIFF_ID as string | undefined
@@ -129,11 +144,29 @@ function App() {
           <>
             <NobuSubNav active={nobuSub} onChange={setNobuSub} />
             {nobuSub === 'register' && <ReservationForm profile={profile} />}
-            {nobuSub === 'all'      && <AllReservations />}
+            {nobuSub === 'all'      && (
+              <AllReservations
+                profile={profile}
+                onEditRequest={(id) => handleEditRequest('nobu', id)}
+              />
+            )}
           </>
         )}
-        {mainTab === 'kobu' && <KobuSchedule profile={profile} />}
-        {mainTab === 'my'   && <MyReservations profile={profile} />}
+        {mainTab === 'kobu' && (
+          <KobuSchedule
+            profile={profile}
+            initialEdit={kobuEditTarget}
+            onEditHandled={() => setKobuEditTarget(null)}
+          />
+        )}
+        {mainTab === 'my' && (
+          <MyReservations
+            profile={profile}
+            initialEdit={editTarget}
+            onEditHandled={() => setEditTarget(null)}
+            onKobuEdit={handleKobuEdit}
+          />
+        )}
       </main>
     </div>
   )
