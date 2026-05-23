@@ -65,7 +65,7 @@ export default function AdminLayout() {
     <div className="flex min-h-dvh max-md:flex-col">
       <aside className={SIDEBAR_CLS}>
         <div className="text-base font-bold px-3 pb-4 pt-2 text-ink max-md:hidden">部屋予約 管理</div>
-        <nav className="flex flex-col gap-1 flex-1 max-md:flex-row max-md:overflow-x-auto">
+        <nav className="flex flex-col gap-1 flex-1 max-md:overflow-x-auto">
 
           <NavLink to="/admin" end
             className={({ isActive }) => LINK_BASE + (isActive ? LINK_ACTIVE : LINK_IDLE)}>
@@ -86,9 +86,9 @@ export default function AdminLayout() {
               <span className={`icon transition-transform duration-200 ${reservationsExpanded ? 'rotate-180' : ''}`}
                 style={{ fontSize: 16 }}>expand_more</span>
             </button>
-            <div className={`grid transition-all duration-200 ease-out max-md:block ${reservationsExpanded ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
-              <div className="overflow-hidden min-h-0 max-md:overflow-visible">
-                <div className="flex flex-col gap-0.5 mt-0.5 max-md:flex-row">
+            <div className={`grid transition-all duration-200 ease-out ${reservationsExpanded ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
+              <div className="overflow-hidden min-h-0">
+                <div className="flex flex-col gap-0.5 mt-0.5">
                   <NavLink to="/admin/reservations/nobu"
                     className={({ isActive }) => SUBLINK_BASE + (isActive ? LINK_ACTIVE : LINK_IDLE)}>
                     農部
@@ -115,9 +115,9 @@ export default function AdminLayout() {
               <span className={`icon transition-transform duration-200 ${settingsExpanded ? 'rotate-180' : ''}`}
                 style={{ fontSize: 16 }}>expand_more</span>
             </button>
-            <div className={`grid transition-all duration-200 ease-out max-md:block ${settingsExpanded ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
-              <div className="overflow-hidden min-h-0 max-md:overflow-visible">
-                <div className="flex flex-col gap-0.5 mt-0.5 max-md:flex-row">
+            <div className={`grid transition-all duration-200 ease-out ${settingsExpanded ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
+              <div className="overflow-hidden min-h-0">
+                <div className="flex flex-col gap-0.5 mt-0.5">
                   <NavLink to="/admin/settings/nobu"
                     className={({ isActive }) => SUBLINK_BASE + (isActive ? LINK_ACTIVE : LINK_IDLE)}>
                     農部
