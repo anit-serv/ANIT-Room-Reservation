@@ -47,6 +47,7 @@ function NobuSubNav({ active, onChange }: { active: SubView; onChange: (v: SubVi
 
 type EditTarget = { facility: 'kobu' | 'nobu' | 'nobu-room'; id: string }
 type KobuEditTarget = { id: string; date: string; bandName: string; startTime: string; endTime: string }
+type PendingNav = { tab?: MainTab; nobuSub?: SubView }
 
 function App() {
   const [mainTab,            setMainTab]            = useState<MainTab>('nobu')
@@ -56,6 +57,27 @@ function App() {
   const [editTarget,         setEditTarget]         = useState<EditTarget | null>(null)
   const [kobuEditTarget,     setKobuEditTarget]     = useState<KobuEditTarget | null>(null)
   const [nobuRoomEditTarget, setNobuRoomEditTarget] = useState<KobuEditTarget | null>(null)
+  const [bookingActive,      setBookingActive]      = useState(false)
+  const [pendingNav,         setPendingNav]         = useState<PendingNav | null>(null)
+
+  function handleTabClick(id: MainTab) {
+    if (id === mainTab) return
+    if (bookingActive) { setPendingNav({ tab: id }); return }
+    setMainTab(id)
+  }
+
+  function handleNobuSubChange(v: SubView) {
+    if (v === nobuSub) return
+    if (bookingActive && nobuSub === 'register') { setPendingNav({ nobuSub: v }); return }
+    setNobuSub(v)
+  }
+
+  function confirmNavigation() {
+    setBookingActive(false)
+    if (pendingNav?.tab      !== undefined) setMainTab(pendingNav.tab)
+    if (pendingNav?.nobuSub  !== undefined) setNobuSub(pendingNav.nobuSub)
+    setPendingNav(null)
+  }
 
   function handleEditRequest(facility: 'kobu' | 'nobu' | 'nobu-room', id: string) {
     setEditTarget({ facility, id })
@@ -133,7 +155,7 @@ function App() {
         {MAIN_TABS.map(({ id, icon, label }) => (
           <button
             key={id}
-            onClick={() => setMainTab(id)}
+            onClick={() => handleTabClick(id)}
             className={
               'flex-1 flex flex-col items-center gap-0.5 px-1 py-2.5 text-[0.7rem] border-b-2 transition-colors ' +
               (mainTab === id
@@ -150,8 +172,8 @@ function App() {
       <main className="flex-1 p-4 overflow-y-auto">
         {mainTab === 'nobu' && (
           <>
-            <NobuSubNav active={nobuSub} onChange={setNobuSub} />
-            {nobuSub === 'register' && <ReservationForm profile={profile} />}
+            <NobuSubNav active={nobuSub} onChange={handleNobuSubChange} />
+            {nobuSub === 'register' && <ReservationForm profile={profile} onBookingActive={setBookingActive} />}
             {nobuSub === 'all'      && (
               <AllReservations
                 profile={profile}
@@ -165,6 +187,7 @@ function App() {
             profile={profile}
             initialEdit={nobuRoomEditTarget}
             onEditHandled={() => setNobuRoomEditTarget(null)}
+            onBookingActive={setBookingActive}
           />
         )}
         {mainTab === 'kobu' && (
@@ -172,6 +195,7 @@ function App() {
             profile={profile}
             initialEdit={kobuEditTarget}
             onEditHandled={() => setKobuEditTarget(null)}
+            onBookingActive={setBookingActive}
           />
         )}
         {mainTab === 'my' && (
@@ -184,6 +208,23 @@ function App() {
           />
         )}
       </main>
+
+      {pendingNav && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setPendingNav(null)} />
+          <div className="relative bg-surface rounded-2xl shadow-[var(--shadow-modal)] w-full max-w-[320px] p-6">
+            <p className="text-base font-bold text-ink mb-1.5">入力中の内容があります</p>
+            <p className="text-[0.85rem] text-ink-sub mb-4">ページを移動すると入力中の内容が破棄されます。</p>
+            <div className="flex gap-2">
+              <button className="btn-outline flex-1" onClick={() => setPendingNav(null)}>戻る</button>
+              <button
+                className="flex-1 px-4 py-[0.9rem] bg-danger text-white rounded-[10px] text-base font-bold cursor-pointer transition hover:brightness-90"
+                onClick={confirmNavigation}
+              >移動する</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

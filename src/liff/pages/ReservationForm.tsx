@@ -2,11 +2,11 @@ import { useState, useEffect } from 'react'
 import type { LiffProfile } from '../LiffApp'
 import Skeleton from '../../components/Skeleton'
 
-type Props = { profile: LiffProfile }
+type Props = { profile: LiffProfile; onBookingActive?: (active: boolean) => void }
 type TimeSlot  = { label: string; value: string }
 type DateEntry = { label: string; value: string; timeSlots: TimeSlot[] }
 
-export default function ReservationForm({ profile }: Props) {
+export default function ReservationForm({ profile, onBookingActive }: Props) {
   const [bandName,     setBandName]     = useState('')
   const [dates,        setDates]        = useState<DateEntry[]>([])
   const [selectedDate, setSelectedDate] = useState('')
@@ -15,6 +15,9 @@ export default function ReservationForm({ profile }: Props) {
   const [done,         setDone]         = useState(false)
   const [loadingSettings, setLoadingSettings] = useState(true)
   const [error,        setError]        = useState<string | null>(null)
+
+  const isDirty = !done && (!!bandName.trim() || !!selectedDate || !!selectedTime)
+  useEffect(() => { onBookingActive?.(isDirty) }, [isDirty])
 
   useEffect(() => {
     fetch('/api/settings')

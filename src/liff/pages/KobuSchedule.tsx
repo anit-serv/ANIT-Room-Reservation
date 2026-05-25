@@ -7,6 +7,7 @@ type Props = {
   profile: LiffProfile
   initialEdit?: KobuEditTarget | null
   onEditHandled?: () => void
+  onBookingActive?: (active: boolean) => void
 }
 
 type TimeSlot      = { label: string; value: string }
@@ -161,7 +162,7 @@ function buildEndOptions(startMinutes: number, date: string, dayMap: DayMap, slo
 }
 
 // ─── メインコンポーネント ──────────────────────────────
-export default function KobuSchedule({ profile, initialEdit, onEditHandled }: Props) {
+export default function KobuSchedule({ profile, initialEdit, onEditHandled, onBookingActive }: Props) {
   const [settings,     setSettings]     = useState<KobuSettings | null>(null)
   const [weekStart,    setWeekStart]    = useState(() => getSundayOfWeek(todayJST()))
   const [dayMap,       setDayMap]       = useState<DayMap | null>(null)
@@ -177,9 +178,12 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled }: Pr
   const [calendarOpen, setCalendarOpen] = useState(false)
   const [calMonth,     setCalMonth]     = useState('')
   const [detailModal,  setDetailModal]  = useState<DetailModal | null>(null)
-  const [cancelling,   setCancelling]   = useState(false)
-  const [cancelError,  setCancelError]  = useState<string | null>(null)
+  const [cancelling,    setCancelling]    = useState(false)
+  const [cancelError,   setCancelError]   = useState<string | null>(null)
   const [cancelConfirm, setCancelConfirm] = useState(false)
+  const [closeConfirm,  setCloseConfirm]  = useState(false)
+
+  useEffect(() => { onBookingActive?.(modal !== null) }, [modal])
   const [pendingEdit,  setPendingEdit]  = useState<KobuEditTarget | null>(null)
 
   // 設定取得
@@ -211,6 +215,7 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled }: Pr
     setEditingId(pendingEdit.id)
     setSubmitError(null)
     setPendingEdit(null)
+    setCloseConfirm(false)
   }, [pendingEdit, dayMap])
 
   async function fetchWeek(start: string) {
@@ -264,6 +269,7 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled }: Pr
     setBandName('')
     setEditingId(null)
     setSubmitError(null)
+    setCloseConfirm(false)
   }
 
   function handleStartChange(newStart: string) {
@@ -328,6 +334,7 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled }: Pr
     setEditingId(block.id)
     setDetailModal(null)
     setSubmitError(null)
+    setCloseConfirm(false)
   }
 
   async function handleCancel() {
@@ -692,7 +699,8 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled }: Pr
 
       {/* 予約モーダル（ボトムシート） */}
       {modal && dayMap && (() => {
-        const closeFn = () => { if (!submitting) { setModal(null); setEditingId(null) } }
+        const closeFn = () => { if (!submitting) { setCloseConfirm(true) } }
+        const confirmClose = () => { setModal(null); setEditingId(null); setCloseConfirm(false) }
         const effectiveDayMap = editingId
           ? { ...dayMap, [modal.date]: (dayMap[modal.date] ?? []).filter(b => b.id !== editingId) }
           : dayMap
@@ -701,6 +709,22 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled }: Pr
           <div className="fixed inset-0 z-50 flex flex-col justify-end">
             <div className="absolute inset-0 bg-black/40" onClick={closeFn} />
             <div className="relative bg-surface rounded-t-2xl px-5 pt-4 pb-8 shadow-xl">
+              {closeConfirm && (
+                <div className="absolute inset-0 bg-surface rounded-t-2xl z-10 flex flex-col items-center justify-center gap-4 px-6">
+                  <span className="icon icon-xl text-ink-pale">help_outline</span>
+                  <div className="text-center">
+                    <p className="text-base font-bold text-ink">{editingId ? '編集を中断しますか？' : '予約を中断しますか？'}</p>
+                    <p className="text-[0.85rem] text-ink-sub mt-1">入力中の内容が破棄されます</p>
+                  </div>
+                  <div className="flex gap-2 w-full max-w-[280px]">
+                    <button className="btn-outline flex-1" onClick={() => setCloseConfirm(false)}>続ける</button>
+                    <button
+                      className="flex-1 px-4 py-[0.9rem] bg-danger text-white rounded-[10px] text-[0.95rem] font-bold cursor-pointer transition hover:brightness-90"
+                      onClick={confirmClose}
+                    >中断する</button>
+                  </div>
+                </div>
+              )}
               <div className="w-10 h-1 bg-line rounded-full mx-auto mb-4" />
 
               <div className="flex items-center justify-between mb-4">
