@@ -70,6 +70,9 @@ export default function MyReservations({ profile, initialEdit, onEditHandled, on
         { res: nobuRoomRes, label: '農部室' },
       ].find(({ res }) => !res.ok)
       if (failed) {
+        if (failed.res.status === 401) {
+          throw new Error('セッションが切れています。LINEアプリを再起動してください')
+        }
         const body = await failed.res.json().catch(() => ({}))
         throw new Error(`${failed.label} API: ${failed.res.status} ${body.error ?? ''}`)
       }

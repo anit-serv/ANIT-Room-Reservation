@@ -18,6 +18,9 @@ export async function verifyLineToken(authHeader: string | undefined): Promise<L
       headers: { Authorization: `Bearer ${accessToken}` },
     })
   } catch (err: any) {
+    if (err.response?.status === 401 || err.response?.status === 403) {
+      throw new Error('Unauthorized')
+    }
     const detail = err.response
       ? `LINE ${err.response.status}: ${JSON.stringify(err.response.data)}`
       : err.message
