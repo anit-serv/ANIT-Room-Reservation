@@ -541,7 +541,7 @@ export default function NobuRoomSchedule({ profile, initialEdit, onEditHandled, 
           const tDates = Array.from({ length: 7 }, (_, i) => addDays(tWeek, i))
           return (
             <div
-              className={`overflow-y-auto${interactive ? '' : ' no-scrollbar'}`}
+              className={`overflow-y-auto${(!interactive || slideDir !== null) ? ' no-scrollbar' : ''}`}
               style={{ maxHeight: '460px' }}
               ref={interactive ? scrollRef : (el: HTMLDivElement | null) => { if (el) el.scrollTop = outgoingScrollTop }}
             >
