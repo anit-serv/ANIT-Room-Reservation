@@ -828,32 +828,52 @@ async function handleDashboard(req: VercelRequest, res: VercelResponse) {
     const in7Days = new Date(nowJST); in7Days.setUTCDate(nowJST.getUTCDate() + 7)
     const in7DaysStr = in7Days.toISOString().slice(0, 10)
 
-    const [resSnap, usersSnap, adminsSnap, settingsDoc, logsSnap] = await Promise.all([
+    const [resSnap, kobuSnap, nobuRoomSnap, usersSnap, adminsSnap, settingsDoc, logsSnap] = await Promise.all([
       db.collection('reservations').where('date', '>=', `${todayStr}T00:00`).get(),
+      db.collection('kobu_reservations').where('date', '>=', todayStr).where('date', '<=', in7DaysStr).get(),
+      db.collection('nobu_room_reservations').where('date', '>=', todayStr).where('date', '<=', in7DaysStr).get(),
       db.collection('users').get(),
       db.collection('admins').get(),
       db.collection('settings').doc('reservation').get(),
       db.collection('auditLogs').orderBy('createdAt', 'desc').limit(8).get(),
     ])
 
-    // 統計
-    const allFutureRes = resSnap.docs.map((d) => ({ id: d.id, ...d.data() } as any))
-    const pendingCount = allFutureRes.filter((r) => r.status === 'pending').length
-    const confirmedCount = allFutureRes.filter((r) => r.status === 'confirmed').length
-    const todayCount = allFutureRes.filter((r) => (r.date ?? '').startsWith(todayStr)).length
-    const bannedCount = usersSnap.docs.filter((d) => d.data().banned === true).length
+    // 農部生協 統計
+    const nobuAll = resSnap.docs.map((d) => ({ id: d.id, ...d.data() } as any))
+    const pendingCount   = nobuAll.filter((r) => r.status === 'pending').length
+    const confirmedCount = nobuAll.filter((r) => r.status === 'confirmed').length
+    const nobuToday      = nobuAll.filter((r) => (r.date ?? '').startsWith(todayStr)).length
+    const bannedCount    = usersSnap.docs.filter((d) => d.data().banned === true).length
 
-    // 直近の予約（今日以降7日間、最大10件）
-    const upcomingRaw = allFutureRes
+    // 工部室・農部室 統計
+    const kobuAll      = kobuSnap.docs.map((d) => ({ id: d.id, ...d.data() } as any))
+    const kobuToday    = kobuAll.filter((r) => r.date === todayStr).length
+    const kobuWeek     = kobuAll.length
+
+    const nobuRoomAll  = nobuRoomSnap.docs.map((d) => ({ id: d.id, ...d.data() } as any))
+    const nobuRoomToday = nobuRoomAll.filter((r) => r.date === todayStr).length
+    const nobuRoomWeek  = nobuRoomAll.length
+
+    // 全施設の直近予約（7日以内・最大10件）を合体してソート
+    const nobuUpcoming = nobuAll
       .filter((r) => (r.date ?? '').split('T')[0] <= in7DaysStr)
-      .sort((a, b) => (a.date ?? '').localeCompare(b.date ?? ''))
+      .map((r) => ({ ...r, facility: 'nobu' as const, sortKey: r.date ?? '' }))
+
+    const kobuUpcoming = kobuAll
+      .map((r) => ({ ...r, facility: 'kobu' as const, sortKey: `${r.date}T${r.startTime ?? ''}` }))
+
+    const nobuRoomUpcoming = nobuRoomAll
+      .map((r) => ({ ...r, facility: 'nobu-room' as const, sortKey: `${r.date}T${r.startTime ?? ''}` }))
+
+    const allUpcomingRaw = [...nobuUpcoming, ...kobuUpcoming, ...nobuRoomUpcoming]
+      .sort((a, b) => a.sortKey.localeCompare(b.sortKey))
       .slice(0, 10)
 
-    // ユーザー名を結合
-    const upcomingUserIds = Array.from(new Set(upcomingRaw.map((r) => r.userId).filter(Boolean)))
+    // ユーザー名を結合（全施設分）
+    const allUserIds = Array.from(new Set(allUpcomingRaw.map((r) => r.userId).filter(Boolean)))
     const userMap: Record<string, { displayName: string; pictureUrl: string | null }> = {}
-    if (upcomingUserIds.length > 0) {
-      const refs = upcomingUserIds.map((id) => db.collection('users').doc(id))
+    if (allUserIds.length > 0) {
+      const refs = allUserIds.map((id) => db.collection('users').doc(id))
       const userDocs = await db.getAll(...refs)
       userDocs.forEach((d) => {
         if (d.exists) {
@@ -865,17 +885,20 @@ async function handleDashboard(req: VercelRequest, res: VercelResponse) {
       })
     }
 
-    const upcoming = upcomingRaw.map((r) => ({
-      id: r.id,
-      bandName: r.bandName,
-      date: r.date,
-      status: r.status,
-      order: r.order,
+    const upcoming = allUpcomingRaw.map((r) => ({
+      id:              r.id,
+      facility:        r.facility,
+      bandName:        r.bandName,
+      date:            r.date,
+      startTime:       r.startTime,
+      endTime:         r.endTime,
+      status:          r.status,
+      order:           r.order,
       userDisplayName: userMap[r.userId]?.displayName ?? '',
       userPictureUrl:  userMap[r.userId]?.pictureUrl  ?? null,
     }))
 
-    // 適用予定の設定変更
+    // 農部生協の適用予定設定変更
     const settings = settingsDoc.exists ? settingsDoc.data()! : {}
     const pendingChange = settings.nextChange ?? null
 
@@ -893,11 +916,10 @@ async function handleDashboard(req: VercelRequest, res: VercelResponse) {
 
     return res.status(200).json({
       stats: {
-        pendingReservations: pendingCount,
-        confirmedReservations: confirmedCount,
-        todayReservations: todayCount,
-        totalUsers: usersSnap.size,
-        bannedUsers: bannedCount,
+        nobu:    { pending: pendingCount, confirmed: confirmedCount, today: nobuToday },
+        kobu:    { today: kobuToday,    week: kobuWeek },
+        nobuRoom:{ today: nobuRoomToday, week: nobuRoomWeek },
+        users:   { total: usersSnap.size, banned: bannedCount },
         adminCount: adminsSnap.size,
       },
       upcoming,

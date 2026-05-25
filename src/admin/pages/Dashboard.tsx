@@ -4,19 +4,21 @@ import { adminFetch } from '../auth'
 import Skeleton from '../../components/Skeleton'
 
 type Stats = {
-  pendingReservations: number
-  confirmedReservations: number
-  todayReservations: number
-  totalUsers: number
-  bannedUsers: number
+  nobu:     { pending: number; confirmed: number; today: number }
+  kobu:     { today: number; week: number }
+  nobuRoom: { today: number; week: number }
+  users:    { total: number; banned: number }
   adminCount: number
 }
 
 type UpcomingReservation = {
   id: string
+  facility: 'nobu' | 'kobu' | 'nobu-room'
   bandName: string
   date: string
-  status: 'pending' | 'confirmed'
+  startTime?: string
+  endTime?: string
+  status?: 'pending' | 'confirmed'
   order?: number
   userDisplayName: string
   userPictureUrl: string | null
@@ -56,6 +58,12 @@ const ACTION_LABELS: Record<string, string> = {
   'preset.delete': 'プリセット削除',
 }
 
+const FACILITY_META = {
+  'nobu':      { label: '農部生協', icon: 'grass',        accentBar: 'bg-brand',       badge: 'bg-green-100 text-green-700'  },
+  'kobu':      { label: '工部室',   icon: 'meeting_room', accentBar: 'bg-blue-400',    badge: 'bg-blue-100 text-blue-700'    },
+  'nobu-room': { label: '農部室',   icon: 'door_open',    accentBar: 'bg-orange-400',  badge: 'bg-orange-100 text-orange-700'},
+} as const
+
 function formatRelative(ts: number | null): string {
   if (!ts) return '-'
   const diff = Date.now() - ts
@@ -69,7 +77,6 @@ function formatRelative(ts: number | null): string {
   return new Date(ts).toLocaleDateString('ja-JP')
 }
 
-const STATS_GRID = 'grid grid-cols-4 gap-3 mb-4 max-md:grid-cols-2'
 const DASH_GRID  = 'grid grid-cols-2 gap-4 max-md:grid-cols-1'
 const SECTION_HEADER = 'flex justify-between items-center px-4 py-3 border-b border-line'
 
@@ -113,13 +120,13 @@ export default function Dashboard() {
         )}
       </div>
 
-      {/* 適用予定通知 */}
+      {/* 農部生協 適用予定通知 */}
       {pendingChange && (
         <div className="bg-warn-light border border-warn rounded-xl p-5 mb-4 shadow-[var(--shadow-card-sm)]">
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <div>
               <strong className="text-warn">
-                <span className="icon icon-sm align-middle">schedule</span> 設定変更が予定されています
+                <span className="icon icon-sm align-middle">schedule</span> 農部生協の設定変更が予定されています
               </strong>
               <div className="text-[0.85rem] text-ink-sub mt-1">
                 適用日: <strong>{pendingChange.effectiveFrom}</strong>
@@ -134,48 +141,81 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* 統計カード */}
-      <div className={STATS_GRID}>
-        <StatCard icon="hourglass_empty" iconColor="var(--color-warn)" label="抽選待ち" value={stats.pendingReservations} onClick={() => navigate('/admin/reservations')} />
-        <StatCard icon="check_circle"    iconColor="var(--color-brand)" label="確定済み" value={stats.confirmedReservations} onClick={() => navigate('/admin/reservations')} />
-        <StatCard icon="today"           iconColor="var(--color-link)"  label="本日の予約" value={stats.todayReservations} />
+      {/* 農部生協 統計 */}
+      <FacilityLabel icon="grass" label="農部生協" />
+      <div className="grid grid-cols-4 gap-3 mb-3 max-md:grid-cols-2">
+        <StatCard icon="hourglass_empty" iconColor="var(--color-warn)"    label="抽選待ち"  value={stats.nobu.pending}   onClick={() => navigate('/admin/reservations')} />
+        <StatCard icon="check_circle"    iconColor="var(--color-brand)"   label="確定済み"  value={stats.nobu.confirmed} onClick={() => navigate('/admin/reservations')} />
+        <StatCard icon="today"           iconColor="var(--color-link)"    label="本日の予約" value={stats.nobu.today} />
         <StatCard icon="group"           iconColor="var(--color-ink-sub)" label="ユーザー"
-          value={stats.totalUsers}
-          sub={stats.bannedUsers > 0 ? `BAN ${stats.bannedUsers}名` : undefined}
+          value={stats.users.total}
+          sub={stats.users.banned > 0 ? `BAN ${stats.users.banned}名` : undefined}
           onClick={() => navigate('/admin/users')} />
       </div>
 
+      {/* 工部室・農部室 統計 */}
+      <FacilityLabel icon="meeting_room" label="工部室" />
+      <div className="grid grid-cols-2 gap-3 mb-3 max-md:grid-cols-2">
+        <StatCard icon="today"      iconColor="var(--color-link)"    label="本日の予約" value={stats.kobu.today} onClick={() => navigate('/admin/kobu-reservations')} />
+        <StatCard icon="date_range" iconColor="var(--color-ink-sub)" label="今後7日"   value={stats.kobu.week}  onClick={() => navigate('/admin/kobu-reservations')} />
+      </div>
+
+      <FacilityLabel icon="door_open" label="農部室" />
+      <div className="grid grid-cols-2 gap-3 mb-5 max-md:grid-cols-2">
+        <StatCard icon="today"      iconColor="var(--color-link)"    label="本日の予約" value={stats.nobuRoom.today} onClick={() => navigate('/admin/nobu-room-reservations')} />
+        <StatCard icon="date_range" iconColor="var(--color-ink-sub)" label="今後7日"   value={stats.nobuRoom.week}  onClick={() => navigate('/admin/nobu-room-reservations')} />
+      </div>
+
       <div className={DASH_GRID}>
-        {/* 直近の予約 */}
+        {/* 直近の予約（全施設） */}
         <div className="bg-surface border border-line rounded-xl overflow-hidden shadow-[var(--shadow-card-sm)]">
           <div className={SECTION_HEADER}>
             <h2 className="text-[0.95rem] font-bold m-0 flex items-center gap-1.5">
               <span className="icon icon-sm">event</span> 直近の予約
             </h2>
-            <Link to="/admin/reservations" className="text-[0.85rem] text-brand no-underline">すべて見る →</Link>
           </div>
           {upcoming.length === 0 ? (
             <EmptyState icon="event_busy" text="直近の予約はありません" />
           ) : (
             <div className="flex flex-col">
               {upcoming.map((r) => {
-                const [datePart, timePart] = r.date.split('T')
+                const meta = FACILITY_META[r.facility]
+                let dateStr: string
+                let timeStr: string
+                if (r.facility === 'nobu') {
+                  const [datePart, timePart] = r.date.split('T')
+                  dateStr = datePart.slice(5).replace('-', '/')
+                  timeStr = timePart ?? ''
+                } else {
+                  dateStr = r.date.slice(5).replace('-', '/')
+                  timeStr = r.startTime ? `${r.startTime}〜${r.endTime}` : ''
+                }
+                const dest = r.facility === 'nobu'
+                  ? `/admin/reservations?focus=${r.id}`
+                  : r.facility === 'kobu'
+                    ? `/admin/kobu-reservations`
+                    : `/admin/nobu-room-reservations`
                 return (
                   <button
-                    key={r.id}
+                    key={`${r.facility}-${r.id}`}
                     className="flex items-center gap-2.5 px-4 py-2.5 border-b border-line last:border-b-0 bg-transparent border-0 text-left cursor-pointer transition-colors hover:bg-bg"
-                    onClick={() => navigate(`/admin/reservations?focus=${r.id}`)}
+                    onClick={() => navigate(dest)}
                   >
-                    <div className={'w-1 self-stretch rounded ' + (r.status === 'confirmed' ? 'bg-brand' : 'bg-warn')} />
+                    <div className={`w-1 self-stretch rounded ${meta.accentBar}`} />
                     <div className="flex-1 min-w-0">
                       <div className="font-semibold truncate">{r.bandName}</div>
                       <div className="text-[0.8rem] text-ink-sub">
-                        {datePart.slice(5).replace('-', '/')} {timePart} ・ {r.userDisplayName || '(不明)'}
+                        {dateStr} {timeStr}{r.userDisplayName ? ` ・ ${r.userDisplayName}` : ''}
                       </div>
                     </div>
-                    <span className={'badge ' + (r.status === 'confirmed' ? 'badge-confirmed' : 'badge-pending')}>
-                      {r.status === 'confirmed' ? `${r.order ?? '-'}` : '待ち'}
+                    <span className={`text-[0.65rem] font-semibold px-1.5 py-0.5 rounded-md ${meta.badge}`}>
+                      {meta.label}
                     </span>
+                    {r.facility === 'nobu' && (
+                      <span className={'badge ' + (r.status === 'confirmed' ? 'badge-confirmed' : 'badge-pending')}>
+                        {r.status === 'confirmed' ? `${r.order ?? '-'}` : '待ち'}
+                      </span>
+                    )}
                   </button>
                 )
               })}
@@ -214,6 +254,15 @@ export default function Dashboard() {
   )
 }
 
+function FacilityLabel({ icon, label }: { icon: string; label: string }) {
+  return (
+    <p className="text-[0.72rem] font-bold text-ink-pale mb-1.5 flex items-center gap-1 mt-1">
+      <span className="icon" style={{ fontSize: 13 }}>{icon}</span>
+      {label}
+    </p>
+  )
+}
+
 function EmptyState({ icon, text }: { icon: string; text: string }) {
   return (
     <div className="flex flex-col items-center gap-2 py-8 px-4 text-ink-pale text-center">
@@ -224,27 +273,33 @@ function EmptyState({ icon, text }: { icon: string; text: string }) {
 }
 
 function DashboardSkeleton() {
+  const STATS_GRID4 = 'grid grid-cols-4 gap-3 mb-3 max-md:grid-cols-2'
+  const STATS_GRID2 = 'grid grid-cols-2 gap-3 mb-3 max-md:grid-cols-2'
+  const StatSkel = () => (
+    <div className="flex items-center gap-3 p-4 bg-surface border border-line rounded-xl shadow-[var(--shadow-card-sm)]">
+      <Skeleton width={32} height={32} circle />
+      <div className="flex-1">
+        <Skeleton width="60%" height="12px" className="mb-1.5" />
+        <Skeleton width="40%" height="24px" />
+      </div>
+    </div>
+  )
   return (
     <div>
       <div className="flex justify-between mb-6">
         <Skeleton width="180px" height="28px" />
         <Skeleton width="200px" height="20px" />
       </div>
-      <div className={STATS_GRID}>
-        {[0, 1, 2, 3].map((i) => (
-          <div key={i} className="flex items-center gap-3 p-4 bg-surface border border-line rounded-xl shadow-[var(--shadow-card-sm)]">
-            <Skeleton width={32} height={32} circle />
-            <div className="flex-1">
-              <Skeleton width="60%" height="12px" className="mb-1.5" />
-              <Skeleton width="40%" height="24px" />
-            </div>
-          </div>
-        ))}
-      </div>
-      <div className={DASH_GRID}>
+      <Skeleton width="80px" height="12px" className="mb-1.5" />
+      <div className={STATS_GRID4}>{[0,1,2,3].map((i) => <StatSkel key={i} />)}</div>
+      <Skeleton width="60px" height="12px" className="mb-1.5" />
+      <div className={STATS_GRID2}>{[0,1].map((i) => <StatSkel key={i} />)}</div>
+      <Skeleton width="60px" height="12px" className="mb-1.5" />
+      <div className={`${STATS_GRID2} mb-5`}>{[0,1].map((i) => <StatSkel key={i} />)}</div>
+      <div className="grid grid-cols-2 gap-4 max-md:grid-cols-1">
         {[0, 1].map((i) => (
           <div key={i} className="bg-surface border border-line rounded-xl overflow-hidden shadow-[var(--shadow-card-sm)]">
-            <div className={SECTION_HEADER}>
+            <div className="flex justify-between items-center px-4 py-3 border-b border-line">
               <Skeleton width="160px" height="20px" />
               <Skeleton width="80px" height="14px" />
             </div>
