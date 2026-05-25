@@ -414,7 +414,8 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled }: Pr
                 <span className="text-[0.84rem] font-semibold text-ink">
                   {(() => { const [y, mo] = calMonth.split('-').map(Number); return `${y}年${mo}月` })()}
                 </span>
-                <button className="btn-icon-nav" onClick={() => setCalMonth(nextMonth(calMonth))}>
+                <button className="btn-icon-nav" onClick={() => setCalMonth(nextMonth(calMonth))}
+                  disabled={nextMonth(calMonth) > maxDate.slice(0, 7)}>
                   <span className="icon">chevron_right</span>
                 </button>
               </div>
