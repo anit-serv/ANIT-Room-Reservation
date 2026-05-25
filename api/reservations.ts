@@ -203,8 +203,14 @@ async function handleDelete(req: VercelRequest, res: VercelResponse, docId: stri
     const docRef = db.collection('reservations').doc(docId)
     const doc = await docRef.get()
     if (!doc.exists) return res.status(404).json({ error: '予約が見つかりません' })
-    if (doc.data()!.userId !== userId) return res.status(403).json({ error: '権限がありません' })
-    if (doc.data()!.status === 'confirmed') return res.status(400).json({ error: '抽選確定済みは削除できません' })
+    const data = doc.data()!
+    if (data.userId !== userId) return res.status(403).json({ error: '権限がありません' })
+    if (data.status === 'confirmed') return res.status(400).json({ error: '抽選確定済みは削除できません' })
+    const [datePart, timePart] = (data.date as string).split('T')
+    const startTime = timePart?.split('-')[0] ?? '00:00'
+    if (Date.now() >= new Date(`${datePart}T${startTime}:00+09:00`).getTime()) {
+      return res.status(400).json({ error: '予約開始時刻を過ぎているため削除できません' })
+    }
     await docRef.delete()
     return res.status(200).json({ success: true })
   } catch (err: any) {
@@ -228,6 +234,10 @@ async function handleModify(req: VercelRequest, res: VercelResponse, docId: stri
     if (data.userId !== userId) return res.status(403).json({ error: '権限がありません' })
 
     const dateOnly = (data.date as string).split('T')[0]
+    const startTime = (data.date as string).split('T')[1]?.split('-')[0] ?? '00:00'
+    if (Date.now() >= new Date(`${dateOnly}T${startTime}:00+09:00`).getTime()) {
+      return res.status(400).json({ error: '予約開始時刻を過ぎているため変更できません' })
+    }
     const updates: Record<string, any> = {}
 
     // バンド名変更

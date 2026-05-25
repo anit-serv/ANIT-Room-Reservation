@@ -251,7 +251,11 @@ async function handleDelete(req: VercelRequest, res: VercelResponse, docId: stri
     const docRef = db.collection(cfg.collection).doc(docId)
     const doc    = await docRef.get()
     if (!doc.exists) return res.status(404).json({ error: '予約が見つかりません' })
-    if (doc.data()!.userId !== userId) return res.status(403).json({ error: '権限がありません' })
+    const data = doc.data()!
+    if (data.userId !== userId) return res.status(403).json({ error: '権限がありません' })
+    if (Date.now() >= new Date(`${data.date}T${data.startTime}:00+09:00`).getTime()) {
+      return res.status(400).json({ error: '予約開始時刻を過ぎているため削除できません' })
+    }
     await docRef.delete()
     return res.status(200).json({ success: true })
   } catch (err: any) {
@@ -287,8 +291,9 @@ async function handleModify(req: VercelRequest, res: VercelResponse, docId: stri
     const data = doc.data()!
     if (data.userId !== userId) return res.status(403).json({ error: '権限がありません' })
 
-    const today = nowJST().toISOString().slice(0, 10)
-    if (data.date < today) return res.status(400).json({ error: '過去の予約は変更できません' })
+    if (Date.now() >= new Date(`${data.date}T${data.startTime}:00+09:00`).getTime()) {
+      return res.status(400).json({ error: '予約開始時刻を過ぎているため変更できません' })
+    }
 
     const updates: Record<string, any> = {}
     if (newBandName !== undefined) {

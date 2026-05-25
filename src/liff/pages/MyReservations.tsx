@@ -41,6 +41,18 @@ type NobuRoomReservation = {
 
 type Reservation = NobuReservation | KobuReservation | NobuRoomReservation
 
+function startISO(r: Reservation): string {
+  if (r.facility === 'nobu') {
+    const [datePart, timePart] = r.date.split('T')
+    return `${datePart}T${timePart.split('-')[0]}:00+09:00`
+  }
+  return `${r.date}T${r.startTime}:00+09:00`
+}
+
+function isPast(r: Reservation): boolean {
+  return Date.now() >= new Date(startISO(r)).getTime()
+}
+
 function sortKey(r: Reservation): string {
   if (r.facility === 'nobu') return r.date
   return `${r.date}T${r.startTime}`
@@ -189,13 +201,14 @@ export default function MyReservations({ profile, initialEdit, onEditHandled, on
           const displayDate = datePart.slice(5).replace('-', '/')
           const isConfirmed = r.status === 'confirmed'
           const canDelete   = !isConfirmed
+          const past        = isPast(r)
 
           return (
             <div key={r.id} className="reservation-card">
               <div className={'w-1 self-stretch rounded ' + (isConfirmed ? 'bg-brand' : 'bg-warn')} />
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1.5 mb-0.5">
-                  <span className="text-[0.68rem] bg-line text-ink-sub px-1.5 py-0.5 rounded font-semibold">農部</span>
+                  <span className="text-[0.68rem] bg-line text-ink-sub px-1.5 py-0.5 rounded font-semibold">農部生協</span>
                   <span className="font-bold text-ink truncate">{r.bandName}</span>
                 </div>
                 <div className="text-[0.82rem] text-ink-sub mb-2 flex items-center gap-1.5 flex-wrap">
@@ -207,16 +220,18 @@ export default function MyReservations({ profile, initialEdit, onEditHandled, on
                   {isConfirmed ? '抽選確定' : '抽選待ち'}
                 </span>
               </div>
-              <div className="flex gap-1">
-                <button className="btn-icon" onClick={() => setModifyingNobu(r)} disabled={isDeleting} title="変更">
-                  <span className="icon" style={{ fontSize: 20 }}>edit</span>
-                </button>
-                {canDelete && (
-                  <button className="btn-icon-danger" onClick={() => handleDelete(r)} disabled={isDeleting} title="削除">
-                    <span className="icon" style={{ fontSize: 20 }}>{isDeleting ? 'hourglass_empty' : 'delete'}</span>
+              {!past && (
+                <div className="flex gap-1">
+                  <button className="btn-icon" onClick={() => setModifyingNobu(r)} disabled={isDeleting} title="変更">
+                    <span className="icon" style={{ fontSize: 20 }}>edit</span>
                   </button>
-                )}
-              </div>
+                  {canDelete && (
+                    <button className="btn-icon-danger" onClick={() => handleDelete(r)} disabled={isDeleting} title="削除">
+                      <span className="icon" style={{ fontSize: 20 }}>{isDeleting ? 'hourglass_empty' : 'delete'}</span>
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           )
         }
@@ -224,6 +239,7 @@ export default function MyReservations({ profile, initialEdit, onEditHandled, on
         // 農部室
         if (r.facility === 'nobu-room') {
           const displayDate = r.date.slice(5).replace('-', '/')
+          const past        = isPast(r)
           return (
             <div key={r.id} className="reservation-card">
               <div className="w-1 self-stretch rounded bg-orange-400" />
@@ -240,20 +256,23 @@ export default function MyReservations({ profile, initialEdit, onEditHandled, on
                   <span className="icon icon-sm">check_circle</span>確定
                 </span>
               </div>
-              <div className="flex gap-1">
-                <button className="btn-icon" onClick={() => onNobuRoomEdit?.(r)} disabled={isDeleting} title="変更">
-                  <span className="icon" style={{ fontSize: 20 }}>edit</span>
-                </button>
-                <button className="btn-icon-danger" onClick={() => handleDelete(r)} disabled={isDeleting} title="削除">
-                  <span className="icon" style={{ fontSize: 20 }}>{isDeleting ? 'hourglass_empty' : 'delete'}</span>
-                </button>
-              </div>
+              {!past && (
+                <div className="flex gap-1">
+                  <button className="btn-icon" onClick={() => onNobuRoomEdit?.(r)} disabled={isDeleting} title="変更">
+                    <span className="icon" style={{ fontSize: 20 }}>edit</span>
+                  </button>
+                  <button className="btn-icon-danger" onClick={() => handleDelete(r)} disabled={isDeleting} title="削除">
+                    <span className="icon" style={{ fontSize: 20 }}>{isDeleting ? 'hourglass_empty' : 'delete'}</span>
+                  </button>
+                </div>
+              )}
             </div>
           )
         }
 
         // 工部室
         const displayDate = r.date.slice(5).replace('-', '/')
+        const past        = isPast(r)
         return (
           <div key={r.id} className="reservation-card">
             <div className="w-1 self-stretch rounded bg-brand" />
@@ -270,14 +289,16 @@ export default function MyReservations({ profile, initialEdit, onEditHandled, on
                 <span className="icon icon-sm">check_circle</span>確定
               </span>
             </div>
-            <div className="flex gap-1">
-              <button className="btn-icon" onClick={() => onKobuEdit?.(r)} disabled={isDeleting} title="変更">
-                <span className="icon" style={{ fontSize: 20 }}>edit</span>
-              </button>
-              <button className="btn-icon-danger" onClick={() => handleDelete(r)} disabled={isDeleting} title="削除">
-                <span className="icon" style={{ fontSize: 20 }}>{isDeleting ? 'hourglass_empty' : 'delete'}</span>
-              </button>
-            </div>
+            {!past && (
+              <div className="flex gap-1">
+                <button className="btn-icon" onClick={() => onKobuEdit?.(r)} disabled={isDeleting} title="変更">
+                  <span className="icon" style={{ fontSize: 20 }}>edit</span>
+                </button>
+                <button className="btn-icon-danger" onClick={() => handleDelete(r)} disabled={isDeleting} title="削除">
+                  <span className="icon" style={{ fontSize: 20 }}>{isDeleting ? 'hourglass_empty' : 'delete'}</span>
+                </button>
+              </div>
+            )}
           </div>
         )
       })}
