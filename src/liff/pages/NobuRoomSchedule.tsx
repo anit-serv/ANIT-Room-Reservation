@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import type { LiffProfile } from '../LiffApp'
 import Skeleton from '../../components/Skeleton'
 
@@ -166,8 +166,10 @@ export default function NobuRoomSchedule({ profile, initialEdit, onEditHandled, 
   const [settings,     setSettings]     = useState<NobuRoomSettings | null>(null)
   const [weekStart,    setWeekStart]    = useState(() => getSundayOfWeek(todayJST()))
   const [weekCache,    setWeekCache]    = useState<Record<string, DayMap>>({})
-  const [outgoingWeek, setOutgoingWeek] = useState<string | null>(null)
-  const [slideDir,     setSlideDir]     = useState<'left' | 'right' | null>(null)
+  const [outgoingWeek,      setOutgoingWeek]      = useState<string | null>(null)
+  const [slideDir,          setSlideDir]          = useState<'left' | 'right' | null>(null)
+  const [outgoingScrollTop, setOutgoingScrollTop] = useState(0)
+  const scrollRef = useRef<HTMLDivElement>(null)
   const [loading,      setLoading]      = useState(false)
   const [error,        setError]        = useState<string | null>(null)
   const [modal,        setModal]        = useState<ModalState | null>(null)
@@ -271,6 +273,7 @@ export default function NobuRoomSchedule({ profile, initialEdit, onEditHandled, 
   function navigateTo(newWeek: string, dir: 'left' | 'right') {
     if (outgoingWeek || newWeek === weekStart) return
     if (weekCache[newWeek] !== undefined) {
+      setOutgoingScrollTop(scrollRef.current?.scrollTop ?? 0)
       setOutgoingWeek(weekStart)
       setSlideDir(dir)
       setWeekStart(newWeek)
@@ -537,7 +540,11 @@ export default function NobuRoomSchedule({ profile, initialEdit, onEditHandled, 
         function renderWeekContent(tWeek: string, tMap: DayMap, interactive: boolean) {
           const tDates = Array.from({ length: 7 }, (_, i) => addDays(tWeek, i))
           return (
-            <div className="overflow-y-auto" style={{ maxHeight: '460px' }}>
+            <div
+              className={`overflow-y-auto${interactive ? '' : ' no-scrollbar'}`}
+              style={{ maxHeight: '460px' }}
+              ref={interactive ? scrollRef : (el: HTMLDivElement | null) => { if (el) el.scrollTop = outgoingScrollTop }}
+            >
               <div className="sticky top-0 bg-surface z-20 border-b border-line flex">
                 <div className="w-9 flex-shrink-0" />
                 {tDates.map((date) => {
