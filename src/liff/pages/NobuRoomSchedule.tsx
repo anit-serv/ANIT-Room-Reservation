@@ -393,7 +393,7 @@ export default function NobuRoomSchedule({ profile, initialEdit, onEditHandled }
           {startMd} 〜 {endMd}
         </span>
         <button className="btn-icon-nav" onClick={() => setWeekStart(addDays(weekStart, 7))}
-          disabled={addDays(weekStart, 7) > maxDate}>
+          disabled={addDays(weekStart, 6) >= maxDate}>
           <span className="icon">chevron_right</span>
         </button>
         <button className="btn-outline w-auto px-2.5 py-1 text-[0.78rem]"

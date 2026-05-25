@@ -157,6 +157,7 @@
 @utility btn-icon-nav {
   @apply w-9 h-9 flex items-center justify-center rounded-md border border-line bg-white text-ink-pale cursor-pointer transition;
   @apply hover:text-brand-dark hover:border-brand hover:bg-brand-light;
+  @apply disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none;
 }
 
 /* ── 入力 ─────────────────────────────────────────── */
