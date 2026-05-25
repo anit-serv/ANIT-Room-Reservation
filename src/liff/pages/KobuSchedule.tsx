@@ -39,10 +39,15 @@ function todayJST(): string {
   return new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10)
 }
 
-function getMondayOfWeek(dateStr: string): string {
+function maxBookingDate(): string {
+  const d = new Date(Date.now() + 9 * 60 * 60 * 1000)
+  d.setFullYear(d.getFullYear() + 1)
+  return d.toISOString().slice(0, 10)
+}
+
+function getSundayOfWeek(dateStr: string): string {
   const d = new Date(dateStr + 'T00:00:00Z')
-  const wd = d.getUTCDay()
-  d.setUTCDate(d.getUTCDate() + (wd === 0 ? -6 : 1 - wd))
+  d.setUTCDate(d.getUTCDate() - d.getUTCDay())
   return d.toISOString().slice(0, 10)
 }
 
@@ -59,8 +64,8 @@ function formatDate(dateStr: string) {
 }
 
 // ─── 予約可能チェック ──────────────────────────────────
-function isDateAvailable(date: string, settings: KobuSettings, today: string): boolean {
-  if (date < today) return false
+function isDateAvailable(date: string, settings: KobuSettings, today: string, maxDate: string): boolean {
+  if (date < today || date > maxDate) return false
   if (settings.excludedDates.includes(date)) return false
   const wd = new Date(date + 'T00:00:00Z').getUTCDay()
   return settings.availableDays.includes(wd) || settings.extraDates.includes(date)
@@ -132,8 +137,7 @@ function getCalendarDays(ym: string): (string | null)[] {
   const [y, m] = ym.split('-').map(Number)
   const firstDay    = new Date(Date.UTC(y, m - 1, 1))
   const daysInMonth = new Date(Date.UTC(y, m, 0)).getUTCDate()
-  let pad = firstDay.getUTCDay() - 1
-  if (pad < 0) pad = 6
+  const pad = firstDay.getUTCDay()
   const days: (string | null)[] = Array(pad).fill(null)
   for (let d = 1; d <= daysInMonth; d++)
     days.push(`${ym}-${String(d).padStart(2, '0')}`)
@@ -159,7 +163,7 @@ function buildEndOptions(startMinutes: number, date: string, dayMap: DayMap, slo
 // ─── メインコンポーネント ──────────────────────────────
 export default function KobuSchedule({ profile, initialEdit, onEditHandled }: Props) {
   const [settings,     setSettings]     = useState<KobuSettings | null>(null)
-  const [weekStart,    setWeekStart]    = useState(() => getMondayOfWeek(todayJST()))
+  const [weekStart,    setWeekStart]    = useState(() => getSundayOfWeek(todayJST()))
   const [dayMap,       setDayMap]       = useState<DayMap | null>(null)
   const [loading,      setLoading]      = useState(false)
   const [error,        setError]        = useState<string | null>(null)
@@ -192,7 +196,7 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled }: Pr
   useEffect(() => {
     if (!initialEdit) return
     setPendingEdit(initialEdit)
-    setWeekStart(getMondayOfWeek(initialEdit.date))
+    setWeekStart(getSundayOfWeek(initialEdit.date))
     onEditHandled?.()
   }, [initialEdit])
 
@@ -227,8 +231,9 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled }: Pr
   // ─── タップ処理 ───────────────────────────────────────
   function handleDayTap(e: React.MouseEvent<HTMLDivElement>, date: string) {
     if (!dayMap || !settings) return
-    const today = todayJST()
-    if (!isDateAvailable(date, settings, today)) return
+    const today   = todayJST()
+    const maxDate = maxBookingDate()
+    if (!isDateAvailable(date, settings, today, maxDate)) return
 
     const effectiveSlots = getEffectiveSlots(date, settings)
     const rect       = e.currentTarget.getBoundingClientRect()
@@ -358,6 +363,7 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled }: Pr
   }))
 
   const today     = todayJST()
+  const maxDate   = maxBookingDate()
   const weekDates = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i))
   const { md: startMd } = formatDate(weekStart)
   const { md: endMd }   = formatDate(weekDates[6])
@@ -386,11 +392,12 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled }: Pr
         <span className="text-[0.88rem] font-semibold text-ink min-w-[108px] text-center">
           {startMd} 〜 {endMd}
         </span>
-        <button className="btn-icon-nav" onClick={() => setWeekStart(addDays(weekStart, 7))}>
+        <button className="btn-icon-nav" onClick={() => setWeekStart(addDays(weekStart, 7))}
+          disabled={addDays(weekStart, 7) > maxDate}>
           <span className="icon">chevron_right</span>
         </button>
         <button className="btn-outline w-auto px-2.5 py-1 text-[0.78rem]"
-          onClick={() => setWeekStart(getMondayOfWeek(today))}>
+          onClick={() => setWeekStart(getSundayOfWeek(today))}>
           今週
         </button>
 
@@ -413,7 +420,7 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled }: Pr
               </div>
               {/* 曜日ヘッダー */}
               <div className="grid grid-cols-7 mb-0.5">
-                {['月','火','水','木','金','土','日'].map(d => (
+                {['日','月','火','水','木','金','土'].map(d => (
                   <div key={d} className="text-center text-[0.63rem] text-ink-pale font-semibold py-0.5">{d}</div>
                 ))}
               </div>
@@ -421,9 +428,10 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled }: Pr
               <div className="grid grid-cols-7 gap-y-0.5">
                 {getCalendarDays(calMonth).map((date, i) => {
                   if (!date) return <div key={i} />
-                  const inSelected  = getMondayOfWeek(date) === weekStart
+                  const inSelected  = getSundayOfWeek(date) === weekStart
                   const isToday     = date === today
-                  const isAvailable = isDateAvailable(date, settings, today)
+                  const isFuture    = date > maxDate
+                  const isAvailable = isDateAvailable(date, settings, today, maxDate)
                   return (
                     <button
                       key={date}
@@ -433,12 +441,17 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled }: Pr
                           ? 'bg-brand text-white font-semibold'
                           : isToday
                             ? 'bg-brand-light text-brand-dark font-semibold'
-                            : isAvailable
-                              ? 'text-ink hover:bg-[#f0f0f0]'
-                              : 'text-[#c8c8c8] cursor-default')
+                            : isFuture
+                              ? 'text-[#c8c8c8] cursor-default'
+                              : date < today
+                                ? 'text-ink-pale hover:bg-[#f0f0f0]'
+                                : isAvailable
+                                  ? 'text-ink hover:bg-[#f0f0f0]'
+                                  : 'text-[#c8c8c8] cursor-default')
                       }
                       onClick={() => {
-                        setWeekStart(getMondayOfWeek(date))
+                        if (isFuture) return
+                        setWeekStart(getSundayOfWeek(date))
                         setCalendarOpen(false)
                       }}
                     >
@@ -472,7 +485,7 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled }: Pr
                 const { md, wd } = formatDate(date)
                 const isToday     = date === today
                 const isPast      = date < today
-                const isAvailable = !isPast && isDateAvailable(date, settings, today)
+                const isAvailable = !isPast && isDateAvailable(date, settings, today, maxDate)
                 return (
                   <div key={date}
                     className={
@@ -509,7 +522,7 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled }: Pr
                 const blocks      = dayMap[date] ?? []
                 const isPast      = date < today
                 const isToday     = date === today
-                const isAvailable = !isPast && isDateAvailable(date, settings, today)
+                const isAvailable = !isPast && isDateAvailable(date, settings, today, maxDate)
                 const isBookable  = isAvailable  // タップできるか
 
                 return (
