@@ -132,7 +132,7 @@ export default function KobuReservationForm({ profile }: Props) {
           <SummaryRow label="日付"     value={dateLabel} />
           <SummaryRow label="時間帯"   value={`${startTime}〜${endTime}`} />
         </div>
-        <button className="btn-outline mt-2" onClick={reset}>続けて登録する</button>
+        <button className="btn-outline mt-2" onClick={reset}>続けて登録</button>
       </div>
     )
   }
@@ -204,7 +204,7 @@ export default function KobuReservationForm({ profile }: Props) {
       )}
 
       <button className="btn-primary" onClick={handleSubmit} disabled={!canSubmit}>
-        {submitting ? '送信中...' : '予約する（即時確定）'}
+        {submitting ? '送信中...' : '予約（即時確定）'}
       </button>
     </div>
   )

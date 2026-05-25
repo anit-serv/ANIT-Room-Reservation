@@ -662,7 +662,7 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled, onBo
                       disabled={cancelling}
                     >
                       <span className="icon" style={{ fontSize: 16 }}>edit</span>
-                      予約を編集する
+                      編集
                     </button>
                     <button
                       className="btn-danger w-full flex items-center justify-center gap-1.5 py-2.5 text-[0.95rem] font-semibold"
@@ -670,7 +670,7 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled, onBo
                       disabled={cancelling}
                     >
                       <span className="icon" style={{ fontSize: 16 }}>delete</span>
-                      予約を取り消す
+                      取り消し
                     </button>
                   </>
                 ) : (
@@ -679,14 +679,14 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled, onBo
                     {cancelError && <div className="banner-error">{cancelError}</div>}
                     <div className="flex gap-2">
                       <button className="btn-outline flex-1" onClick={() => setCancelConfirm(false)} disabled={cancelling}>
-                        やめる
+                        戻る
                       </button>
                       <button
                         className="btn-danger flex-1 flex items-center justify-center gap-1 py-2.5 text-[0.95rem] font-semibold"
                         onClick={handleCancel}
                         disabled={cancelling}
                       >
-                        {cancelling ? '取り消し中...' : '取り消す'}
+                        {cancelling ? '取り消し中...' : '取り消し'}
                       </button>
                     </div>
                   </>
@@ -785,7 +785,7 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled, onBo
                 </button>
                 <button className="btn-primary flex-1" onClick={handleSubmit}
                   disabled={submitting || !bandName.trim() || !modalEnd}>
-                  {submitting ? (editingId ? '変更中...' : '送信中...') : (editingId ? '変更する' : '予約する')}
+                  {submitting ? (editingId ? '変更中...' : '送信中...') : (editingId ? '変更' : '予約')}
                 </button>
               </div>
             </div>
@@ -806,7 +806,7 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled, onBo
               <button
                 className="flex-1 px-4 py-[0.9rem] bg-danger text-white rounded-[10px] text-[0.95rem] font-bold cursor-pointer transition hover:brightness-90"
                 onClick={() => { setModal(null); setEditingId(null); setCloseConfirm(false) }}
-              >中断する</button>
+              >中断</button>
             </div>
           </div>
         </div>

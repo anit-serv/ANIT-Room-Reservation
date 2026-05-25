@@ -221,7 +221,7 @@ export default function Settings() {
       finalEffective = currentMin
       setEffectiveFrom(currentMin)
       setMinDate(currentMin)
-      setMessage({ type: 'error', text: `日付が変わったため適用日を ${currentMin} に繰り上げました。内容を確認してもう一度「保存する」を押してください` })
+      setMessage({ type: 'error', text: `日付が変わったため適用日を ${currentMin} に繰り上げました。内容を確認してもう一度「保存」を押してください` })
       return
     }
 
@@ -318,10 +318,10 @@ export default function Settings() {
 
       <div className="flex gap-3">
         <button className="btn-outline flex-1 max-w-[180px]" onClick={() => setStep('editing')} disabled={saving}>
-          修正する
+          修正
         </button>
         <button className="btn-primary flex-1 max-w-[180px]" onClick={save} disabled={saving}>
-          {saving ? '保存中...' : '保存する'}
+          {saving ? '保存中...' : '保存'}
         </button>
       </div>
     </div>
@@ -337,7 +337,7 @@ export default function Settings() {
         <h2 className="text-xl font-bold text-ink mb-2">保存が完了しました</h2>
         <p className="text-[0.9rem] text-ink-sub mb-8">{savedMessage}</p>
         <button className="btn-outline max-w-[240px]" onClick={() => { setStep('editing'); setMessage(null) }}>
-          引き続き編集する
+          引き続き編集
         </button>
       </div>
     </div>
@@ -358,7 +358,7 @@ export default function Settings() {
           <span className="icon icon-sm align-middle">edit</span>
           {' '}適用予定の変更を編集中（保存すると上書きされます）
           <button className="btn-outline w-auto px-2.5 py-1 ml-3 text-[0.8rem]" onClick={cancelEditScheduled}>
-            編集をやめる
+            キャンセル
           </button>
         </div>
       )}

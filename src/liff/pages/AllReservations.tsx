@@ -177,7 +177,7 @@ export default function AllReservations({ profile, onEditRequest }: Props) {
                   onClick={() => { setDetailModal(null); onEditRequest(detailModal.entry.id) }}
                 >
                   <span className="icon" style={{ fontSize: 16 }}>edit</span>
-                  予約を編集する
+                  編集
                 </button>
               </div>
             )}

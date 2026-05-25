@@ -328,7 +328,7 @@ export default function MyReservations({ profile, initialEdit, onEditHandled, on
                 onClick={() => handleDelete(confirmTarget)}
                 disabled={!!deleting}
               >
-                {deleting ? '削除中...' : '削除する'}
+                {deleting ? '削除中...' : '削除'}
               </button>
             </div>
           </div>
@@ -460,7 +460,7 @@ function NobuModifyModal({
         <div className="flex gap-2 mt-4">
           <button className="btn-outline flex-1" onClick={onClose} disabled={saving}>キャンセル</button>
           <button className="btn-primary flex-1" onClick={handleSubmit} disabled={saving || slots === null}>
-            {saving ? '変更中...' : '変更する'}
+            {saving ? '変更中...' : '変更'}
           </button>
         </div>
       </div>

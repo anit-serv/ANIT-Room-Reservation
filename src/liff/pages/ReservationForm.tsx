@@ -91,7 +91,7 @@ export default function ReservationForm({ profile, onBookingActive }: Props) {
       <div>
         <div className="banner-success">✅ 予約を受け付けました。抽選結果をお待ちください。</div>
         <Summary bandName={bandName} dateLabel={dateLabel} timeLabel={timeLabel} />
-        <button className="btn-outline mt-2" onClick={reset}>続けて登録する</button>
+        <button className="btn-outline mt-2" onClick={reset}>続けて登録</button>
       </div>
     )
   }
@@ -141,7 +141,7 @@ export default function ReservationForm({ profile, onBookingActive }: Props) {
       )}
 
       <button className="btn-primary" onClick={handleSubmit} disabled={!canSubmit}>
-        {submitting ? '送信中...' : '予約する'}
+        {submitting ? '送信中...' : '予約'}
       </button>
     </div>
   )

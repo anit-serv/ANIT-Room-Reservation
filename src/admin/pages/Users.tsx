@@ -295,7 +295,7 @@ function UserDetail({
                 disabled={working}
               >
                 <span className="icon icon-sm mr-1">{data.user.banned ? 'lock_open' : 'block'}</span>
-                {data.user.banned ? 'BAN を解除' : 'BAN する'}
+                {data.user.banned ? 'BAN 解除' : 'BAN'}
               </button>
             )}
 

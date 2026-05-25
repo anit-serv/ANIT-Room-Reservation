@@ -214,13 +214,13 @@ function App() {
           <div className="absolute inset-0 bg-black/50" onClick={() => setPendingNav(null)} />
           <div className="relative bg-surface rounded-2xl shadow-[var(--shadow-modal)] w-full max-w-[320px] p-6">
             <p className="text-base font-bold text-ink mb-1.5">入力中の内容があります</p>
-            <p className="text-[0.85rem] text-ink-sub mb-4">ページを移動すると入力中の内容が破棄されます。</p>
+            <p className="text-[0.85rem] text-ink-sub mb-4">ページを移動と入力中の内容が破棄されます。</p>
             <div className="flex gap-2">
               <button className="btn-outline flex-1" onClick={() => setPendingNav(null)}>戻る</button>
               <button
                 className="flex-1 px-4 py-[0.9rem] bg-danger text-white rounded-[10px] text-base font-bold cursor-pointer transition hover:brightness-90"
                 onClick={confirmNavigation}
-              >移動する</button>
+              >移動</button>
             </div>
           </div>
         </div>
