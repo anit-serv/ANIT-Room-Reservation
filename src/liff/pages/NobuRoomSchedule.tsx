@@ -563,6 +563,17 @@ export default function NobuRoomSchedule({ profile, initialEdit, onEditHandled }
                       <div className="absolute inset-0 bg-[#f0f0f0] pointer-events-none" style={{ zIndex: 5 }} />
                     )}
 
+                    {/* 登録中の時間枠ハイライト */}
+                    {modal && date === modal.date && modalStart && modalEnd && (
+                      <div
+                        className="absolute inset-x-0.5 rounded border-2 border-brand bg-brand/15 pointer-events-none z-[9]"
+                        style={{
+                          top:    toMinutes(modalStart) - dispStart,
+                          height: toMinutes(modalEnd) - toMinutes(modalStart),
+                        }}
+                      />
+                    )}
+
                     {/* 予約ブロック */}
                     {blocks.map((b, i) => {
                       const top    = toMinutes(b.startTime) - dispStart
