@@ -655,7 +655,7 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled }: Pr
                 </button>
                 {cancelError && <div className="banner-error">{cancelError}</div>}
                 <button
-                  className="btn-danger w-full flex items-center justify-center gap-1.5 py-2.5"
+                  className="btn-danger w-full flex items-center justify-center gap-1.5 py-2.5 text-[0.95rem] font-semibold"
                   onClick={handleCancel}
                   disabled={cancelling}
                 >
