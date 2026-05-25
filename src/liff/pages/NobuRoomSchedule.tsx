@@ -312,6 +312,7 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled }: Pr
 
   function handleEditFromDetail() {
     if (!detailModal) return
+    if (Date.now() >= new Date(`${detailModal.date}T${detailModal.block.startTime}:00+09:00`).getTime()) return
     const { block, date } = detailModal
     setModal({ date })
     setBandName(block.bandName)
@@ -324,6 +325,7 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled }: Pr
 
   async function handleCancel() {
     if (!detailModal) return
+    if (Date.now() >= new Date(`${detailModal.date}T${detailModal.block.startTime}:00+09:00`).getTime()) return
     setCancelling(true)
     setCancelError(null)
     try {
@@ -614,8 +616,9 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled }: Pr
               </div>
             </div>
 
-            {/* 自分の予約のみ：編集・キャンセル */}
-            {detailModal.block.userId === profile.userId && (
+            {/* 自分の予約のみ：編集・キャンセル（開始前のみ） */}
+            {detailModal.block.userId === profile.userId &&
+              Date.now() < new Date(`${detailModal.date}T${detailModal.block.startTime}:00+09:00`).getTime() && (
               <div className="px-5 pb-5 flex flex-col gap-2">
                 <button
                   className="btn-outline w-full flex items-center justify-center gap-1.5 py-2.5"
