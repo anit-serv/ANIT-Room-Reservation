@@ -182,8 +182,15 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled, onBo
   const [cancelError,   setCancelError]   = useState<string | null>(null)
   const [cancelConfirm, setCancelConfirm] = useState(false)
   const [closeConfirm,  setCloseConfirm]  = useState(false)
+  const [editOriginal,  setEditOriginal]  = useState<{ bandName: string; startTime: string; endTime: string } | null>(null)
 
-  useEffect(() => { onBookingActive?.(modal !== null && !!bandName.trim()) }, [modal, bandName])
+  useEffect(() => {
+    if (modal === null) { onBookingActive?.(false); return }
+    const dirty = editingId
+      ? (bandName.trim() !== editOriginal?.bandName || modalStart !== editOriginal?.startTime || modalEnd !== editOriginal?.endTime)
+      : !!bandName.trim()
+    onBookingActive?.(dirty)
+  }, [modal, bandName, modalStart, modalEnd, editingId, editOriginal])
   const [pendingEdit,  setPendingEdit]  = useState<KobuEditTarget | null>(null)
 
   // 設定取得
@@ -216,6 +223,7 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled, onBo
     setSubmitError(null)
     setPendingEdit(null)
     setCloseConfirm(false)
+    setEditOriginal({ bandName: pendingEdit.bandName, startTime: pendingEdit.startTime, endTime: pendingEdit.endTime })
   }, [pendingEdit, dayMap])
 
   async function fetchWeek(start: string) {
@@ -270,6 +278,7 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled, onBo
     setEditingId(null)
     setSubmitError(null)
     setCloseConfirm(false)
+    setEditOriginal(null)
   }
 
   function handleStartChange(newStart: string) {
@@ -335,6 +344,7 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled, onBo
     setDetailModal(null)
     setSubmitError(null)
     setCloseConfirm(false)
+    setEditOriginal({ bandName: block.bandName, startTime: block.startTime, endTime: block.endTime })
   }
 
   async function handleCancel() {
@@ -699,9 +709,12 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled, onBo
 
       {/* 予約モーダル（ボトムシート） */}
       {modal && dayMap && (() => {
+        const isDirty = editingId
+          ? (bandName.trim() !== editOriginal?.bandName || modalStart !== editOriginal?.startTime || modalEnd !== editOriginal?.endTime)
+          : !!bandName.trim()
         const closeFn = () => {
           if (!submitting) {
-            if (bandName.trim()) setCloseConfirm(true)
+            if (isDirty) setCloseConfirm(true)
             else { setModal(null); setEditingId(null) }
           }
         }
