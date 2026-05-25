@@ -65,6 +65,8 @@ export default function MyReservations({ profile, initialEdit, onEditHandled, on
   const [error,         setError]         = useState<string | null>(null)
   const [deleting,      setDeleting]      = useState<string | null>(null)
   const [modifyingNobu, setModifyingNobu] = useState<NobuReservation | null>(null)
+  const [confirmTarget, setConfirmTarget] = useState<Reservation | null>(null)
+  const [deleteError,   setDeleteError]   = useState<string | null>(null)
 
   const fetchReservations = useCallback(async () => {
     setLoading(true)
@@ -126,9 +128,8 @@ export default function MyReservations({ profile, initialEdit, onEditHandled, on
   }, [initialEdit, loading, reservations])
 
   async function handleDelete(r: Reservation) {
-    const facilityLabel = r.facility === 'nobu' ? '農部生協' : r.facility === 'kobu' ? '工部室' : '農部室'
-    if (!confirm(`「${r.bandName}」の${facilityLabel}の登録を削除しますか？`)) return
     setDeleting(r.id)
+    setDeleteError(null)
     try {
       const endpoint = r.facility === 'nobu'
         ? `/api/reservations/${r.id}`
@@ -140,9 +141,10 @@ export default function MyReservations({ profile, initialEdit, onEditHandled, on
         headers: { Authorization: `Bearer ${profile.getAccessToken()}` },
       })
       if (!res.ok) throw new Error()
+      setConfirmTarget(null)
       setReservations((prev) => prev.filter((x) => x.id !== r.id))
     } catch {
-      alert('削除に失敗しました')
+      setDeleteError('削除に失敗しました')
     } finally {
       setDeleting(null)
     }
@@ -226,7 +228,7 @@ export default function MyReservations({ profile, initialEdit, onEditHandled, on
                     <span className="icon" style={{ fontSize: 20 }}>edit</span>
                   </button>
                   {canDelete && (
-                    <button className="btn-icon-danger" onClick={() => { if (isPast(r)) return; handleDelete(r) }} disabled={isDeleting} title="削除">
+                    <button className="btn-icon-danger" onClick={() => { if (isPast(r)) return; setConfirmTarget(r); setDeleteError(null) }} disabled={isDeleting} title="削除">
                       <span className="icon" style={{ fontSize: 20 }}>{isDeleting ? 'hourglass_empty' : 'delete'}</span>
                     </button>
                   )}
@@ -261,7 +263,7 @@ export default function MyReservations({ profile, initialEdit, onEditHandled, on
                   <button className="btn-icon" onClick={() => { if (isPast(r)) return; onNobuRoomEdit?.(r) }} disabled={isDeleting} title="変更">
                     <span className="icon" style={{ fontSize: 20 }}>edit</span>
                   </button>
-                  <button className="btn-icon-danger" onClick={() => { if (isPast(r)) return; handleDelete(r) }} disabled={isDeleting} title="削除">
+                  <button className="btn-icon-danger" onClick={() => { if (isPast(r)) return; setConfirmTarget(r); setDeleteError(null) }} disabled={isDeleting} title="削除">
                     <span className="icon" style={{ fontSize: 20 }}>{isDeleting ? 'hourglass_empty' : 'delete'}</span>
                   </button>
                 </div>
@@ -294,7 +296,7 @@ export default function MyReservations({ profile, initialEdit, onEditHandled, on
                 <button className="btn-icon" onClick={() => { if (isPast(r)) return; onKobuEdit?.(r) }} disabled={isDeleting} title="変更">
                   <span className="icon" style={{ fontSize: 20 }}>edit</span>
                 </button>
-                <button className="btn-icon-danger" onClick={() => { if (isPast(r)) return; handleDelete(r) }} disabled={isDeleting} title="削除">
+                <button className="btn-icon-danger" onClick={() => { if (isPast(r)) return; setConfirmTarget(r); setDeleteError(null) }} disabled={isDeleting} title="削除">
                   <span className="icon" style={{ fontSize: 20 }}>{isDeleting ? 'hourglass_empty' : 'delete'}</span>
                 </button>
               </div>
@@ -302,6 +304,36 @@ export default function MyReservations({ profile, initialEdit, onEditHandled, on
           </div>
         )
       })}
+
+      {/* 削除確認モーダル */}
+      {confirmTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/50" onClick={() => { if (!deleting) { setConfirmTarget(null) } }} />
+          <div className="relative bg-surface rounded-2xl shadow-[var(--shadow-modal)] w-full max-w-[320px] p-6">
+            <p className="text-base font-bold text-ink mb-1.5">予約を削除しますか？</p>
+            <p className="text-[0.85rem] text-ink-sub mb-4">
+              「{confirmTarget.bandName}」の
+              {confirmTarget.facility === 'nobu' ? '農部生協' : confirmTarget.facility === 'kobu' ? '工部室' : '農部室'}
+              の予約を削除します。
+            </p>
+            {deleteError && <div className="banner-error">{deleteError}</div>}
+            <div className="flex gap-2">
+              <button
+                className="btn-outline flex-1"
+                onClick={() => setConfirmTarget(null)}
+                disabled={!!deleting}
+              >キャンセル</button>
+              <button
+                className="flex-1 px-4 py-[0.9rem] bg-danger text-white rounded-[10px] text-base font-bold cursor-pointer transition hover:brightness-90 disabled:opacity-50 disabled:cursor-not-allowed"
+                onClick={() => handleDelete(confirmTarget)}
+                disabled={!!deleting}
+              >
+                {deleting ? '削除中...' : '削除する'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

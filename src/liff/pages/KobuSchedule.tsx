@@ -179,6 +179,7 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled }: Pr
   const [detailModal,  setDetailModal]  = useState<DetailModal | null>(null)
   const [cancelling,   setCancelling]   = useState(false)
   const [cancelError,  setCancelError]  = useState<string | null>(null)
+  const [cancelConfirm, setCancelConfirm] = useState(false)
   const [pendingEdit,  setPendingEdit]  = useState<KobuEditTarget | null>(null)
 
   // 設定取得
@@ -313,6 +314,7 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled }: Pr
     e.stopPropagation()
     setDetailModal({ block, date })
     setCancelError(null)
+    setCancelConfirm(false)
   }
 
   function handleEditFromDetail() {
@@ -645,23 +647,43 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled }: Pr
             {detailModal.block.userId === profile.userId &&
               Date.now() < new Date(`${detailModal.date}T${detailModal.block.startTime}:00+09:00`).getTime() && (
               <div className="px-5 pb-5 flex flex-col gap-2">
-                <button
-                  className="btn-outline w-full flex items-center justify-center gap-1.5 py-2.5"
-                  onClick={handleEditFromDetail}
-                  disabled={cancelling}
-                >
-                  <span className="icon" style={{ fontSize: 16 }}>edit</span>
-                  予約を編集する
-                </button>
-                {cancelError && <div className="banner-error">{cancelError}</div>}
-                <button
-                  className="btn-danger w-full flex items-center justify-center gap-1.5 py-2.5 text-[0.95rem] font-semibold"
-                  onClick={handleCancel}
-                  disabled={cancelling}
-                >
-                  <span className="icon" style={{ fontSize: 16 }}>delete</span>
-                  {cancelling ? '削除中...' : '予約を取り消す'}
-                </button>
+                {!cancelConfirm ? (
+                  <>
+                    <button
+                      className="btn-outline w-full flex items-center justify-center gap-1.5 py-2.5"
+                      onClick={handleEditFromDetail}
+                      disabled={cancelling}
+                    >
+                      <span className="icon" style={{ fontSize: 16 }}>edit</span>
+                      予約を編集する
+                    </button>
+                    <button
+                      className="btn-danger w-full flex items-center justify-center gap-1.5 py-2.5 text-[0.95rem] font-semibold"
+                      onClick={() => setCancelConfirm(true)}
+                      disabled={cancelling}
+                    >
+                      <span className="icon" style={{ fontSize: 16 }}>delete</span>
+                      予約を取り消す
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-[0.88rem] text-ink text-center py-1 font-semibold">本当に取り消しますか？</p>
+                    {cancelError && <div className="banner-error">{cancelError}</div>}
+                    <div className="flex gap-2">
+                      <button className="btn-outline flex-1" onClick={() => setCancelConfirm(false)} disabled={cancelling}>
+                        やめる
+                      </button>
+                      <button
+                        className="btn-danger flex-1 flex items-center justify-center gap-1 py-2.5 text-[0.95rem] font-semibold"
+                        onClick={handleCancel}
+                        disabled={cancelling}
+                      >
+                        {cancelling ? '取り消し中...' : '取り消す'}
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
             )}
           </div>
