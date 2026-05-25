@@ -151,16 +151,22 @@ function App() {
 
   return (
     <div className="liff-shell">
-      <nav className="flex bg-surface border-b border-line sticky top-0 z-10">
+      <nav className="relative flex bg-surface border-b border-line sticky top-0 z-10">
+        {/* スライドするアクティブインジケーター */}
+        <div
+          className="absolute bottom-0 h-[2.5px] bg-brand transition-transform duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]"
+          style={{
+            width: `${100 / MAIN_TABS.length}%`,
+            transform: `translateX(${MAIN_TABS.findIndex((t) => t.id === mainTab) * 100}%)`,
+          }}
+        />
         {MAIN_TABS.map(({ id, icon, label }) => (
           <button
             key={id}
             onClick={() => handleTabClick(id)}
             className={
-              'flex-1 flex flex-col items-center gap-0.5 px-1 py-2.5 text-[0.7rem] border-b-2 transition-colors ' +
-              (mainTab === id
-                ? 'text-brand border-brand font-semibold'
-                : 'text-ink-pale border-transparent')
+              'flex-1 flex flex-col items-center gap-0.5 px-1 py-2.5 text-[0.7rem] transition-colors duration-200 ' +
+              (mainTab === id ? 'text-brand font-semibold' : 'text-ink-pale')
             }
           >
             <span className="icon" style={{ fontSize: 22 }}>{icon}</span>

@@ -41,6 +41,10 @@
   --animate-skel: skel-shimmer 1.4s ease-in-out infinite;
   --animate-row-flash: row-flash 3s ease-out;
   --animate-spin-line: spin 0.7s linear infinite;
+  --animate-sheet-up:   sheet-slide-up   0.3s cubic-bezier(0.32,0.72,0,1);
+  --animate-sheet-down: sheet-slide-down 0.22s ease-in forwards;
+  --animate-fade-in:    fade-in  0.25s ease-out;
+  --animate-fade-out:   fade-out 0.22s ease-in forwards;
 }
 
 @keyframes skel-shimmer {
@@ -51,6 +55,26 @@
 @keyframes row-flash {
   0%   { background-color: var(--color-brand-light); }
   100% { background-color: transparent; }
+}
+
+@keyframes sheet-slide-up {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+
+@keyframes sheet-slide-down {
+  from { transform: translateY(0); }
+  to   { transform: translateY(100%); }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes fade-out {
+  from { opacity: 1; }
+  to   { opacity: 0; }
 }
 
 /* ── ベース ────────────────────────────────────────── */

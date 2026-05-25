@@ -183,6 +183,16 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled, onBo
   const [cancelConfirm, setCancelConfirm] = useState(false)
   const [closeConfirm,  setCloseConfirm]  = useState(false)
   const [editOriginal,  setEditOriginal]  = useState<{ bandName: string; startTime: string; endTime: string } | null>(null)
+  const [modalClosing,  setModalClosing]  = useState(false)
+
+  function closeModal() {
+    setModalClosing(true)
+    setTimeout(() => {
+      setModal(null)
+      setEditingId(null)
+      setModalClosing(false)
+    }, 220)
+  }
 
   useEffect(() => {
     if (modal === null) { onBookingActive?.(false); return }
@@ -708,14 +718,14 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled, onBo
       )}
 
       {/* 予約モーダル（ボトムシート） */}
-      {modal && dayMap && (() => {
+      {(modal || modalClosing) && dayMap && (() => {
         const isDirty = editingId
           ? (bandName.trim() !== editOriginal?.bandName || modalStart !== editOriginal?.startTime || modalEnd !== editOriginal?.endTime)
           : !!bandName.trim()
         const closeFn = () => {
-          if (!submitting) {
+          if (!submitting && !modalClosing) {
             if (isDirty) setCloseConfirm(true)
-            else { setModal(null); setEditingId(null) }
+            else closeModal()
           }
         }
         const effectiveDayMap = editingId
@@ -723,9 +733,9 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled, onBo
           : dayMap
         const effectiveSlots = getEffectiveSlots(modal.date, settings)
         return (
-          <div className="fixed inset-0 z-50 flex flex-col justify-end">
+          <div className={`fixed inset-0 z-50 flex flex-col justify-end ${modalClosing ? 'animate-fade-out' : 'animate-fade-in'}`}>
             <div className="absolute inset-0 bg-black/40" onClick={closeFn} />
-            <div className="relative bg-surface rounded-t-2xl px-5 pt-4 pb-8 shadow-xl">
+            <div className={`relative bg-surface rounded-t-2xl px-5 pt-4 pb-8 shadow-xl ${modalClosing ? 'animate-sheet-down' : 'animate-sheet-up'}`}>
               <div className="w-10 h-1 bg-line rounded-full mx-auto mb-4" />
 
               <div className="flex items-center justify-between mb-4">
@@ -818,7 +828,7 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled, onBo
               <button className="btn-outline flex-1" onClick={() => setCloseConfirm(false)}>続ける</button>
               <button
                 className="flex-1 px-4 py-[0.9rem] bg-danger text-white rounded-[10px] text-[0.95rem] font-bold cursor-pointer transition hover:brightness-90"
-                onClick={() => { setModal(null); setEditingId(null); setCloseConfirm(false) }}
+                onClick={() => { setCloseConfirm(false); closeModal() }}
               >中断</button>
             </div>
           </div>
