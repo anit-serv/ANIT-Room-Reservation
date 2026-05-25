@@ -165,7 +165,9 @@ function buildEndOptions(startMinutes: number, date: string, dayMap: DayMap, slo
 export default function NobuRoomSchedule({ profile, initialEdit, onEditHandled, onBookingActive }: Props) {
   const [settings,     setSettings]     = useState<NobuRoomSettings | null>(null)
   const [weekStart,    setWeekStart]    = useState(() => getSundayOfWeek(todayJST()))
-  const [dayMap,       setDayMap]       = useState<DayMap | null>(null)
+  const [weekCache,    setWeekCache]    = useState<Record<string, DayMap>>({})
+  const [outgoingWeek, setOutgoingWeek] = useState<string | null>(null)
+  const [slideDir,     setSlideDir]     = useState<'left' | 'right' | null>(null)
   const [loading,      setLoading]      = useState(false)
   const [error,        setError]        = useState<string | null>(null)
   const [modal,        setModal]        = useState<ModalState | null>(null)
@@ -195,6 +197,8 @@ export default function NobuRoomSchedule({ profile, initialEdit, onEditHandled, 
     }, 220)
   }
 
+  const dayMap = weekCache[weekStart] ?? null
+
   useEffect(() => {
     if (modal === null) { onBookingActive?.(false); return }
     const dirty = editingId
@@ -213,6 +217,14 @@ export default function NobuRoomSchedule({ profile, initialEdit, onEditHandled, 
 
   // 週データ取得
   useEffect(() => { fetchWeek(weekStart) }, [weekStart])
+
+  // 隣接週プリフェッチ
+  useEffect(() => {
+    if (!dayMap) return
+    fetchWeek(addDays(weekStart, 7), true)
+    fetchWeek(addDays(weekStart, -7), true)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [weekStart, !!dayMap])
 
   // 外部から編集ターゲットが渡された場合、対象週に移動してボトムシートを開く
   useEffect(() => {
@@ -236,19 +248,35 @@ export default function NobuRoomSchedule({ profile, initialEdit, onEditHandled, 
     setEditOriginal({ bandName: pendingEdit.bandName, startTime: pendingEdit.startTime, endTime: pendingEdit.endTime })
   }, [pendingEdit, dayMap])
 
-  async function fetchWeek(start: string) {
-    setLoading(true)
-    setError(null)
-    setDayMap(null)
+  async function fetchWeek(start: string, silent = false, force = false) {
+    if (!force && weekCache[start] !== undefined) return
+    if (!silent) { setLoading(true); setError(null) }
     try {
       const res = await fetch(`/api/nobu-room-reservations/all?weekStart=${start}`)
       if (!res.ok) throw new Error()
       const data = await res.json()
-      setDayMap(data.dayMap ?? {})
+      setWeekCache(prev => ({ ...prev, [start]: data.dayMap ?? {} }))
     } catch {
-      setError('取得に失敗しました')
+      if (!silent) setError('取得に失敗しました')
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
+    }
+  }
+
+  function refreshWeek(start: string) {
+    setWeekCache(prev => { const n = { ...prev }; delete n[start]; return n })
+    fetchWeek(start, false, true)
+  }
+
+  function navigateTo(newWeek: string, dir: 'left' | 'right') {
+    if (outgoingWeek || newWeek === weekStart) return
+    if (weekCache[newWeek] !== undefined) {
+      setOutgoingWeek(weekStart)
+      setSlideDir(dir)
+      setWeekStart(newWeek)
+      setTimeout(() => { setOutgoingWeek(null); setSlideDir(null) }, 320)
+    } else {
+      setWeekStart(newWeek)
     }
   }
 
@@ -326,7 +354,7 @@ export default function NobuRoomSchedule({ profile, initialEdit, onEditHandled, 
       if (!res.ok) throw new Error((await res.json()).error ?? (editingId ? '変更に失敗しました' : '登録に失敗しました'))
       setModal(null)
       setEditingId(null)
-      fetchWeek(weekStart)
+      refreshWeek(weekStart)
     } catch (err: unknown) {
       setSubmitError(err instanceof Error ? err.message : '失敗しました')
     } finally {
@@ -369,7 +397,7 @@ export default function NobuRoomSchedule({ profile, initialEdit, onEditHandled, 
       })
       if (!res.ok) throw new Error((await res.json()).error ?? '削除に失敗しました')
       setDetailModal(null)
-      fetchWeek(weekStart)
+      refreshWeek(weekStart)
     } catch (err: unknown) {
       setCancelError(err instanceof Error ? err.message : '削除に失敗しました')
     } finally {
@@ -415,18 +443,18 @@ export default function NobuRoomSchedule({ profile, initialEdit, onEditHandled, 
         }}>
           <span className="icon">calendar_month</span>
         </button>
-        <button className="btn-icon-nav" onClick={() => setWeekStart(addDays(weekStart, -7))}>
+        <button className="btn-icon-nav" onClick={() => navigateTo(addDays(weekStart, -7), 'right')}>
           <span className="icon">chevron_left</span>
         </button>
         <span className="text-[0.88rem] font-semibold text-ink min-w-[108px] text-center">
           {startMd} 〜 {endMd}
         </span>
-        <button className="btn-icon-nav" onClick={() => setWeekStart(addDays(weekStart, 7))}
+        <button className="btn-icon-nav" onClick={() => navigateTo(addDays(weekStart, 7), 'left')}
           disabled={addDays(weekStart, 6) >= maxDate}>
           <span className="icon">chevron_right</span>
         </button>
         <button className="btn-outline w-auto px-2.5 py-1 text-[0.78rem]"
-          onClick={() => setWeekStart(getSundayOfWeek(today))}>
+          onClick={() => navigateTo(getSundayOfWeek(today), getSundayOfWeek(today) > weekStart ? 'left' : 'right')}>
           今週
         </button>
 
@@ -481,7 +509,8 @@ export default function NobuRoomSchedule({ profile, initialEdit, onEditHandled, 
                       }
                       onClick={() => {
                         if (isFuture) return
-                        setWeekStart(getSundayOfWeek(date))
+                        const target = getSundayOfWeek(date)
+                        navigateTo(target, target > weekStart ? 'left' : 'right')
                         setCalendarOpen(false)
                       }}
                     >
@@ -502,140 +531,116 @@ export default function NobuRoomSchedule({ profile, initialEdit, onEditHandled, 
 
       {error && <div className="banner-error">{error}</div>}
 
-      {loading ? (
+      {loading && !dayMap ? (
         <Skeleton width="100%" height="420px" />
-      ) : dayMap !== null ? (
-        <div className="border border-line rounded-xl shadow-[var(--shadow-card-sm)] bg-surface overflow-hidden">
-          {/* ヘッダー＋グリッドを同一スクロールコンテナに入れてスクロールバー幅を共有 */}
-          <div className="overflow-y-auto" style={{ maxHeight: '460px' }}>
-            {/* ヘッダー行（スクロールコンテナ内でsticky） */}
-            <div className="sticky top-0 bg-surface z-20 border-b border-line flex">
-              <div className="w-9 flex-shrink-0" />
-              {weekDates.map((date) => {
-                const { md, wd } = formatDate(date)
-                const isToday     = date === today
-                const isPast      = date < today
-                const isAvailable = !isPast && isDateAvailable(date, settings, today, maxDate)
-                return (
-                  <div key={date}
-                    className={
-                      'flex-1 text-center py-1.5 border-l border-line text-[0.67rem] font-semibold leading-tight ' +
-                      (isToday
-                        ? 'bg-brand-light text-brand-dark'
-                        : !isAvailable
-                          ? 'bg-[#f0f0f0] text-ink-pale'
-                          : 'text-ink-sub')
-                    }>
-                    <div>{md}</div>
-                    <div>{wd}</div>
-                  </div>
-                )
-              })}
-            </div>
-
-            {/* グリッド本体 */}
-            <div className="relative flex overflow-hidden" style={{ height: `${totalDisp}px` }}>
-
-              {/* 時刻軸 */}
-              <div className="w-9 flex-shrink-0 relative">
-                {hourLabels.map(({ label, top }) => (
-                  <div key={label}
-                    className="absolute right-1 text-[0.58rem] text-ink-pale leading-none"
-                    style={{ top: top - 4 }}>
-                    {label}
-                  </div>
-                ))}
+      ) : dayMap !== null ? (() => {
+        function renderWeekContent(tWeek: string, tMap: DayMap, interactive: boolean) {
+          const tDates = Array.from({ length: 7 }, (_, i) => addDays(tWeek, i))
+          return (
+            <div className="overflow-y-auto" style={{ maxHeight: '460px' }}>
+              <div className="sticky top-0 bg-surface z-20 border-b border-line flex">
+                <div className="w-9 flex-shrink-0" />
+                {tDates.map((date) => {
+                  const { md, wd } = formatDate(date)
+                  const isToday = date === today
+                  const isPast  = date < today
+                  const isAvail = !isPast && isDateAvailable(date, settings, today, maxDate)
+                  return (
+                    <div key={date}
+                      className={
+                        'flex-1 text-center py-1.5 border-l border-line text-[0.67rem] font-semibold leading-tight ' +
+                        (isToday ? 'bg-brand-light text-brand-dark' : !isAvail ? 'bg-[#f0f0f0] text-ink-pale' : 'text-ink-sub')
+                      }>
+                      <div>{md}</div><div>{wd}</div>
+                    </div>
+                  )
+                })}
               </div>
-
-              {/* 日付列 */}
-              {weekDates.map((date) => {
-                const blocks      = dayMap[date] ?? []
-                const isPast      = date < today
-                const isToday     = date === today
-                const isAvailable = !isPast && isDateAvailable(date, settings, today, maxDate)
-                const isBookable  = isAvailable  // タップできるか
-
-                return (
-                  <div
-                    key={date}
-                    className={
-                      'flex-1 relative border-l border-line min-w-0 overflow-hidden ' +
-                      (isBookable ? 'cursor-pointer ' + (isToday ? 'bg-brand-light/10' : '') : 'cursor-default')
-                    }
-                    onClick={(e) => isBookable && handleDayTap(e, date)}
-                  >
-                    {/* 1時間ごとの横線 */}
-                    {hourLabels.map(({ top }, idx) => (
-                      <div key={idx}
-                        className="absolute left-0 right-0 border-t border-line pointer-events-none"
-                        style={{ top }} />
-                    ))}
-                    {/* 30分ごとの薄い線（営業時間内のみ） */}
-                    {hourLabels.slice(0, -1).map(({ top }, idx) => {
-                      const halfTop = top + 30
-                      return halfTop > (openMin - dispStart) && halfTop < (closeMin - dispStart) ? (
-                        <div key={idx}
-                          className="absolute left-0 right-0 border-t border-line/30 pointer-events-none"
-                          style={{ top: halfTop }} />
-                      ) : null
-                    })}
-
-                    {isBookable ? (
-                      <>
-                        {computeGrayZones(getEffectiveSlots(date, settings), dispStart, dispEnd).map((z, gi) => (
-                          <div key={gi} className="absolute left-0 right-0 bg-[#f0f0f0] pointer-events-none"
-                            style={{ top: z.top, height: z.height }} />
-                        ))}
-                      </>
-                    ) : (
-                      /* 予約不可日・過去日は列全体を均一にグレー */
-                      <div className="absolute inset-0 bg-[#f0f0f0] pointer-events-none" style={{ zIndex: 5 }} />
-                    )}
-
-                    {/* 登録中の時間枠ハイライト */}
-                    {modal && date === modal.date && modalStart && modalEnd && (
-                      <div
-                        className="absolute inset-x-0.5 rounded border-2 border-brand bg-brand/15 pointer-events-none z-[9]"
-                        style={{
-                          top:    toMinutes(modalStart) - dispStart,
-                          height: toMinutes(modalEnd) - toMinutes(modalStart),
-                        }}
-                      />
-                    )}
-
-                    {/* 予約ブロック */}
-                    {blocks.map((b, i) => {
-                      const top    = toMinutes(b.startTime) - dispStart
-                      const height = toMinutes(b.endTime) - toMinutes(b.startTime)
-                      const isOwn  = b.userId === profile.userId
-                      return (
-                        <div key={i}
-                          className="absolute inset-x-0.5 rounded overflow-hidden z-10 cursor-pointer active:brightness-90"
-                          style={{ top, height }}
-                          onClick={(e) => handleBlockTap(e, b, date)}>
-                          <div className={
-                            'w-full h-full ' +
-                            (isBookable ? 'bg-brand' : 'bg-brand/50')
-                          }>
-                            <div className="text-[0.6rem] font-semibold px-1 pt-0.5 truncate leading-tight text-white">
-                              {b.bandName}{isOwn ? ' ✎' : ''}
-                            </div>
-                            {height >= 30 && (
-                              <div className="text-[0.53rem] px-1 text-white/75 leading-tight">
-                                {b.startTime}〜{b.endTime}
+              <div className="relative flex overflow-hidden" style={{ height: `${totalDisp}px` }}>
+                <div className="w-9 flex-shrink-0 relative">
+                  {hourLabels.map(({ label, top }) => (
+                    <div key={label} className="absolute right-1 text-[0.58rem] text-ink-pale leading-none" style={{ top: top - 4 }}>{label}</div>
+                  ))}
+                </div>
+                {tDates.map((date) => {
+                  const blocks     = tMap[date] ?? []
+                  const isPast     = date < today
+                  const isToday    = date === today
+                  const isAvail    = !isPast && isDateAvailable(date, settings, today, maxDate)
+                  const isBookable = isAvail
+                  return (
+                    <div key={date}
+                      className={
+                        'flex-1 relative border-l border-line min-w-0 overflow-hidden ' +
+                        (isBookable && interactive ? 'cursor-pointer ' + (isToday ? 'bg-brand-light/10' : '') : 'cursor-default')
+                      }
+                      onClick={interactive && isBookable ? (e) => handleDayTap(e, date) : undefined}
+                    >
+                      {hourLabels.map(({ top }, idx) => (
+                        <div key={idx} className="absolute left-0 right-0 border-t border-line pointer-events-none" style={{ top }} />
+                      ))}
+                      {hourLabels.slice(0, -1).map(({ top }, idx) => {
+                        const halfTop = top + 30
+                        return halfTop > (openMin - dispStart) && halfTop < (closeMin - dispStart)
+                          ? <div key={idx} className="absolute left-0 right-0 border-t border-line/30 pointer-events-none" style={{ top: halfTop }} />
+                          : null
+                      })}
+                      {isBookable
+                        ? computeGrayZones(getEffectiveSlots(date, settings), dispStart, dispEnd).map((z, gi) => (
+                            <div key={gi} className="absolute left-0 right-0 bg-[#f0f0f0] pointer-events-none" style={{ top: z.top, height: z.height }} />
+                          ))
+                        : <div className="absolute inset-0 bg-[#f0f0f0] pointer-events-none" style={{ zIndex: 5 }} />
+                      }
+                      {interactive && modal?.date === date && modalStart && modalEnd && (
+                        <div className="absolute inset-x-0.5 rounded border-2 border-brand bg-brand/15 pointer-events-none z-[9]"
+                          style={{ top: toMinutes(modalStart) - dispStart, height: toMinutes(modalEnd) - toMinutes(modalStart) }} />
+                      )}
+                      {blocks.map((b, i) => {
+                        const top    = toMinutes(b.startTime) - dispStart
+                        const height = toMinutes(b.endTime) - toMinutes(b.startTime)
+                        const isOwn  = b.userId === profile.userId
+                        return (
+                          <div key={i}
+                            className="absolute inset-x-0.5 rounded overflow-hidden z-10 cursor-pointer active:brightness-90"
+                            style={{ top, height }}
+                            onClick={interactive ? (e) => handleBlockTap(e, b, date) : (e) => e.stopPropagation()}
+                          >
+                            <div className={'w-full h-full ' + (isBookable ? 'bg-brand' : 'bg-brand/50')}>
+                              <div className="text-[0.6rem] font-semibold px-1 pt-0.5 truncate leading-tight text-white">
+                                {b.bandName}{isOwn ? ' ✎' : ''}
                               </div>
-                            )}
+                              {height >= 30 && <div className="text-[0.53rem] px-1 text-white/75 leading-tight">{b.startTime}〜{b.endTime}</div>}
+                            </div>
                           </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                )
-              })}
+                        )
+                      })}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )
+        }
+        return (
+          <div className="relative overflow-hidden border border-line rounded-xl shadow-[var(--shadow-card-sm)]">
+            {outgoingWeek && weekCache[outgoingWeek] && (
+              <div className="absolute inset-0 bg-surface pointer-events-none" style={{
+                animation: `${slideDir === 'left' ? 'week-slide-out-left' : 'week-slide-out-right'} 0.32s ease-in-out forwards`,
+                zIndex: 1,
+              }}>
+                {renderWeekContent(outgoingWeek, weekCache[outgoingWeek], false)}
+              </div>
+            )}
+            <div className="bg-surface" style={{
+              animation: slideDir ? `${slideDir === 'left' ? 'week-slide-in-right' : 'week-slide-in-left'} 0.32s ease-in-out` : 'none',
+              position: 'relative',
+              zIndex: 2,
+            }}>
+              {renderWeekContent(weekStart, dayMap, true)}
             </div>
           </div>
-        </div>
-      ) : null}
+        )
+      })() : null}
 
       {/* 予約詳細モーダル（ライトボックス） */}
       {detailModal && (
