@@ -16,7 +16,7 @@ export default function ReservationForm({ profile, onBookingActive }: Props) {
   const [loadingSettings, setLoadingSettings] = useState(true)
   const [error,        setError]        = useState<string | null>(null)
 
-  const isDirty = !done && (!!bandName.trim() || !!selectedDate || !!selectedTime)
+  const isDirty = !done && !!bandName.trim()
   useEffect(() => { onBookingActive?.(isDirty) }, [isDirty])
 
   useEffect(() => {

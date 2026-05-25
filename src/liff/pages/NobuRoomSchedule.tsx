@@ -184,7 +184,7 @@ export default function NobuRoomSchedule({ profile, initialEdit, onEditHandled, 
   const [closeConfirm,  setCloseConfirm]  = useState(false)
   const [pendingEdit,   setPendingEdit]   = useState<NobuRoomEditTarget | null>(null)
 
-  useEffect(() => { onBookingActive?.(modal !== null) }, [modal])
+  useEffect(() => { onBookingActive?.(modal !== null && !!bandName.trim()) }, [modal, bandName])
 
   // 設定取得
   useEffect(() => {
@@ -699,8 +699,12 @@ export default function NobuRoomSchedule({ profile, initialEdit, onEditHandled, 
 
       {/* 予約モーダル（ボトムシート） */}
       {modal && dayMap && (() => {
-        const closeFn = () => { if (!submitting) { setCloseConfirm(true) } }
-        const confirmClose = () => { setModal(null); setEditingId(null); setCloseConfirm(false) }
+        const closeFn = () => {
+          if (!submitting) {
+            if (bandName.trim()) setCloseConfirm(true)
+            else { setModal(null); setEditingId(null) }
+          }
+        }
         const effectiveDayMap = editingId
           ? { ...dayMap, [modal.date]: (dayMap[modal.date] ?? []).filter(b => b.id !== editingId) }
           : dayMap
@@ -709,22 +713,6 @@ export default function NobuRoomSchedule({ profile, initialEdit, onEditHandled, 
           <div className="fixed inset-0 z-50 flex flex-col justify-end">
             <div className="absolute inset-0 bg-black/40" onClick={closeFn} />
             <div className="relative bg-surface rounded-t-2xl px-5 pt-4 pb-8 shadow-xl">
-              {closeConfirm && (
-                <div className="absolute inset-0 bg-surface rounded-t-2xl z-10 flex flex-col items-center justify-center gap-4 px-6">
-                  <span className="icon icon-xl text-ink-pale">help_outline</span>
-                  <div className="text-center">
-                    <p className="text-base font-bold text-ink">{editingId ? '編集を中断しますか？' : '予約を中断しますか？'}</p>
-                    <p className="text-[0.85rem] text-ink-sub mt-1">入力中の内容が破棄されます</p>
-                  </div>
-                  <div className="flex gap-2 w-full max-w-[280px]">
-                    <button className="btn-outline flex-1" onClick={() => setCloseConfirm(false)}>続ける</button>
-                    <button
-                      className="flex-1 px-4 py-[0.9rem] bg-danger text-white rounded-[10px] text-[0.95rem] font-bold cursor-pointer transition hover:brightness-90"
-                      onClick={confirmClose}
-                    >中断する</button>
-                  </div>
-                </div>
-              )}
               <div className="w-10 h-1 bg-line rounded-full mx-auto mb-4" />
 
               <div className="flex items-center justify-between mb-4">
@@ -804,6 +792,25 @@ export default function NobuRoomSchedule({ profile, initialEdit, onEditHandled, 
           </div>
         )
       })()}
+
+      {closeConfirm && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setCloseConfirm(false)} />
+          <div className="relative bg-surface rounded-2xl shadow-[var(--shadow-modal)] w-full max-w-[320px] p-6">
+            <p className="text-base font-bold text-ink mb-1.5">
+              {editingId ? '編集を中断しますか？' : '予約を中断しますか？'}
+            </p>
+            <p className="text-[0.85rem] text-ink-sub mb-4">入力中の内容が破棄されます</p>
+            <div className="flex gap-2">
+              <button className="btn-outline flex-1" onClick={() => setCloseConfirm(false)}>続ける</button>
+              <button
+                className="flex-1 px-4 py-[0.9rem] bg-danger text-white rounded-[10px] text-[0.95rem] font-bold cursor-pointer transition hover:brightness-90"
+                onClick={() => { setModal(null); setEditingId(null); setCloseConfirm(false) }}
+              >中断する</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
