@@ -24,7 +24,11 @@ export default function AllReservations({ profile, onEditRequest }: Props) {
   useEffect(() => {
     fetch('/api/settings')
       .then((r) => r.json())
-      .then((data) => setDates(data.availableDatesWithToday ?? []))
+      .then((data) => {
+        const available: DateEntry[] = data.availableDatesWithToday ?? []
+        setDates(available)
+        if (available.length > 0) handleDateSelect(available[0].value)
+      })
       .catch(() => setError('設定の取得に失敗しました'))
   }, [])
 
