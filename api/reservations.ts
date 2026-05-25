@@ -63,6 +63,11 @@ async function handleCreate(req: VercelRequest, res: VercelResponse) {
     const { userId, name, picture } = await verifyLineToken(req.headers.authorization)
     const { bandName, date } = req.body as { bandName: string; date: string }
     if (!bandName || !date) return res.status(400).json({ error: 'bandName と date は必須です' })
+    const [datePart, timePart] = date.split('T')
+    const startTime = timePart?.split('-')[0] ?? '00:00'
+    if (Date.now() >= new Date(`${datePart}T${startTime}:00+09:00`).getTime()) {
+      return res.status(400).json({ error: '予約開始時刻を過ぎているため登録できません' })
+    }
 
     // 設定とBANチェックを並列取得
     const [userDoc, settingsDoc] = await Promise.all([

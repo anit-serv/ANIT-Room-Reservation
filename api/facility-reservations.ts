@@ -76,11 +76,12 @@ async function handleCreate(req: VercelRequest, res: VercelResponse) {
     if (timeToMinutes(startTime) >= timeToMinutes(endTime))
       return res.status(400).json({ error: '開始時刻は終了時刻より前にしてください' })
 
-    const today = nowJST().toISOString().slice(0, 10)
     const maxDate = new Date(nowJST())
     maxDate.setFullYear(maxDate.getFullYear() + 1)
-    if (date < today || date > maxDate.toISOString().slice(0, 10))
+    if (date > maxDate.toISOString().slice(0, 10))
       return res.status(400).json({ error: '予約可能期間外です' })
+    if (Date.now() >= new Date(`${date}T${startTime}:00+09:00`).getTime())
+      return res.status(400).json({ error: '予約開始時刻を過ぎているため登録できません' })
 
     const [userDoc, settingsDoc] = await Promise.all([
       db.collection('users').doc(userId).get(),
