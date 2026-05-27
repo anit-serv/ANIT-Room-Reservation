@@ -199,10 +199,10 @@ export default function Dashboard() {
                   timeStr = r.startTime ? `${r.startTime}〜${r.endTime}` : ''
                 }
                 const dest = r.facility === 'nobu'
-                  ? `/admin/reservations?focus=${r.id}`
+                  ? `/admin/reservations/nobu?focus=${r.id}`
                   : r.facility === 'kobu'
-                    ? `/admin/reservations/kobu`
-                    : `/admin/reservations/nobu-room`
+                    ? `/admin/reservations/kobu?focus=${r.id}`
+                    : `/admin/reservations/nobu-room?focus=${r.id}`
                 return (
                   <button
                     key={`${r.facility}-${r.id}`}

@@ -231,7 +231,7 @@ function UserDetail({
     onClose()
     const base = r.facility === 'kobu' ? '/admin/reservations/kobu'
       : r.facility === 'nobu-room'    ? '/admin/reservations/nobu-room'
-      :                                 '/admin/reservations'
+      :                                 '/admin/reservations/nobu'
     navigate(`${base}?focus=${r.id}`)
   }
 
