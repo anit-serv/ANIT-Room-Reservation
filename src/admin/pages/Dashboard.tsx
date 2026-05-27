@@ -222,9 +222,9 @@ export default function Dashboard() {
                       </div>
                     </div>
                     {r.facility === 'nobu' && (
-                      <span className="badge shrink-0 badge-confirmed">
-                        <span className="icon icon-sm">check_circle</span>
-                        {r.status === 'confirmed' ? `確定 (${r.order ?? '-'})` : '確定 (未定)'}
+                      <span className={'badge shrink-0 ' + (r.status === 'confirmed' ? 'badge-confirmed' : 'badge-pending')}>
+                        <span className="icon icon-sm">{r.status === 'confirmed' ? 'check_circle' : 'hourglass_empty'}</span>
+                        {r.status === 'confirmed' ? `確定 (${r.order && r.order > 0 ? r.order : '-'})` : '抽選待ち'}
                       </span>
                     )}
                   </button>
@@ -247,7 +247,7 @@ export default function Dashboard() {
           ) : (
             <div className="flex flex-col">
               {recentLogs.map((log) => (
-                <div key={log.id} className="flex items-center gap-2.5 px-4 py-2.5 border-b border-line last:border-b-0">
+                <div key={log.id} className="flex items-center gap-2.5 px-4 py-2.5 border-b border-line">
                   <div className="flex-1 min-w-0 text-[0.85rem]">
                     <span className="font-semibold">{log.actorDisplayName}</span>
                     <span className="text-ink-sub"> が </span>
