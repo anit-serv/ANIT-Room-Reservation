@@ -1073,8 +1073,8 @@ async function handleUserById(req: VercelRequest, res: VercelResponse, userId: s
     const [userDoc, resSnap, kobuSnap, nobuRoomSnap, adminDoc] = await Promise.all([
       userRef.get(),
       db.collection('reservations').where('userId', '==', userId).get(),
-      db.collection('kobu-reservations').where('userId', '==', userId).get(),
-      db.collection('nobu-room-reservations').where('userId', '==', userId).get(),
+      db.collection('kobu_reservations').where('userId', '==', userId).get(),
+      db.collection('nobu_room_reservations').where('userId', '==', userId).get(),
       db.collection('admins').doc(userId).get(),
     ])
     if (!userDoc.exists) return res.status(404).json({ error: 'ユーザーが見つかりません' })
