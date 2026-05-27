@@ -27,6 +27,7 @@ export default function Admins() {
   const [me, setMe]                   = useState<{ userId: string; isSuperAdmin?: boolean } | null>(null)
   const [generated, setGenerated]     = useState<{ url: string; expiresAt: string } | null>(null)
   const [generating, setGenerating]   = useState(false)
+  const [openId,     setOpenId]       = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -216,6 +217,8 @@ export default function Admins() {
               key={a.userId}
               a={a}
               me={me}
+              open={openId === a.userId}
+              onToggle={() => setOpenId(openId === a.userId ? null : a.userId)}
               onRemove={() => removeAdmin(a)}
               onTransfer={() => transferSuper(a)}
             />
@@ -277,6 +280,8 @@ export default function Admins() {
               <InvitationMobileCard
                 key={inv.token}
                 inv={inv}
+                open={openId === inv.token}
+                onToggle={() => setOpenId(openId === inv.token ? null : inv.token)}
                 onRevoke={() => revokeInvitation(inv.token)}
               />
             ))}
@@ -288,21 +293,22 @@ export default function Admins() {
 }
 
 function AdminMobileCard({
-  a, me, onRemove, onTransfer,
+  a, me, open, onToggle, onRemove, onTransfer,
 }: {
   a: Admin
   me: { userId: string; isSuperAdmin?: boolean } | null
+  open: boolean
+  onToggle: () => void
   onRemove: () => void
   onTransfer: () => void
 }) {
-  const [open, setOpen] = useState(false)
   const isSelf = me?.userId === a.userId
 
   return (
     <div className="border-b border-line last:border-b-0">
       <button
         className="w-full flex items-center gap-3 px-4 py-3 text-left bg-transparent border-0 cursor-pointer hover:bg-[#fafbfc] transition-colors"
-        onClick={() => setOpen((v) => !v)}
+        onClick={onToggle}
       >
         {a.pictureUrl
           ? <img src={a.pictureUrl} alt="" className="avatar shrink-0" />
@@ -336,16 +342,20 @@ function AdminMobileCard({
               <div className="flex gap-2 pt-2">
                 {me?.isSuperAdmin && (
                   <button
-                    className="btn-icon"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-[0.82rem] font-medium cursor-pointer transition bg-white hover:opacity-80"
                     onClick={onTransfer}
-                    title="スーパー管理者に移譲"
                     style={{ color: 'var(--color-super)', borderColor: 'var(--color-super-border)' }}
                   >
-                    <span className="icon">star</span>
+                    <span className="icon" style={{ fontSize: 16 }}>star</span>
+                    スーパー管理者に移譲
                   </button>
                 )}
-                <button className="btn-icon-danger" onClick={onRemove} title="削除">
-                  <span className="icon">person_remove</span>
+                <button
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-danger text-danger bg-white text-[0.82rem] font-medium cursor-pointer transition hover:bg-danger-light"
+                  onClick={onRemove}
+                >
+                  <span className="icon" style={{ fontSize: 16 }}>person_remove</span>
+                  削除
                 </button>
               </div>
             )}
@@ -357,19 +367,20 @@ function AdminMobileCard({
 }
 
 function InvitationMobileCard({
-  inv, onRevoke,
+  inv, open, onToggle, onRevoke,
 }: {
   inv: Invitation
+  open: boolean
+  onToggle: () => void
   onRevoke: () => void
 }) {
-  const [open, setOpen] = useState(false)
   const expired = inv.expiresAt ? inv.expiresAt < Date.now() : false
 
   return (
     <div className="border-b border-line last:border-b-0">
       <button
         className="w-full flex items-center gap-3 px-4 py-3 text-left bg-transparent border-0 cursor-pointer hover:bg-[#fafbfc] transition-colors"
-        onClick={() => setOpen((v) => !v)}
+        onClick={onToggle}
       >
         <div className="flex-1 min-w-0 text-[0.85rem] text-ink-sub">
           {inv.createdAt ? new Date(inv.createdAt).toLocaleString('ja-JP') : '-'}

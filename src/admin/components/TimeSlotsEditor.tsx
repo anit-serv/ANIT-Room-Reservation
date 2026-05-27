@@ -183,7 +183,12 @@ export default function TimeSlotsEditor({
       {saveDialog && (
         <div className="modal-backdrop" onClick={() => setSaveDialog(false)}>
           <div className="modal-card max-w-[400px]" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-base font-semibold mb-3">プリセットとして保存</h3>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-base font-semibold m-0">プリセットとして保存</h3>
+              <button className="btn-icon-close" onClick={() => setSaveDialog(false)} aria-label="閉じる">
+                <span className="icon">close</span>
+              </button>
+            </div>
             <div className="form-row">
               <label>プリセット名</label>
               <input
@@ -194,9 +199,8 @@ export default function TimeSlotsEditor({
                 autoFocus
               />
             </div>
-            <div className="flex gap-2 mt-4">
-              <button className="btn-outline flex-1" onClick={() => setSaveDialog(false)}>キャンセル</button>
-              <button className="btn-primary flex-1" onClick={handleSave} disabled={!presetName.trim()}>保存</button>
+            <div className="mt-4">
+              <button className="btn-primary" onClick={handleSave} disabled={!presetName.trim()}>保存</button>
             </div>
           </div>
         </div>

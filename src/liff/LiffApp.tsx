@@ -19,8 +19,8 @@ export type LiffProfile = {
 
 const MAIN_TABS: { id: MainTab; icon: string; label: string }[] = [
   { id: 'nobu',     icon: 'grass',        label: '農部生協' },
-  { id: 'nobu-room', icon: 'door_open',   label: '農部室' },
-  { id: 'kobu',     icon: 'meeting_room', label: '工部室' },
+  { id: 'nobu-room', icon: 'door_sliding', label: '農部室' },
+  { id: 'kobu',     icon: 'door_open',    label: '工部室' },
   { id: 'my',       icon: 'event_note',   label: '自分の予約' },
 ]
 
@@ -219,14 +219,11 @@ function App() {
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/50" onClick={() => setPendingNav(null)} />
           <div className="relative bg-surface rounded-2xl shadow-[var(--shadow-modal)] w-full max-w-[320px] p-6">
-            <p className="text-base font-bold text-ink mb-1.5">入力中の内容があります</p>
-            <p className="text-[0.85rem] text-ink-sub mb-4">ページを移動と入力中の内容が破棄されます。</p>
+            <p className="text-base font-bold text-ink mb-1.5">ページを移動しますか？</p>
+            <p className="text-[0.85rem] text-ink-sub mb-4">入力中の内容が失われます。</p>
             <div className="flex gap-2">
-              <button className="btn-outline flex-1" onClick={() => setPendingNav(null)}>戻る</button>
-              <button
-                className="flex-1 px-4 py-[0.9rem] bg-danger text-white rounded-[10px] text-base font-bold cursor-pointer transition hover:brightness-90"
-                onClick={confirmNavigation}
-              >移動</button>
+              <button className="btn-secondary flex-1" onClick={() => setPendingNav(null)}>キャンセル</button>
+              <button className="btn-danger flex-1" onClick={confirmNavigation}>OK</button>
             </div>
           </div>
         </div>

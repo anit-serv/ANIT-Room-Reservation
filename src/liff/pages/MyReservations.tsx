@@ -58,6 +58,24 @@ function sortKey(r: Reservation): string {
   return `${r.date}T${r.startTime}`
 }
 
+type FacilityConfig = { label: string; icon: string; iconBg: string; iconColor: string; labelColor: string }
+
+function facilityConfig(r: Reservation): FacilityConfig {
+  if (r.facility === 'nobu') return      { label: '農部生協', icon: 'grass',        iconBg: 'bg-brand-light', iconColor: 'text-brand',       labelColor: 'text-brand'       }
+  if (r.facility === 'nobu-room') return { label: '農部室',   icon: 'door_sliding', iconBg: 'bg-orange-100',  iconColor: 'text-orange-500',  labelColor: 'text-orange-500'  }
+  return                                 { label: '工部室',   icon: 'door_open',    iconBg: 'bg-indigo-100',  iconColor: 'text-indigo-500',  labelColor: 'text-indigo-500'  }
+}
+
+function displayDateStr(r: Reservation): string {
+  if (r.facility === 'nobu') return r.date.split('T')[0].slice(5).replace('-', '/')
+  return r.date.slice(5).replace('-', '/')
+}
+
+function displayTime(r: Reservation): string {
+  if (r.facility === 'nobu') return r.date.split('T')[1]
+  return `${r.startTime}〜${r.endTime}`
+}
+
 
 export default function MyReservations({ profile, initialEdit, onEditHandled, onKobuEdit, onNobuRoomEdit }: Props) {
   const [reservations,  setReservations]  = useState<Reservation[]>([])
@@ -155,11 +173,16 @@ export default function MyReservations({ profile, initialEdit, onEditHandled, on
       <Skeleton width="120px" height="20px" className="mb-4" />
       {[0, 1, 2].map((i) => (
         <div key={i} className="reservation-card">
-          <Skeleton width="4px" height="56px" />
-          <div className="flex-1">
-            <Skeleton width="60%" height="16px" className="mb-1.5" />
-            <Skeleton width="80%" height="12px" className="mb-2" />
-            <Skeleton width="80px" height="20px" style={{ borderRadius: 20 }} />
+          <div className="flex flex-col items-center gap-1 shrink-0">
+            <Skeleton width="44px" height="44px" style={{ borderRadius: 12 }} />
+            <Skeleton width="32px" height="10px" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-start justify-between gap-2 mb-1.5">
+              <Skeleton width="55%" height="16px" />
+              <Skeleton width="56px" height="20px" style={{ borderRadius: 20 }} />
+            </div>
+            <Skeleton width="72%" height="12px" />
           </div>
         </div>
       ))}
@@ -196,109 +219,57 @@ export default function MyReservations({ profile, initialEdit, onEditHandled, on
       )}
 
       {reservations.map((r) => {
-        const isDeleting = deleting === r.id
+        const isDeleting  = deleting === r.id
+        const past        = isPast(r)
+        const fc          = facilityConfig(r)
+        const isConfirmed = r.facility === 'nobu' ? r.status === 'confirmed' : true
+        const canDelete   = r.facility === 'nobu' ? !isConfirmed : true
+        const statusBadge = r.facility === 'nobu' && !isConfirmed ? 'badge-pending' : 'badge-confirmed'
+        const statusIcon  = r.facility === 'nobu' && !isConfirmed ? 'hourglass_empty' : 'check_circle'
+        const statusLabel = r.facility === 'nobu' ? (isConfirmed ? '抽選確定' : '抽選待ち') : '確定'
 
-        if (r.facility === 'nobu') {
-          const [datePart, timePart] = r.date.split('T')
-          const displayDate = datePart.slice(5).replace('-', '/')
-          const isConfirmed = r.status === 'confirmed'
-          const canDelete   = !isConfirmed
-          const past        = isPast(r)
-
-          return (
-            <div key={r.id} className="reservation-card">
-              <div className={'w-1 self-stretch rounded ' + (isConfirmed ? 'bg-brand' : 'bg-warn')} />
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-1.5 mb-0.5">
-                  <span className="text-[0.68rem] bg-line text-ink-sub px-1.5 py-0.5 rounded font-semibold">農部生協</span>
-                  <span className="font-bold text-ink truncate">{r.bandName}</span>
-                </div>
-                <div className="text-[0.82rem] text-ink-sub mb-2 flex items-center gap-1.5 flex-wrap">
-                  <span className="icon icon-sm text-ink-pale">calendar_month</span>{displayDate}
-                  <span className="icon icon-sm text-ink-pale">schedule</span>{timePart}
-                </div>
-                <span className={'badge ' + (isConfirmed ? 'badge-confirmed' : 'badge-pending')}>
-                  <span className="icon icon-sm">{isConfirmed ? 'check_circle' : 'hourglass_empty'}</span>
-                  {isConfirmed ? '抽選確定' : '抽選待ち'}
-                </span>
-              </div>
-              {!past && (
-                <div className="flex gap-1">
-                  <button className="btn-icon" onClick={() => { if (isPast(r)) return; setModifyingNobu(r) }} disabled={isDeleting} title="変更">
-                    <span className="icon" style={{ fontSize: 20 }}>edit</span>
-                  </button>
-                  {canDelete && (
-                    <button className="btn-icon-danger" onClick={() => { if (isPast(r)) return; setConfirmTarget(r); setDeleteError(null) }} disabled={isDeleting} title="削除">
-                      <span className="icon" style={{ fontSize: 20 }}>{isDeleting ? 'hourglass_empty' : 'delete'}</span>
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
-          )
+        function handleEdit() {
+          if (isPast(r)) return
+          if (r.facility === 'nobu') setModifyingNobu(r as NobuReservation)
+          else if (r.facility === 'kobu') onKobuEdit?.(r as KobuReservation)
+          else onNobuRoomEdit?.(r as NobuRoomReservation)
         }
 
-        // 農部室
-        if (r.facility === 'nobu-room') {
-          const displayDate = r.date.slice(5).replace('-', '/')
-          const past        = isPast(r)
-          return (
-            <div key={r.id} className="reservation-card">
-              <div className="w-1 self-stretch rounded bg-orange-400" />
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-1.5 mb-0.5">
-                  <span className="text-[0.68rem] bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded font-semibold">農部室</span>
-                  <span className="font-bold text-ink truncate">{r.bandName}</span>
-                </div>
-                <div className="text-[0.82rem] text-ink-sub mb-2 flex items-center gap-1.5 flex-wrap">
-                  <span className="icon icon-sm text-ink-pale">calendar_month</span>{displayDate}
-                  <span className="icon icon-sm text-ink-pale">schedule</span>{r.startTime}〜{r.endTime}
-                </div>
-                <span className="badge badge-confirmed">
-                  <span className="icon icon-sm">check_circle</span>確定
+        return (
+          <div key={r.id} className="reservation-card">
+            <div className="flex flex-col items-center gap-1 shrink-0">
+              <div className={`w-11 h-11 rounded-xl flex items-center justify-center ${fc.iconBg}`}>
+                <span className={`icon ${fc.iconColor}`} style={{ fontSize: 22 }}>{fc.icon}</span>
+              </div>
+              <span className={`text-[0.6rem] font-semibold leading-none ${fc.labelColor}`}>{fc.label}</span>
+            </div>
+
+            <div className="flex-1 min-w-0">
+              <div className="flex items-start justify-between gap-2 mb-1">
+                <span className="font-bold text-ink truncate">{r.bandName}</span>
+                <span className={`badge ${statusBadge} shrink-0`}>
+                  <span className="icon icon-sm">{statusIcon}</span>
+                  {statusLabel}
                 </span>
               </div>
-              {!past && (
-                <div className="flex gap-1">
-                  <button className="btn-icon" onClick={() => { if (isPast(r)) return; onNobuRoomEdit?.(r) }} disabled={isDeleting} title="変更">
-                    <span className="icon" style={{ fontSize: 20 }}>edit</span>
-                  </button>
+              <div className="text-[0.8rem] text-ink-sub flex items-center gap-1.5">
+                <span className="icon icon-sm text-ink-pale">calendar_month</span>
+                <span>{displayDateStr(r)}</span>
+                <span className="icon icon-sm text-ink-pale ml-0.5">schedule</span>
+                <span>{displayTime(r)}</span>
+              </div>
+            </div>
+
+            {!past && (
+              <div className="flex flex-col gap-1 shrink-0">
+                <button className="btn-icon" onClick={handleEdit} disabled={isDeleting} title="変更">
+                  <span className="icon" style={{ fontSize: 20 }}>edit</span>
+                </button>
+                {canDelete && (
                   <button className="btn-icon-danger" onClick={() => { if (isPast(r)) return; setConfirmTarget(r); setDeleteError(null) }} disabled={isDeleting} title="削除">
                     <span className="icon" style={{ fontSize: 20 }}>{isDeleting ? 'hourglass_empty' : 'delete'}</span>
                   </button>
-                </div>
-              )}
-            </div>
-          )
-        }
-
-        // 工部室
-        const displayDate = r.date.slice(5).replace('-', '/')
-        const past        = isPast(r)
-        return (
-          <div key={r.id} className="reservation-card">
-            <div className="w-1 self-stretch rounded bg-brand" />
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-1.5 mb-0.5">
-                <span className="text-[0.68rem] bg-brand-light text-brand-dark px-1.5 py-0.5 rounded font-semibold">工部室</span>
-                <span className="font-bold text-ink truncate">{r.bandName}</span>
-              </div>
-              <div className="text-[0.82rem] text-ink-sub mb-2 flex items-center gap-1.5 flex-wrap">
-                <span className="icon icon-sm text-ink-pale">calendar_month</span>{displayDate}
-                <span className="icon icon-sm text-ink-pale">schedule</span>{r.startTime}〜{r.endTime}
-              </div>
-              <span className="badge badge-confirmed">
-                <span className="icon icon-sm">check_circle</span>確定
-              </span>
-            </div>
-            {!past && (
-              <div className="flex gap-1">
-                <button className="btn-icon" onClick={() => { if (isPast(r)) return; onKobuEdit?.(r) }} disabled={isDeleting} title="変更">
-                  <span className="icon" style={{ fontSize: 20 }}>edit</span>
-                </button>
-                <button className="btn-icon-danger" onClick={() => { if (isPast(r)) return; setConfirmTarget(r); setDeleteError(null) }} disabled={isDeleting} title="削除">
-                  <span className="icon" style={{ fontSize: 20 }}>{isDeleting ? 'hourglass_empty' : 'delete'}</span>
-                </button>
+                )}
               </div>
             )}
           </div>
@@ -318,16 +289,10 @@ export default function MyReservations({ profile, initialEdit, onEditHandled, on
             </p>
             {deleteError && <div className="banner-error">{deleteError}</div>}
             <div className="flex gap-2">
-              <button
-                className="btn-outline flex-1"
-                onClick={() => setConfirmTarget(null)}
-                disabled={!!deleting}
-              >キャンセル</button>
-              <button
-                className="flex-1 px-4 py-[0.9rem] bg-danger text-white rounded-[10px] text-base font-bold cursor-pointer transition hover:brightness-90 disabled:opacity-50 disabled:cursor-not-allowed"
-                onClick={() => handleDelete(confirmTarget)}
-                disabled={!!deleting}
-              >
+              <button className="btn-secondary flex-1" onClick={() => setConfirmTarget(null)} disabled={!!deleting}>
+                キャンセル
+              </button>
+              <button className="btn-danger flex-1" onClick={() => handleDelete(confirmTarget)} disabled={!!deleting}>
                 {deleting ? '削除中...' : '削除'}
               </button>
             </div>
@@ -405,8 +370,15 @@ function NobuModifyModal({
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal-card max-w-[360px]" onClick={(e) => e.stopPropagation()}>
-        <h3 className="text-base font-semibold mb-0.5">予約を変更</h3>
-        <p className="text-[0.82rem] text-ink-sub mb-4">農部 — {displayDate}</p>
+        <div className="flex items-start justify-between mb-4">
+          <div>
+            <h3 className="text-base font-semibold mb-0.5">予約を変更</h3>
+            <p className="text-[0.82rem] text-ink-sub">農部 — {displayDate}</p>
+          </div>
+          <button className="btn-icon-close shrink-0" onClick={onClose} disabled={saving} aria-label="閉じる">
+            <span className="icon">close</span>
+          </button>
+        </div>
 
         {slots === null ? (
           <div className="text-center py-6 text-ink-pale text-[0.9rem]">読み込み中...</div>
@@ -457,9 +429,8 @@ function NobuModifyModal({
 
         {error && <div className="banner-error mt-3">{error}</div>}
 
-        <div className="flex gap-2 mt-4">
-          <button className="btn-outline flex-1" onClick={onClose} disabled={saving}>キャンセル</button>
-          <button className="btn-primary flex-1" onClick={handleSubmit} disabled={saving || slots === null}>
+        <div className="mt-4">
+          <button className="btn-primary" onClick={handleSubmit} disabled={saving || slots === null}>
             {saving ? '変更中...' : '変更'}
           </button>
         </div>

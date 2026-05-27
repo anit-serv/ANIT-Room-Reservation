@@ -317,16 +317,11 @@ export default function KobuSettings() {
       {blocker.state === 'blocked' && (
         <div className="modal-backdrop" onClick={() => blocker.reset()}>
           <div className="modal-card max-w-[360px]" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center gap-3 mb-3">
-              <span className="icon text-warn" style={{ fontSize: 28 }}>warning</span>
-              <h2 className="text-base font-bold m-0">未保存の変更があります</h2>
-            </div>
-            <p className="text-[0.9rem] text-ink-sub mb-4">
-              保存せずにページを離れると、変更内容が失われます。
-            </p>
+            <h2 className="text-base font-bold mb-2">ページを離れますか？</h2>
+            <p className="text-[0.9rem] text-ink-sub mb-4">未保存の変更が失われます。</p>
             <div className="flex gap-2">
-              <button className="btn-outline flex-1" onClick={() => blocker.reset()}>留まる</button>
-              <button className="btn-danger flex-1" onClick={() => blocker.proceed()}>離れる</button>
+              <button className="btn-secondary flex-1" onClick={() => blocker.reset()}>キャンセル</button>
+              <button className="btn-danger flex-1" onClick={() => blocker.proceed()}>OK</button>
             </div>
           </div>
         </div>

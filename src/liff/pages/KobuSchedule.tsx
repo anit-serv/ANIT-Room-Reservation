@@ -168,8 +168,9 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled, onBo
   const [weekCache,    setWeekCache]    = useState<Record<string, DayMap>>({})
   const [outgoingWeek,     setOutgoingWeek]     = useState<string | null>(null)
   const [slideDir,         setSlideDir]         = useState<'left' | 'right' | null>(null)
-  const [outgoingScrollTop, setOutgoingScrollTop] = useState(0)
-  const scrollRef = useRef<HTMLDivElement>(null)
+  const scrollRef   = useRef<HTMLDivElement>(null)
+  const touchStartX = useRef(0)
+  const touchStartY = useRef(0)
   const [loading,      setLoading]      = useState(false)
   const [error,        setError]        = useState<string | null>(null)
   const [modal,        setModal]        = useState<ModalState | null>(null)
@@ -273,7 +274,6 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled, onBo
   function navigateTo(newWeek: string, dir: 'left' | 'right') {
     if (outgoingWeek || newWeek === weekStart) return
     if (weekCache[newWeek] !== undefined) {
-      setOutgoingScrollTop(scrollRef.current?.scrollTop ?? 0)
       setOutgoingWeek(weekStart)
       setSlideDir(dir)
       setWeekStart(newWeek)
@@ -281,6 +281,19 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled, onBo
     } else {
       setWeekStart(newWeek)
     }
+  }
+
+  function handleTouchStart(e: React.TouchEvent) {
+    touchStartX.current = e.touches[0].clientX
+    touchStartY.current = e.touches[0].clientY
+  }
+
+  function handleTouchEnd(e: React.TouchEvent) {
+    const dx = e.changedTouches[0].clientX - touchStartX.current
+    const dy = e.changedTouches[0].clientY - touchStartY.current
+    if (Math.abs(dx) < 50 || Math.abs(dx) < Math.abs(dy)) return
+    if (dx < 0) navigateTo(addDays(weekStart, 7), 'left')
+    else        navigateTo(addDays(weekStart, -7), 'right')
   }
 
   // ─── タップ処理 ───────────────────────────────────────
@@ -537,113 +550,129 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled, onBo
       {loading && !dayMap ? (
         <Skeleton width="100%" height="420px" />
       ) : dayMap !== null ? (() => {
-        function renderWeekContent(tWeek: string, tMap: DayMap, interactive: boolean) {
-          const tDates = Array.from({ length: 7 }, (_, i) => addDays(tWeek, i))
-          return (
-            <div
-              className={`overflow-y-auto${(!interactive || slideDir !== null) ? ' no-scrollbar' : ''}`}
-              style={{ maxHeight: '460px' }}
-              ref={interactive ? scrollRef : (el: HTMLDivElement | null) => { if (el) el.scrollTop = outgoingScrollTop }}
-            >
-              <div className="sticky top-0 bg-surface z-20 border-b border-line flex">
-                <div className="w-9 flex-shrink-0" />
-                {tDates.map((date) => {
-                  const { md, wd } = formatDate(date)
-                  const isToday = date === today
-                  const isPast  = date < today
-                  const isAvail = !isPast && isDateAvailable(date, settings, today, maxDate)
+        function renderDayHeaders(tWeek: string) {
+          return Array.from({ length: 7 }, (_, i) => addDays(tWeek, i)).map((date) => {
+            const { md, wd } = formatDate(date)
+            const isToday = date === today
+            const isPast  = date < today
+            const isAvail = !isPast && isDateAvailable(date, settings!, today, maxDate)
+            return (
+              <div key={date}
+                className={
+                  'flex-1 text-center py-1.5 border-l border-line text-[0.67rem] font-semibold leading-tight ' +
+                  (isToday ? 'bg-brand-light text-brand-dark' : !isAvail ? 'bg-[#f0f0f0] text-ink-pale' : 'text-ink-sub')
+                }>
+                <div>{md}</div><div>{wd}</div>
+              </div>
+            )
+          })
+        }
+
+        function renderDayColumns(tWeek: string, tMap: DayMap, interactive: boolean) {
+          return Array.from({ length: 7 }, (_, i) => addDays(tWeek, i)).map((date) => {
+            const blocks     = tMap[date] ?? []
+            const isPast     = date < today
+            const isToday    = date === today
+            const isAvail    = !isPast && isDateAvailable(date, settings!, today, maxDate)
+            const isBookable = isAvail
+            return (
+              <div key={date}
+                className={
+                  'flex-1 relative border-l border-line min-w-0 overflow-hidden ' +
+                  (isBookable && interactive ? 'cursor-pointer ' + (isToday ? 'bg-brand-light/10' : '') : 'cursor-default')
+                }
+                onClick={interactive && isBookable ? (e) => handleDayTap(e, date) : undefined}
+              >
+                {hourLabels.map(({ top }, idx) => (
+                  <div key={idx} className="absolute left-0 right-0 border-t border-line pointer-events-none" style={{ top }} />
+                ))}
+                {hourLabels.slice(0, -1).map(({ top }, idx) => {
+                  const halfTop = top + 30
+                  return halfTop > (openMin - dispStart) && halfTop < (closeMin - dispStart)
+                    ? <div key={idx} className="absolute left-0 right-0 border-t border-line/30 pointer-events-none" style={{ top: halfTop }} />
+                    : null
+                })}
+                {isBookable
+                  ? computeGrayZones(getEffectiveSlots(date, settings!), dispStart, dispEnd).map((z, gi) => (
+                      <div key={gi} className="absolute left-0 right-0 bg-[#f0f0f0] pointer-events-none" style={{ top: z.top, height: z.height }} />
+                    ))
+                  : <div className="absolute inset-0 bg-[#f0f0f0] pointer-events-none" style={{ zIndex: 5 }} />
+                }
+                {interactive && modal?.date === date && modalStart && modalEnd && (
+                  <div className="absolute inset-x-0.5 rounded border-2 border-brand bg-brand/15 pointer-events-none z-[9]"
+                    style={{ top: toMinutes(modalStart) - dispStart, height: toMinutes(modalEnd) - toMinutes(modalStart) }} />
+                )}
+                {blocks.map((b, i) => {
+                  const top    = toMinutes(b.startTime) - dispStart
+                  const height = toMinutes(b.endTime) - toMinutes(b.startTime)
+                  const isOwn  = b.userId === profile.userId
                   return (
-                    <div key={date}
-                      className={
-                        'flex-1 text-center py-1.5 border-l border-line text-[0.67rem] font-semibold leading-tight ' +
-                        (isToday ? 'bg-brand-light text-brand-dark' : !isAvail ? 'bg-[#f0f0f0] text-ink-pale' : 'text-ink-sub')
-                      }>
-                      <div>{md}</div><div>{wd}</div>
+                    <div key={i}
+                      className="absolute inset-x-0.5 rounded overflow-hidden z-10 cursor-pointer active:brightness-90"
+                      style={{ top, height }}
+                      onClick={interactive ? (e) => handleBlockTap(e, b, date) : (e) => e.stopPropagation()}
+                    >
+                      <div className={'w-full h-full ' + (isBookable ? 'bg-brand' : 'bg-brand/50')}>
+                        <div className="text-[0.6rem] font-semibold px-1 pt-0.5 truncate leading-tight text-white">
+                          {b.bandName}{isOwn ? ' ✎' : ''}
+                        </div>
+                        {height >= 30 && <div className="text-[0.53rem] px-1 text-white/75 leading-tight">{b.startTime}〜{b.endTime}</div>}
+                      </div>
                     </div>
                   )
                 })}
               </div>
-              <div className="relative flex overflow-hidden" style={{ height: `${totalDisp}px` }}>
+            )
+          })
+        }
+
+        return (
+          <div className="border border-line rounded-xl shadow-[var(--shadow-card-sm)] overflow-hidden">
+            <div
+              ref={scrollRef}
+              className="overflow-y-auto"
+              style={{ maxHeight: '460px', scrollbarGutter: 'stable' }}
+              onTouchStart={handleTouchStart}
+              onTouchEnd={handleTouchEnd}
+            >
+              <div className="sticky top-0 z-20 bg-surface border-b border-line flex">
+                <div className="w-9 flex-shrink-0" />
+                <div className="flex-1 relative flex" style={{ overflow: 'clip' }}>
+                  {outgoingWeek && weekCache[outgoingWeek] && (
+                    <div className="absolute inset-0 flex pointer-events-none" style={{
+                      animation: `${slideDir === 'left' ? 'week-slide-out-left' : 'week-slide-out-right'} 0.32s ease-in-out forwards`,
+                    }}>
+                      {renderDayHeaders(outgoingWeek)}
+                    </div>
+                  )}
+                  <div className="flex w-full" style={{
+                    animation: slideDir ? `${slideDir === 'left' ? 'week-slide-in-right' : 'week-slide-in-left'} 0.32s ease-in-out` : 'none',
+                  }}>
+                    {renderDayHeaders(weekStart)}
+                  </div>
+                </div>
+              </div>
+              <div className="flex overflow-hidden" style={{ height: `${totalDisp}px` }}>
                 <div className="w-9 flex-shrink-0 relative">
                   {hourLabels.map(({ label, top }) => (
                     <div key={label} className="absolute right-1 text-[0.58rem] text-ink-pale leading-none" style={{ top: top - 4 }}>{label}</div>
                   ))}
                 </div>
-                {tDates.map((date) => {
-                  const blocks     = tMap[date] ?? []
-                  const isPast     = date < today
-                  const isToday    = date === today
-                  const isAvail    = !isPast && isDateAvailable(date, settings, today, maxDate)
-                  const isBookable = isAvail
-                  return (
-                    <div key={date}
-                      className={
-                        'flex-1 relative border-l border-line min-w-0 overflow-hidden ' +
-                        (isBookable && interactive ? 'cursor-pointer ' + (isToday ? 'bg-brand-light/10' : '') : 'cursor-default')
-                      }
-                      onClick={interactive && isBookable ? (e) => handleDayTap(e, date) : undefined}
-                    >
-                      {hourLabels.map(({ top }, idx) => (
-                        <div key={idx} className="absolute left-0 right-0 border-t border-line pointer-events-none" style={{ top }} />
-                      ))}
-                      {hourLabels.slice(0, -1).map(({ top }, idx) => {
-                        const halfTop = top + 30
-                        return halfTop > (openMin - dispStart) && halfTop < (closeMin - dispStart)
-                          ? <div key={idx} className="absolute left-0 right-0 border-t border-line/30 pointer-events-none" style={{ top: halfTop }} />
-                          : null
-                      })}
-                      {isBookable
-                        ? computeGrayZones(getEffectiveSlots(date, settings), dispStart, dispEnd).map((z, gi) => (
-                            <div key={gi} className="absolute left-0 right-0 bg-[#f0f0f0] pointer-events-none" style={{ top: z.top, height: z.height }} />
-                          ))
-                        : <div className="absolute inset-0 bg-[#f0f0f0] pointer-events-none" style={{ zIndex: 5 }} />
-                      }
-                      {interactive && modal?.date === date && modalStart && modalEnd && (
-                        <div className="absolute inset-x-0.5 rounded border-2 border-brand bg-brand/15 pointer-events-none z-[9]"
-                          style={{ top: toMinutes(modalStart) - dispStart, height: toMinutes(modalEnd) - toMinutes(modalStart) }} />
-                      )}
-                      {blocks.map((b, i) => {
-                        const top    = toMinutes(b.startTime) - dispStart
-                        const height = toMinutes(b.endTime) - toMinutes(b.startTime)
-                        const isOwn  = b.userId === profile.userId
-                        return (
-                          <div key={i}
-                            className="absolute inset-x-0.5 rounded overflow-hidden z-10 cursor-pointer active:brightness-90"
-                            style={{ top, height }}
-                            onClick={interactive ? (e) => handleBlockTap(e, b, date) : (e) => e.stopPropagation()}
-                          >
-                            <div className={'w-full h-full ' + (isBookable ? 'bg-brand' : 'bg-brand/50')}>
-                              <div className="text-[0.6rem] font-semibold px-1 pt-0.5 truncate leading-tight text-white">
-                                {b.bandName}{isOwn ? ' ✎' : ''}
-                              </div>
-                              {height >= 30 && <div className="text-[0.53rem] px-1 text-white/75 leading-tight">{b.startTime}〜{b.endTime}</div>}
-                            </div>
-                          </div>
-                        )
-                      })}
+                <div className="flex-1 relative" style={{ overflow: 'clip' }}>
+                  {outgoingWeek && weekCache[outgoingWeek] && (
+                    <div className="absolute inset-0 flex pointer-events-none" style={{
+                      animation: `${slideDir === 'left' ? 'week-slide-out-left' : 'week-slide-out-right'} 0.32s ease-in-out forwards`,
+                    }}>
+                      {renderDayColumns(outgoingWeek, weekCache[outgoingWeek], false)}
                     </div>
-                  )
-                })}
+                  )}
+                  <div className="absolute inset-0 flex" style={{
+                    animation: slideDir ? `${slideDir === 'left' ? 'week-slide-in-right' : 'week-slide-in-left'} 0.32s ease-in-out` : 'none',
+                  }}>
+                    {renderDayColumns(weekStart, dayMap, true)}
+                  </div>
+                </div>
               </div>
-            </div>
-          )
-        }
-        return (
-          <div className="relative overflow-hidden border border-line rounded-xl shadow-[var(--shadow-card-sm)]">
-            {outgoingWeek && weekCache[outgoingWeek] && (
-              <div className="absolute inset-0 bg-surface pointer-events-none" style={{
-                animation: `${slideDir === 'left' ? 'week-slide-out-left' : 'week-slide-out-right'} 0.32s ease-in-out forwards`,
-                zIndex: 1,
-              }}>
-                {renderWeekContent(outgoingWeek, weekCache[outgoingWeek], false)}
-              </div>
-            )}
-            <div className="bg-surface" style={{
-              animation: slideDir ? `${slideDir === 'left' ? 'week-slide-in-right' : 'week-slide-in-left'} 0.32s ease-in-out` : 'none',
-              position: 'relative',
-              zIndex: 2,
-            }}>
-              {renderWeekContent(weekStart, dayMap, true)}
             </div>
           </div>
         )
@@ -657,7 +686,7 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled, onBo
             {/* ヘッダー */}
             <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-line">
               <p className="text-base font-bold text-ink">予約詳細</p>
-              <button className="btn-icon" onClick={() => setDetailModal(null)} disabled={cancelling}>
+              <button className="btn-icon-close" onClick={() => setDetailModal(null)} disabled={cancelling}>
                 <span className="icon">close</span>
               </button>
             </div>
@@ -697,7 +726,7 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled, onBo
                       編集
                     </button>
                     <button
-                      className="btn-danger w-full flex items-center justify-center gap-1.5 py-2.5 text-[0.95rem] font-semibold"
+                      className="btn-danger w-full"
                       onClick={() => setCancelConfirm(true)}
                       disabled={cancelling}
                     >
@@ -710,15 +739,11 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled, onBo
                     <p className="text-[0.88rem] text-ink text-center py-1 font-semibold">本当に取り消しますか？</p>
                     {cancelError && <div className="banner-error">{cancelError}</div>}
                     <div className="flex gap-2">
-                      <button className="btn-outline flex-1" onClick={() => setCancelConfirm(false)} disabled={cancelling}>
-                        戻る
+                      <button className="btn-secondary flex-1" onClick={() => setCancelConfirm(false)} disabled={cancelling}>
+                        キャンセル
                       </button>
-                      <button
-                        className="btn-danger flex-1 flex items-center justify-center gap-1 py-2.5 text-[0.95rem] font-semibold"
-                        onClick={handleCancel}
-                        disabled={cancelling}
-                      >
-                        {cancelling ? '取り消し中...' : '取り消し'}
+                      <button className="btn-danger flex-1" onClick={handleCancel} disabled={cancelling}>
+                        {cancelling ? '取り消し中...' : 'OK'}
                       </button>
                     </div>
                   </>
@@ -757,7 +782,7 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled, onBo
                     {formatDate(modal.date).md}（{formatDate(modal.date).wd}）
                   </p>
                 </div>
-                <button className="btn-icon" onClick={closeFn} disabled={submitting}>
+                <button className="btn-icon-close" onClick={closeFn} disabled={submitting}>
                   <span className="icon">close</span>
                 </button>
               </div>
@@ -814,15 +839,10 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled, onBo
                 </div>
               </div>
 
-              <div className="flex gap-2">
-                <button className="btn-outline flex-1" onClick={closeFn} disabled={submitting}>
-                  キャンセル
-                </button>
-                <button className="btn-primary flex-1" onClick={handleSubmit}
-                  disabled={submitting || !bandName.trim() || !modalEnd}>
-                  {submitting ? (editingId ? '変更中...' : '送信中...') : (editingId ? '変更' : '予約')}
-                </button>
-              </div>
+              <button className="btn-primary" onClick={handleSubmit}
+                disabled={submitting || !bandName.trim() || !modalEnd}>
+                {submitting ? (editingId ? '変更中...' : '送信中...') : (editingId ? '変更' : '予約')}
+              </button>
             </div>
           </div>
         )
@@ -837,11 +857,8 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled, onBo
             </p>
             <p className="text-[0.85rem] text-ink-sub mb-4">入力中の内容が破棄されます</p>
             <div className="flex gap-2">
-              <button className="btn-outline flex-1" onClick={() => setCloseConfirm(false)}>続ける</button>
-              <button
-                className="flex-1 px-4 py-[0.9rem] bg-danger text-white rounded-[10px] text-[0.95rem] font-bold cursor-pointer transition hover:brightness-90"
-                onClick={() => { setCloseConfirm(false); closeModal() }}
-              >中断</button>
+              <button className="btn-secondary flex-1" onClick={() => setCloseConfirm(false)}>キャンセル</button>
+              <button className="btn-danger flex-1" onClick={() => { setCloseConfirm(false); closeModal() }}>OK</button>
             </div>
           </div>
         </div>

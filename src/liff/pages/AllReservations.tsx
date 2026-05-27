@@ -148,7 +148,7 @@ export default function AllReservations({ profile, onEditRequest }: Props) {
           <div className="relative bg-surface rounded-2xl shadow-[var(--shadow-modal)] w-full max-w-[320px] overflow-hidden">
             <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-line">
               <p className="text-base font-bold text-ink">登録詳細</p>
-              <button className="btn-icon" onClick={() => setDetailModal(null)}>
+              <button className="btn-icon-close" onClick={() => setDetailModal(null)}>
                 <span className="icon">close</span>
               </button>
             </div>
