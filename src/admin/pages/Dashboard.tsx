@@ -59,9 +59,9 @@ const ACTION_LABELS: Record<string, string> = {
 }
 
 const FACILITY_META = {
-  'nobu':      { label: '農部生協', icon: 'grass',        accentBar: 'bg-brand',       badge: 'bg-green-100 text-green-700'  },
-  'kobu':      { label: '工部室',   icon: 'meeting_room', accentBar: 'bg-blue-400',    badge: 'bg-blue-100 text-blue-700'    },
-  'nobu-room': { label: '農部室',   icon: 'door_open',    accentBar: 'bg-orange-400',  badge: 'bg-orange-100 text-orange-700'},
+  'nobu':      { label: '農部生協', icon: 'grass',        iconBg: 'bg-brand-light', iconColor: 'text-brand',      labelColor: 'text-brand'      },
+  'kobu':      { label: '工部室',   icon: 'door_open',    iconBg: 'bg-indigo-100',  iconColor: 'text-indigo-500', labelColor: 'text-indigo-500' },
+  'nobu-room': { label: '農部室',   icon: 'door_sliding', iconBg: 'bg-orange-100',  iconColor: 'text-orange-500', labelColor: 'text-orange-500' },
 } as const
 
 function formatRelative(ts: number | null): string {
@@ -143,27 +143,35 @@ export default function Dashboard() {
 
       {/* 農部生協 統計 */}
       <FacilityLabel icon="grass" label="農部生協" />
-      <div className="grid grid-cols-4 gap-3 mb-3 max-md:grid-cols-2">
-        <StatCard icon="hourglass_empty" iconColor="var(--color-warn)"    label="抽選待ち"  value={stats.nobu.pending}   onClick={() => navigate('/admin/reservations')} />
-        <StatCard icon="check_circle"    iconColor="var(--color-brand)"   label="確定済み"  value={stats.nobu.confirmed} onClick={() => navigate('/admin/reservations')} />
-        <StatCard icon="today"           iconColor="var(--color-link)"    label="本日の予約" value={stats.nobu.today} />
-        <StatCard icon="group"           iconColor="var(--color-ink-sub)" label="ユーザー"
-          value={stats.users.total}
-          sub={stats.users.banned > 0 ? `BAN ${stats.users.banned}名` : undefined}
-          onClick={() => navigate('/admin/users')} />
+      <div className="grid grid-cols-3 gap-3 mb-3 max-md:grid-cols-3">
+        <StatCard icon="hourglass_empty" iconColor="var(--color-warn)"  label="抽選待ち"  value={stats.nobu.pending}   onClick={() => navigate('/admin/reservations')} />
+        <StatCard icon="check_circle"    iconColor="var(--color-brand)" label="確定済み"  value={stats.nobu.confirmed} onClick={() => navigate('/admin/reservations')} />
+        <StatCard icon="today"           iconColor="var(--color-link)"  label="本日の予約" value={stats.nobu.today}     onClick={() => navigate('/admin/reservations/nobu')} />
       </div>
 
       {/* 工部室・農部室 統計 */}
       <FacilityLabel icon="meeting_room" label="工部室" />
       <div className="grid grid-cols-2 gap-3 mb-3 max-md:grid-cols-2">
-        <StatCard icon="today"      iconColor="var(--color-link)"    label="本日の予約" value={stats.kobu.today} onClick={() => navigate('/admin/kobu-reservations')} />
-        <StatCard icon="date_range" iconColor="var(--color-ink-sub)" label="今後7日"   value={stats.kobu.week}  onClick={() => navigate('/admin/kobu-reservations')} />
+        <StatCard icon="today"      iconColor="var(--color-link)"    label="本日の予約" value={stats.kobu.today} onClick={() => navigate('/admin/reservations/kobu')} />
+        <StatCard icon="date_range" iconColor="var(--color-ink-sub)" label="今後7日"   value={stats.kobu.week}  onClick={() => navigate('/admin/reservations/kobu')} />
       </div>
 
       <FacilityLabel icon="door_open" label="農部室" />
+      <div className="grid grid-cols-2 gap-3 mb-3 max-md:grid-cols-2">
+        <StatCard icon="today"      iconColor="var(--color-link)"    label="本日の予約" value={stats.nobuRoom.today} onClick={() => navigate('/admin/reservations/nobu-room')} />
+        <StatCard icon="date_range" iconColor="var(--color-ink-sub)" label="今後7日"   value={stats.nobuRoom.week}  onClick={() => navigate('/admin/reservations/nobu-room')} />
+      </div>
+
+      {/* ユーザー管理 */}
+      <FacilityLabel icon="group" label="ユーザー管理" />
       <div className="grid grid-cols-2 gap-3 mb-5 max-md:grid-cols-2">
-        <StatCard icon="today"      iconColor="var(--color-link)"    label="本日の予約" value={stats.nobuRoom.today} onClick={() => navigate('/admin/nobu-room-reservations')} />
-        <StatCard icon="date_range" iconColor="var(--color-ink-sub)" label="今後7日"   value={stats.nobuRoom.week}  onClick={() => navigate('/admin/nobu-room-reservations')} />
+        <StatCard icon="group"           iconColor="var(--color-ink-sub)" label="ユーザー"
+          value={stats.users.total}
+          sub={stats.users.banned > 0 ? `BAN ${stats.users.banned}名` : undefined}
+          onClick={() => navigate('/admin/users')} />
+        <StatCard icon="admin_panel_settings" iconColor="var(--color-ink-sub)" label="管理者"
+          value={stats.adminCount}
+          onClick={() => navigate('/admin/admins')} />
       </div>
 
       <div className={DASH_GRID}>
@@ -193,26 +201,28 @@ export default function Dashboard() {
                 const dest = r.facility === 'nobu'
                   ? `/admin/reservations?focus=${r.id}`
                   : r.facility === 'kobu'
-                    ? `/admin/kobu-reservations`
-                    : `/admin/nobu-room-reservations`
+                    ? `/admin/reservations/kobu`
+                    : `/admin/reservations/nobu-room`
                 return (
                   <button
                     key={`${r.facility}-${r.id}`}
-                    className="flex items-center gap-2.5 px-4 py-2.5 border-b border-line last:border-b-0 bg-transparent border-0 text-left cursor-pointer transition-colors hover:bg-bg"
+                    className="flex items-center gap-3 px-4 py-3 border-b border-line last:border-b-0 bg-transparent border-x-0 border-t-0 text-left cursor-pointer transition-colors hover:bg-bg w-full"
                     onClick={() => navigate(dest)}
                   >
-                    <div className={`w-1 self-stretch rounded ${meta.accentBar}`} />
+                    <div className="flex flex-col items-center gap-0.5 shrink-0">
+                      <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${meta.iconBg}`}>
+                        <span className={`icon ${meta.iconColor}`} style={{ fontSize: 18 }}>{meta.icon}</span>
+                      </div>
+                      <span className={`text-[0.55rem] font-semibold leading-none ${meta.labelColor}`}>{meta.label}</span>
+                    </div>
                     <div className="flex-1 min-w-0">
-                      <div className="font-semibold truncate">{r.bandName}</div>
-                      <div className="text-[0.8rem] text-ink-sub">
+                      <div className="font-semibold truncate text-ink">{r.bandName}</div>
+                      <div className="text-[0.78rem] text-ink-sub">
                         {dateStr} {timeStr}{r.userDisplayName ? ` ・ ${r.userDisplayName}` : ''}
                       </div>
                     </div>
-                    <span className={`text-[0.65rem] font-semibold px-1.5 py-0.5 rounded-md ${meta.badge}`}>
-                      {meta.label}
-                    </span>
                     {r.facility === 'nobu' && (
-                      <span className={'badge ' + (r.status === 'confirmed' ? 'badge-confirmed' : 'badge-pending')}>
+                      <span className={'badge shrink-0 ' + (r.status === 'confirmed' ? 'badge-confirmed' : 'badge-pending')}>
                         {r.status === 'confirmed' ? `${r.order ?? '-'}` : '待ち'}
                       </span>
                     )}
@@ -291,10 +301,12 @@ function DashboardSkeleton() {
         <Skeleton width="200px" height="20px" />
       </div>
       <Skeleton width="80px" height="12px" className="mb-1.5" />
-      <div className={STATS_GRID4}>{[0,1,2,3].map((i) => <StatSkel key={i} />)}</div>
+      <div className="grid grid-cols-3 gap-3 mb-3 max-md:grid-cols-3">{[0,1,2].map((i) => <StatSkel key={i} />)}</div>
       <Skeleton width="60px" height="12px" className="mb-1.5" />
       <div className={STATS_GRID2}>{[0,1].map((i) => <StatSkel key={i} />)}</div>
       <Skeleton width="60px" height="12px" className="mb-1.5" />
+      <div className={STATS_GRID2}>{[0,1].map((i) => <StatSkel key={i} />)}</div>
+      <Skeleton width="80px" height="12px" className="mb-1.5" />
       <div className={`${STATS_GRID2} mb-5`}>{[0,1].map((i) => <StatSkel key={i} />)}</div>
       <div className="grid grid-cols-2 gap-4 max-md:grid-cols-1">
         {[0, 1].map((i) => (
@@ -304,13 +316,15 @@ function DashboardSkeleton() {
               <Skeleton width="80px" height="14px" />
             </div>
             {[0, 1, 2, 3].map((j) => (
-              <div key={j} className="flex items-center gap-2.5 px-4 py-2.5 border-b border-line last:border-b-0">
-                <Skeleton width="4px" height="40px" />
-                <div className="flex-1">
-                  <Skeleton width="70%" height="14px" className="mb-1" />
-                  <Skeleton width="50%" height="12px" />
+              <div key={j} className="flex items-center gap-3 px-4 py-3 border-b border-line last:border-b-0">
+                <div className="flex flex-col items-center gap-0.5 shrink-0">
+                  <Skeleton width={36} height={36} style={{ borderRadius: 12 }} />
+                  <Skeleton width={28} height={8} />
                 </div>
-                <Skeleton width="48px" height="20px" style={{ borderRadius: 20 }} />
+                <div className="flex-1">
+                  <Skeleton width="65%" height="14px" className="mb-1" />
+                  <Skeleton width="50%" height="11px" />
+                </div>
               </div>
             ))}
           </div>

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { adminFetch } from '../auth'
 import Skeleton from '../../components/Skeleton'
@@ -14,11 +14,20 @@ type User = {
 
 type Reservation = {
   id: string
+  facility: 'nobu' | 'kobu' | 'nobu-room'
   bandName: string
   date: string
+  startTime?: string
+  endTime?: string
   status: 'pending' | 'confirmed'
   order?: number
 }
+
+const FACILITY_CFG = {
+  'nobu':      { label: '農部生協', icon: 'grass',        iconBg: 'bg-brand-light', iconColor: 'text-brand',      labelColor: 'text-brand'      },
+  'kobu':      { label: '工部室',   icon: 'door_open',    iconBg: 'bg-indigo-100',  iconColor: 'text-indigo-500', labelColor: 'text-indigo-500' },
+  'nobu-room': { label: '農部室',   icon: 'door_sliding', iconBg: 'bg-orange-100',  iconColor: 'text-orange-500', labelColor: 'text-orange-500' },
+} as const
 
 export default function Users() {
   const [users, setUsers]     = useState<User[]>([])
@@ -27,8 +36,17 @@ export default function Users() {
   const [search, setSearch]   = useState('')
   const [tab, setTab]         = useState<'all' | 'banned' | 'admin'>('all')
   const [selected, setSelected] = useState<string | null>(null)
+  const tabBarRef = useRef<HTMLDivElement>(null)
+  const [indicator, setIndicator] = useState({ left: 0, width: 0 })
 
   useEffect(() => { load() }, [])
+
+  useEffect(() => {
+    const bar = tabBarRef.current
+    if (!bar) return
+    const btn = bar.querySelector('[data-active="true"]') as HTMLElement | null
+    if (btn) setIndicator({ left: btn.offsetLeft, width: btn.offsetWidth })
+  }, [tab])
 
   async function load() {
     setLoading(true)
@@ -61,10 +79,14 @@ export default function Users() {
     <div>
       <h1 className="text-2xl font-bold mb-6">ユーザー管理</h1>
 
-      <div className="flex gap-1 mb-4 border-b border-line">
+      <div ref={tabBarRef} className="relative flex gap-1 mb-4 border-b border-line">
         <TabButton active={tab === 'all'}    onClick={() => setTab('all')}    label="全員"  count={counts.all} />
-        <TabButton active={tab === 'banned'} onClick={() => setTab('banned')} label="BAN者" count={counts.banned} />
+        <TabButton active={tab === 'banned'} onClick={() => setTab('banned')} label="BAN"   count={counts.banned} />
         <TabButton active={tab === 'admin'}  onClick={() => setTab('admin')}  label="管理者" count={counts.admin} />
+        <span
+          className="absolute bottom-0 h-0.5 bg-brand transition-[left,width] duration-200 ease-out"
+          style={{ left: indicator.left, width: indicator.width }}
+        />
       </div>
 
       <div className="admin-card">
@@ -101,12 +123,12 @@ export default function Users() {
                 <th></th>
                 <th>最終予約</th>
                 <th></th>
-                <th style={{ width: '80px' }}></th>
+                <th style={{ width: '32px' }}></th>
               </tr>
             </thead>
             <tbody>
               {filtered.map((u) => (
-                <tr key={u.userId}>
+                <tr key={u.userId} className="cursor-pointer" onClick={() => setSelected(u.userId)}>
                   <td data-label="ユーザー">
                     <div className="flex items-center gap-2">
                       {u.pictureUrl
@@ -125,10 +147,8 @@ export default function Users() {
                         ? <span className="badge badge-danger"><span className="icon icon-sm">block</span>BAN中</span>
                         : <span className="badge badge-confirmed"><span className="icon icon-sm">check_circle</span>有効</span>}
                   </td>
-                  <td className="cell-actions">
-                    <button className="btn-outline w-auto px-2.5 py-1.5 text-[0.8rem]" onClick={() => setSelected(u.userId)}>
-                      詳細
-                    </button>
+                  <td>
+                    <span className="icon text-ink-pale" style={{ fontSize: 18 }}>chevron_right</span>
                   </td>
                 </tr>
               ))}
@@ -136,10 +156,10 @@ export default function Users() {
           </table>
         </div>
 
-        {/* Mobile accordion */}
+        {/* Mobile: タップでモーダルを開く */}
         <div className="md:hidden bg-surface border border-line rounded-xl overflow-hidden shadow-[var(--shadow-card-sm)]">
           {filtered.map((u) => (
-            <UserMobileCard key={u.userId} u={u} onDetail={() => setSelected(u.userId)} />
+            <UserMobileCard key={u.userId} u={u} onClick={() => setSelected(u.userId)} />
           ))}
         </div>
         </>
@@ -152,51 +172,27 @@ export default function Users() {
   )
 }
 
-function UserMobileCard({ u, onDetail }: { u: User; onDetail: () => void }) {
-  const [open, setOpen] = useState(false)
-
+function UserMobileCard({ u, onClick }: { u: User; onClick: () => void }) {
   return (
-    <div className="border-b border-line last:border-b-0">
-      <button
-        className="w-full flex items-center gap-3 px-4 py-3 text-left bg-transparent border-0 cursor-pointer hover:bg-[#fafbfc] transition-colors"
-        onClick={() => setOpen((v) => !v)}
-      >
-        <div className="flex items-center gap-2 flex-1 min-w-0">
-          {u.pictureUrl
-            ? <img src={u.pictureUrl} alt="" className="avatar" />
-            : <span className="avatar-fallback"><span className="icon">account_circle</span></span>}
-          <span className="font-medium truncate">{u.displayName || '(名前なし)'}</span>
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
-          {u.isAdmin
-            ? <span className="badge badge-info"><span className="icon icon-sm">shield_person</span>管理者</span>
-            : u.banned
-              ? <span className="badge badge-danger"><span className="icon icon-sm">block</span>BAN中</span>
-              : <span className="badge badge-confirmed"><span className="icon icon-sm">check_circle</span>有効</span>}
-          <span className={`icon text-ink-pale transition-transform duration-200 ${open ? 'rotate-180' : ''}`}>
-            expand_more
-          </span>
-        </div>
-      </button>
-
-      <div className={`grid transition-all duration-200 ease-out ${open ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
-        <div className="overflow-hidden min-h-0">
-          <div className="px-4 pb-3 border-t border-line bg-bg">
-            <div className="flex items-center justify-between py-2">
-              <span className="text-[0.72rem] text-ink-sub font-semibold uppercase tracking-wide">最終予約</span>
-              <span className="text-[0.85rem] text-ink-sub">
-                {u.lastReservedAt ? new Date(u.lastReservedAt).toLocaleDateString('ja-JP') : '-'}
-              </span>
-            </div>
-            <div className="pt-2">
-              <button className="btn-outline py-1.5 text-[0.85rem]" onClick={onDetail}>
-                詳細を見る
-              </button>
-            </div>
-          </div>
-        </div>
+    <button
+      className="w-full flex items-center gap-3 px-4 py-3 text-left bg-transparent border-0 border-b border-line last:border-b-0 cursor-pointer hover:bg-[#fafbfc] transition-colors"
+      onClick={onClick}
+    >
+      <div className="flex items-center gap-2 flex-1 min-w-0">
+        {u.pictureUrl
+          ? <img src={u.pictureUrl} alt="" className="avatar" />
+          : <span className="avatar-fallback"><span className="icon">account_circle</span></span>}
+        <span className="font-medium truncate">{u.displayName || '(名前なし)'}</span>
       </div>
-    </div>
+      <div className="flex items-center gap-2 shrink-0">
+        {u.isAdmin
+          ? <span className="badge badge-info"><span className="icon icon-sm">shield_person</span>管理者</span>
+          : u.banned
+            ? <span className="badge badge-danger"><span className="icon icon-sm">block</span>BAN中</span>
+            : <span className="badge badge-confirmed"><span className="icon icon-sm">check_circle</span>有効</span>}
+        <span className="icon text-ink-pale" style={{ fontSize: 18 }}>chevron_right</span>
+      </div>
+    </button>
   )
 }
 
@@ -204,12 +200,11 @@ function TabButton({ active, onClick, label, count }:
   { active: boolean; onClick: () => void; label: string; count: number }) {
   return (
     <button
+      data-active={active}
       onClick={onClick}
       className={
-        'flex items-center gap-1.5 px-4 py-2.5 bg-transparent border-0 border-b-2 cursor-pointer text-[0.9rem] font-medium transition-colors ' +
-        (active
-          ? 'text-brand border-brand font-semibold'
-          : 'text-ink-sub border-transparent hover:text-ink')
+        'flex items-center gap-1.5 px-4 py-2.5 bg-transparent border-0 cursor-pointer text-[0.9rem] font-medium transition-colors ' +
+        (active ? 'text-brand font-semibold' : 'text-ink-sub hover:text-ink')
       }
     >
       {label}
@@ -232,9 +227,12 @@ function UserDetail({
   const [data, setData] = useState<{ user: User; reservations: Reservation[] } | null>(null)
   const [working, setWorking] = useState(false)
 
-  function jumpToReservation(id: string) {
+  function jumpToReservation(r: Reservation) {
     onClose()
-    navigate(`/admin/reservations?focus=${id}`)
+    const base = r.facility === 'kobu' ? '/admin/reservations/kobu'
+      : r.facility === 'nobu-room'    ? '/admin/reservations/nobu-room'
+      :                                 '/admin/reservations'
+    navigate(`${base}?focus=${r.id}`)
   }
 
   useEffect(() => {
@@ -278,9 +276,12 @@ function UserDetail({
               {data.user.pictureUrl
                 ? <img src={data.user.pictureUrl} alt="" className="avatar avatar-lg" />
                 : <span className="avatar-fallback avatar-lg"><span className="icon icon-lg">account_circle</span></span>}
-              <div>
+              <div className="flex-1 min-w-0">
                 <div className="font-bold">{data.user.displayName || '(名前なし)'}</div>
               </div>
+              <button className="btn-icon-close shrink-0" onClick={onClose} aria-label="閉じる">
+                <span className="icon">close</span>
+              </button>
             </div>
 
             {data.user.isAdmin ? (
@@ -290,11 +291,11 @@ function UserDetail({
               </div>
             ) : (
               <button
-                className={data.user.banned ? 'btn-outline mb-4' : 'btn-danger mb-4 w-full py-2.5'}
+                className={data.user.banned ? 'btn-outline mb-4' : 'btn-danger mb-4'}
                 onClick={toggleBan}
                 disabled={working}
               >
-                <span className="icon icon-sm mr-1">{data.user.banned ? 'lock_open' : 'block'}</span>
+                <span className="icon icon-sm">{data.user.banned ? 'lock_open' : 'block'}</span>
                 {data.user.banned ? 'BAN 解除' : 'BAN'}
               </button>
             )}
@@ -304,29 +305,47 @@ function UserDetail({
               <p className="text-ink-pale text-[0.9rem]">履歴なし</p>
             ) : (
               <div className="max-h-[300px] overflow-y-auto">
-                {data.reservations.map((r) => (
-                  <button
-                    key={r.id}
-                    onClick={() => jumpToReservation(r.id)}
-                    title="予約管理で開く"
-                    className="reservation-card w-full cursor-pointer text-left hover:bg-bg hover:border-brand transition-colors"
-                  >
-                    <div className={'w-1 self-stretch rounded ' + (r.status === 'confirmed' ? 'bg-brand' : 'bg-warn')} />
-                    <div className="flex-1 min-w-0">
-                      <div className="font-bold text-ink truncate">{r.bandName}</div>
-                      <div className="text-[0.82rem] text-ink-sub">{r.date}</div>
-                      <span className={'badge ' + (r.status === 'confirmed' ? 'badge-confirmed' : 'badge-pending')}>
-                        <span className="icon icon-sm">{r.status === 'confirmed' ? 'check_circle' : 'hourglass_empty'}</span>
-                        {r.status === 'confirmed' ? `確定 (${r.order ?? '-'})` : '抽選待ち'}
-                      </span>
-                    </div>
-                    <span className="icon icon-sm text-ink-pale">arrow_forward</span>
-                  </button>
-                ))}
+                {data.reservations.map((r) => {
+                  const fc = FACILITY_CFG[r.facility]
+                  const timeStr = r.facility === 'nobu'
+                    ? r.date.split('T')[1]
+                    : r.startTime ? `${r.startTime}〜${r.endTime}` : ''
+                  const dateStr = r.facility === 'nobu'
+                    ? r.date.split('T')[0]
+                    : r.date
+                  const isConfirmed = r.status === 'confirmed'
+                  return (
+                    <button
+                      key={r.id}
+                      onClick={() => jumpToReservation(r)}
+                      title="予約管理で開く"
+                      className="reservation-card w-full cursor-pointer text-left hover:bg-bg hover:border-brand transition-colors"
+                    >
+                      <div className="flex flex-col items-center gap-0.5 shrink-0">
+                        <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${fc.iconBg}`}>
+                          <span className={`icon ${fc.iconColor}`} style={{ fontSize: 18 }}>{fc.icon}</span>
+                        </div>
+                        <span className={`text-[0.55rem] font-semibold leading-none ${fc.labelColor}`}>{fc.label}</span>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-start justify-between gap-2 mb-0.5">
+                          <span className="font-bold text-ink truncate">{r.bandName}</span>
+                          <span className={'badge shrink-0 ' + (isConfirmed ? 'badge-confirmed' : 'badge-pending')}>
+                            <span className="icon icon-sm">{isConfirmed ? 'check_circle' : 'hourglass_empty'}</span>
+                            {r.facility === 'nobu' ? (isConfirmed ? `確定 (${r.order ?? '-'})` : '抽選待ち') : '確定'}
+                          </span>
+                        </div>
+                        <div className="text-[0.78rem] text-ink-sub">
+                          {dateStr}{timeStr ? `　${timeStr}` : ''}
+                        </div>
+                      </div>
+                      <span className="icon icon-sm text-ink-pale shrink-0">arrow_forward</span>
+                    </button>
+                  )
+                })}
               </div>
             )}
 
-            <button className="btn-outline mt-4" onClick={onClose}>閉じる</button>
           </>
         )}
       </div>

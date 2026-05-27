@@ -1070,19 +1070,26 @@ async function handleUserById(req: VercelRequest, res: VercelResponse, userId: s
   const userRef = db.collection('users').doc(userId)
 
   if (req.method === 'GET') {
-    const [userDoc, resSnap, adminDoc] = await Promise.all([
+    const [userDoc, resSnap, kobuSnap, nobuRoomSnap, adminDoc] = await Promise.all([
       userRef.get(),
       db.collection('reservations').where('userId', '==', userId).get(),
+      db.collection('kobu-reservations').where('userId', '==', userId).get(),
+      db.collection('nobu-room-reservations').where('userId', '==', userId).get(),
       db.collection('admins').doc(userId).get(),
     ])
     if (!userDoc.exists) return res.status(404).json({ error: 'ユーザーが見つかりません' })
     const data = userDoc.data()!
-    const reservations = resSnap.docs
+    const nobuReservations = resSnap.docs
       .map((d) => ({ id: d.id, ...d.data() } as any))
+      .map((r) => ({ id: r.id, facility: 'nobu' as const, bandName: r.bandName, date: r.date, status: r.status, order: r.order }))
+    const kobuReservations = kobuSnap.docs
+      .map((d) => ({ id: d.id, ...d.data() } as any))
+      .map((r) => ({ id: r.id, facility: 'kobu' as const, bandName: r.bandName, date: r.date, startTime: r.startTime, endTime: r.endTime, status: r.status }))
+    const nobuRoomReservations = nobuRoomSnap.docs
+      .map((d) => ({ id: d.id, ...d.data() } as any))
+      .map((r) => ({ id: r.id, facility: 'nobu-room' as const, bandName: r.bandName, date: r.date, startTime: r.startTime, endTime: r.endTime, status: r.status }))
+    const reservations = [...nobuReservations, ...kobuReservations, ...nobuRoomReservations]
       .sort((a, b) => (b.date ?? '').localeCompare(a.date ?? ''))
-      .map((r) => ({
-        id: r.id, bandName: r.bandName, date: r.date, status: r.status, order: r.order,
-      }))
     return res.status(200).json({
       user: {
         userId,

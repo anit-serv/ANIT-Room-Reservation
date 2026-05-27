@@ -29,6 +29,7 @@ export default function Reservations() {
   const [search, setSearch]             = useState('')
   const [editing, setEditing]           = useState<Reservation | null>(null)
   const [highlightedId, setHighlightedId] = useState<string | null>(null)
+  const [openId,        setOpenId]        = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -190,6 +191,8 @@ export default function Reservations() {
               r={r}
               highlighted={highlightedId === r.id}
               rowRef={(el) => { rowRefs.current[r.id] = el }}
+              open={openId === r.id}
+              onToggle={() => setOpenId(openId === r.id ? null : r.id)}
               onEdit={() => setEditing(r)}
               onDelete={() => handleDelete(r)}
             />
@@ -210,15 +213,16 @@ export default function Reservations() {
 }
 
 function ReservationMobileCard({
-  r, highlighted, rowRef, onEdit, onDelete,
+  r, highlighted, rowRef, open, onToggle, onEdit, onDelete,
 }: {
   r: Reservation
   highlighted: boolean
   rowRef: (el: HTMLDivElement | null) => void
+  open: boolean
+  onToggle: () => void
   onEdit: () => void
   onDelete: () => void
 }) {
-  const [open, setOpen] = useState(false)
   const [datePart, timePart] = r.date.split('T')
 
   return (
@@ -228,7 +232,7 @@ function ReservationMobileCard({
     >
       <button
         className="w-full flex items-center gap-3 px-4 py-3 text-left bg-transparent border-0 cursor-pointer hover:bg-[#fafbfc] transition-colors"
-        onClick={() => setOpen((v) => !v)}
+        onClick={onToggle}
       >
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
@@ -311,7 +315,12 @@ function EditModal({
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal-card" onClick={(e) => e.stopPropagation()}>
-        <h2 className="text-base font-bold mb-3">予約を編集</h2>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-base font-bold m-0">予約を編集</h2>
+          <button className="btn-icon-close" onClick={onClose} aria-label="閉じる">
+            <span className="icon">close</span>
+          </button>
+        </div>
         {err && <div className="banner-error">{err}</div>}
         <div className="form-row">
           <label>バンド名</label>
@@ -325,9 +334,8 @@ function EditModal({
           <label>時間帯</label>
           <TimeRangeInput value={time} onChange={setTime} />
         </div>
-        <div className="flex gap-2 mt-4">
-          <button className="btn-outline flex-1" onClick={onClose}>キャンセル</button>
-          <button className="btn-primary flex-1" onClick={save} disabled={saving}>
+        <div className="mt-4">
+          <button className="btn-primary" onClick={save} disabled={saving}>
             {saving ? '保存中...' : '保存'}
           </button>
         </div>

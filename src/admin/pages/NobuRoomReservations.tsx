@@ -1,4 +1,5 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { adminFetch } from '../auth'
 import Skeleton from '../../components/Skeleton'
 
@@ -16,12 +17,18 @@ type NobuRoomReservation = {
 }
 
 export default function NobuRoomReservations() {
+  const [searchParams, setSearchParams] = useSearchParams()
+  const focusId = searchParams.get('focus')
+  const rowRefs = useRef<Record<string, HTMLElement | null>>({})
+
   const [reservations, setReservations] = useState<NobuRoomReservation[]>([])
   const [loading, setLoading]           = useState(true)
   const [error, setError]               = useState<string | null>(null)
   const [dateFilter, setDateFilter]     = useState('')
   const [search, setSearch]             = useState('')
   const [editing, setEditing]           = useState<NobuRoomReservation | null>(null)
+  const [openId,  setOpenId]            = useState<string | null>(null)
+  const [highlightedId, setHighlightedId] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -45,6 +52,20 @@ export default function NobuRoomReservations() {
   }, [dateFilter, search])
 
   useEffect(() => { load() }, [load])
+
+  useEffect(() => {
+    if (!focusId || reservations.length === 0) return
+    const row = rowRefs.current[focusId]
+    if (row) {
+      row.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      setHighlightedId(focusId)
+      const t = setTimeout(() => {
+        setHighlightedId(null)
+        setSearchParams({}, { replace: true })
+      }, 3000)
+      return () => clearTimeout(t)
+    }
+  }, [focusId, reservations, setSearchParams])
 
   async function handleDelete(r: NobuRoomReservation) {
     if (!confirm(`「${r.bandName}」(${r.date} ${r.startTime}〜${r.endTime}) を削除しますか？\nこの操作は取り消せません。`)) return
@@ -110,7 +131,10 @@ export default function NobuRoomReservations() {
               </thead>
               <tbody>
                 {reservations.map((r) => (
-                  <tr key={r.id}>
+                  <tr key={r.id}
+                    ref={(el) => { rowRefs.current[r.id] = el }}
+                    className={highlightedId === r.id ? 'row-highlight' : ''}
+                  >
                     <td data-label="日付">{r.date}</td>
                     <td data-label="時間帯">
                       <span className="text-[0.85rem] font-mono">{r.startTime}〜{r.endTime}</span>
@@ -143,7 +167,12 @@ export default function NobuRoomReservations() {
           {/* Mobile */}
           <div className="md:hidden bg-surface border border-line rounded-xl overflow-hidden shadow-[var(--shadow-card-sm)]">
             {reservations.map((r) => (
-              <NobuRoomMobileCard key={r.id} r={r} onEdit={() => setEditing(r)} onDelete={() => handleDelete(r)} />
+              <NobuRoomMobileCard key={r.id} r={r}
+                highlighted={highlightedId === r.id}
+                rowRef={(el) => { rowRefs.current[r.id] = el }}
+                open={openId === r.id}
+                onToggle={() => setOpenId(openId === r.id ? null : r.id)}
+                onEdit={() => setEditing(r)} onDelete={() => handleDelete(r)} />
             ))}
           </div>
         </>
@@ -160,15 +189,15 @@ export default function NobuRoomReservations() {
   )
 }
 
-function NobuRoomMobileCard({ r, onEdit, onDelete }: {
-  r: NobuRoomReservation; onEdit: () => void; onDelete: () => void
+function NobuRoomMobileCard({ r, highlighted, rowRef, open, onToggle, onEdit, onDelete }: {
+  r: NobuRoomReservation; highlighted: boolean; rowRef: (el: HTMLElement | null) => void
+  open: boolean; onToggle: () => void; onEdit: () => void; onDelete: () => void
 }) {
-  const [open, setOpen] = useState(false)
   return (
-    <div className="border-b border-line last:border-b-0">
+    <div ref={rowRef} className={`border-b border-line last:border-b-0 ${highlighted ? 'row-highlight' : ''}`}>
       <button
         className="w-full flex items-center gap-3 px-4 py-3 text-left bg-transparent border-0 cursor-pointer hover:bg-[#fafbfc] transition-colors"
-        onClick={() => setOpen((v) => !v)}
+        onClick={onToggle}
       >
         <div className="flex-1 min-w-0">
           <div className="font-medium text-[0.9rem] truncate">{r.bandName}</div>
@@ -210,16 +239,30 @@ function NobuRoomMobileCard({ r, onEdit, onDelete }: {
 function NobuRoomEditModal({ reservation, onClose, onSaved }: {
   reservation: NobuRoomReservation; onClose: () => void; onSaved: () => void
 }) {
-  const [bandName,   setBandName]   = useState(reservation.bandName)
-  const [date,       setDate]       = useState(reservation.date)
-  const [startTime,  setStartTime]  = useState(reservation.startTime)
-  const [endTime,    setEndTime]    = useState(reservation.endTime)
-  const [saving,     setSaving]     = useState(false)
-  const [err,        setErr]        = useState<string | null>(null)
+  const [bandName,  setBandName]  = useState(reservation.bandName)
+  const [date,      setDate]      = useState(reservation.date)
+  const [startTime, setStartTime] = useState(reservation.startTime)
+  const [endTime,   setEndTime]   = useState(reservation.endTime)
+  const [saving,    setSaving]    = useState(false)
+  const [err,       setErr]       = useState<string | null>(null)
+  const [sameDay,   setSameDay]   = useState<NobuRoomReservation[]>([])
 
   const timeOptions = buildTimeOptions('08:00', '20:00')
 
+  useEffect(() => {
+    adminFetch(`/api/admin/nobu-room-reservations?date=${date}`)
+      .then((r) => r.ok ? r.json() : { reservations: [] })
+      .then((data) => setSameDay((data.reservations ?? []).filter((r: NobuRoomReservation) => r.id !== reservation.id)))
+      .catch(() => setSameDay([]))
+  }, [date, reservation.id])
+
+  const conflict = sameDay.find((r) => startTime < r.endTime && r.startTime < endTime)
+
+  function isStartBlocked(t: string) { return sameDay.some((r) => t < r.endTime && r.startTime < endTime) }
+  function isEndBlocked(t: string)   { return sameDay.some((r) => startTime < r.endTime && r.startTime < t) }
+
   async function save() {
+    if (conflict) return
     setSaving(true)
     setErr(null)
     try {
@@ -240,8 +283,18 @@ function NobuRoomEditModal({ reservation, onClose, onSaved }: {
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal-card" onClick={(e) => e.stopPropagation()}>
-        <h2 className="text-base font-bold mb-3">農部室予約を編集</h2>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-base font-bold m-0">農部室予約を編集</h2>
+          <button className="btn-icon-close" onClick={onClose} aria-label="閉じる">
+            <span className="icon">close</span>
+          </button>
+        </div>
         {err && <div className="banner-error">{err}</div>}
+        {conflict && !err && (
+          <div className="banner-warn">
+            {conflict.startTime}〜{conflict.endTime}（{conflict.bandName}）と重複しています
+          </div>
+        )}
         <div className="form-row">
           <label>バンド名</label>
           <input className="text-input" value={bandName} onChange={(e) => setBandName(e.target.value)} />
@@ -254,7 +307,7 @@ function NobuRoomEditModal({ reservation, onClose, onSaved }: {
           <label>開始時刻</label>
           <select className="text-input" value={startTime} onChange={(e) => setStartTime(e.target.value)}>
             {timeOptions.slice(0, -1).map((t) => (
-              <option key={t} value={t}>{t}</option>
+              <option key={t} value={t} disabled={isStartBlocked(t)}>{t}</option>
             ))}
           </select>
         </div>
@@ -262,13 +315,13 @@ function NobuRoomEditModal({ reservation, onClose, onSaved }: {
           <label>終了時刻</label>
           <select className="text-input" value={endTime} onChange={(e) => setEndTime(e.target.value)}>
             {timeOptions.slice(1).map((t) => (
-              <option key={t} value={t} disabled={t <= startTime}>{t}</option>
+              <option key={t} value={t} disabled={t <= startTime || isEndBlocked(t)}>{t}</option>
             ))}
           </select>
         </div>
-        <div className="flex gap-2 mt-4">
-          <button className="btn-outline flex-1" onClick={onClose}>キャンセル</button>
-          <button className="btn-primary flex-1" onClick={save} disabled={saving || !bandName.trim() || startTime >= endTime}>
+        <div className="mt-4">
+          <button className="btn-primary" onClick={save}
+            disabled={saving || !bandName.trim() || startTime >= endTime || !!conflict}>
             {saving ? '保存中...' : '保存'}
           </button>
         </div>

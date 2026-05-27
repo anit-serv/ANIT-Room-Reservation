@@ -248,7 +248,7 @@ async function handleById(req: VercelRequest, res: VercelResponse, docId: string
 async function handleDelete(req: VercelRequest, res: VercelResponse, docId: string) {
   try {
     const cfg = getConfig(req)
-    const { userId } = await verifyLineToken(req.headers.authorization)
+    const { userId, name, picture } = await verifyLineToken(req.headers.authorization)
     const docRef = db.collection(cfg.collection).doc(docId)
     const doc    = await docRef.get()
     if (!doc.exists) return res.status(404).json({ error: '予約が見つかりません' })
@@ -258,6 +258,11 @@ async function handleDelete(req: VercelRequest, res: VercelResponse, docId: stri
       return res.status(400).json({ error: '予約開始時刻を過ぎているため削除できません' })
     }
     await docRef.delete()
+    const profileUpdate: Record<string, any> = {}
+    if (name)    profileUpdate.displayName = name
+    if (picture) profileUpdate.pictureUrl  = picture
+    if (Object.keys(profileUpdate).length > 0)
+      await db.collection('users').doc(userId).set(profileUpdate, { merge: true })
     return res.status(200).json({ success: true })
   } catch (err: any) {
     const status = err.message === 'Unauthorized' ? 401 : (err.status ?? 500)
@@ -269,7 +274,7 @@ async function handleDelete(req: VercelRequest, res: VercelResponse, docId: stri
 async function handleModify(req: VercelRequest, res: VercelResponse, docId: string) {
   try {
     const cfg = getConfig(req)
-    const { userId } = await verifyLineToken(req.headers.authorization)
+    const { userId, name, picture } = await verifyLineToken(req.headers.authorization)
     const { newStart, newEnd, bandName: newBandName } = (req.body ?? {}) as {
       newStart?: string; newEnd?: string; bandName?: string
     }
@@ -335,6 +340,11 @@ async function handleModify(req: VercelRequest, res: VercelResponse, docId: stri
     if (newEnd   !== data.endTime)   updates.endTime   = newEnd
     updates.updatedAt = new Date()
     await docRef.update(updates)
+    const profileUpdate: Record<string, any> = {}
+    if (name)    profileUpdate.displayName = name
+    if (picture) profileUpdate.pictureUrl  = picture
+    if (Object.keys(profileUpdate).length > 0)
+      await db.collection('users').doc(userId).set(profileUpdate, { merge: true })
     return res.status(200).json({ success: true })
   } catch (err: any) {
     const status = err.message === 'Unauthorized' ? 401 : (err.status ?? 500)
