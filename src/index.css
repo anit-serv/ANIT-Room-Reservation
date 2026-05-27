@@ -3,16 +3,16 @@
 /* ── テーマ定義 ────────────────────────────────────── */
 @theme {
   /* ブランドカラー */
-  --color-brand:        #06c755;
-  --color-brand-dark:   #05a847;
-  --color-brand-light:  #e8f9ef;
+  --color-brand:        #10b981;
+  --color-brand-dark:   #059669;
+  --color-brand-light:  #ecfdf5;
 
   /* 警告 (オレンジ) */
-  --color-warn:         #ff9500;
-  --color-warn-light:   #fff4e0;
+  --color-warn:         #d97706;
+  --color-warn-light:   #fef3c7;
 
   /* 危険 (赤) */
-  --color-danger:       #e53e3e;
+  --color-danger:       #c53030;
   --color-danger-light: #fff0f0;
 
   /* スーパー管理者 */
@@ -29,7 +29,7 @@
   --color-line:         #e8e8e8;
 
   /* リンク (青系) */
-  --color-link:         #1a73e8;
+  --color-link:         #2563a8;
   --color-link-light:   #e8f0fe;
 
   /* シャドウ */

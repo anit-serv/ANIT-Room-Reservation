@@ -59,9 +59,9 @@ const ACTION_LABELS: Record<string, string> = {
 }
 
 const FACILITY_META = {
-  'nobu':      { label: '農部生協', icon: 'grass',        iconBg: 'bg-brand-light', iconColor: 'text-brand',      labelColor: 'text-brand'      },
-  'kobu':      { label: '工部室',   icon: 'door_open',    iconBg: 'bg-indigo-100',  iconColor: 'text-indigo-500', labelColor: 'text-indigo-500' },
-  'nobu-room': { label: '農部室',   icon: 'door_sliding', iconBg: 'bg-orange-100',  iconColor: 'text-orange-500', labelColor: 'text-orange-500' },
+  'nobu':      { label: '農部生協', icon: 'grass',        iconBg: 'bg-emerald-100', iconColor: 'text-emerald-600', labelColor: 'text-emerald-600' },
+  'kobu':      { label: '工部室',   icon: 'door_open',    iconBg: 'bg-cyan-100',    iconColor: 'text-cyan-700',    labelColor: 'text-cyan-700'    },
+  'nobu-room': { label: '農部室',   icon: 'door_sliding', iconBg: 'bg-teal-100',    iconColor: 'text-teal-600',    labelColor: 'text-teal-600'    },
 } as const
 
 function formatRelative(ts: number | null): string {
@@ -222,8 +222,9 @@ export default function Dashboard() {
                       </div>
                     </div>
                     {r.facility === 'nobu' && (
-                      <span className={'badge shrink-0 ' + (r.status === 'confirmed' ? 'badge-confirmed' : 'badge-pending')}>
-                        {r.status === 'confirmed' ? `${r.order ?? '-'}` : '待ち'}
+                      <span className="badge shrink-0 badge-confirmed">
+                        <span className="icon icon-sm">check_circle</span>
+                        {r.status === 'confirmed' ? `確定 (${r.order ?? '-'})` : '確定 (未定)'}
                       </span>
                     )}
                   </button>

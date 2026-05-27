@@ -61,9 +61,9 @@ function sortKey(r: Reservation): string {
 type FacilityConfig = { label: string; icon: string; iconBg: string; iconColor: string; labelColor: string }
 
 function facilityConfig(r: Reservation): FacilityConfig {
-  if (r.facility === 'nobu') return      { label: '農部生協', icon: 'grass',        iconBg: 'bg-brand-light', iconColor: 'text-brand',       labelColor: 'text-brand'       }
-  if (r.facility === 'nobu-room') return { label: '農部室',   icon: 'door_sliding', iconBg: 'bg-orange-100',  iconColor: 'text-orange-500',  labelColor: 'text-orange-500'  }
-  return                                 { label: '工部室',   icon: 'door_open',    iconBg: 'bg-indigo-100',  iconColor: 'text-indigo-500',  labelColor: 'text-indigo-500'  }
+  if (r.facility === 'nobu') return      { label: '農部生協', icon: 'grass',        iconBg: 'bg-emerald-100', iconColor: 'text-emerald-600', labelColor: 'text-emerald-600' }
+  if (r.facility === 'nobu-room') return { label: '農部室',   icon: 'door_sliding', iconBg: 'bg-teal-100',    iconColor: 'text-teal-600',    labelColor: 'text-teal-600'    }
+  return                                 { label: '工部室',   icon: 'door_open',    iconBg: 'bg-cyan-100',    iconColor: 'text-cyan-700',    labelColor: 'text-cyan-700'    }
 }
 
 function displayDateStr(r: Reservation): string {

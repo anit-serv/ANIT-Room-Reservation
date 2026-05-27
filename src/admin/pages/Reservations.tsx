@@ -128,8 +128,8 @@ export default function Reservations() {
                 <th>日時</th>
                 <th>バンド名</th>
                 <th>登録者</th>
-                <th>ステータス</th>
-                <th>順位</th>
+                <th className="text-right">ステータス</th>
+                <th className="text-right">順位</th>
                 <th style={{ width: '120px' }}>操作</th>
               </tr>
             </thead>
@@ -157,7 +157,7 @@ export default function Reservations() {
                         <span className="text-[0.85rem]">{r.userDisplayName || '(不明)'}</span>
                       </div>
                     </td>
-                    <td data-label="ステータス">
+                    <td data-label="ステータス" className="text-right">
                       <span className={'badge ' + (r.status === 'confirmed' ? 'badge-confirmed' : 'badge-pending')}>
                         <span className="icon icon-sm">
                           {r.status === 'confirmed' ? 'check_circle' : 'hourglass_empty'}
@@ -165,7 +165,7 @@ export default function Reservations() {
                         {r.status === 'confirmed' ? '確定' : '抽選待ち'}
                       </span>
                     </td>
-                    <td data-label="順位">{r.order ?? '-'}</td>
+                    <td data-label="順位" className="text-right">{r.order ?? '-'}</td>
                     <td className="cell-actions">
                       <div className="flex gap-1.5">
                         <button className="btn-icon" onClick={() => setEditing(r)}>
@@ -235,9 +235,9 @@ function ReservationMobileCard({
         onClick={onToggle}
       >
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center justify-between gap-2">
             <span className="font-medium text-[0.9rem] truncate">{r.bandName}</span>
-            <span className={'badge ' + (r.status === 'confirmed' ? 'badge-confirmed' : 'badge-pending')}>
+            <span className={'badge shrink-0 ' + (r.status === 'confirmed' ? 'badge-confirmed' : 'badge-pending')}>
               <span className="icon icon-sm">{r.status === 'confirmed' ? 'check_circle' : 'hourglass_empty'}</span>
               {r.status === 'confirmed' ? '確定' : '抽選待ち'}
             </span>

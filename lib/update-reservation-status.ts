@@ -53,7 +53,7 @@ export async function updateReservationStatus(
           const bandIndex = bands.indexOf(bandName);
           await db.collection('reservations').doc(doc.id).update({
             status: 'confirmed',
-            order: bandIndex // 順番も記録
+            order: bandIndex + 1
           });
           updatedCount++;
         }
