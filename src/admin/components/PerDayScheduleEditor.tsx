@@ -12,6 +12,7 @@ export type PerDaySchedule = {
 type Props = {
   schedule: PerDaySchedule
   onChange: (s: PerDaySchedule) => void
+  defaultSlots: TimeSlot[]
   availableDays: number[]
   extraDates?: string[]
   excludedDates?: string[]
@@ -53,139 +54,259 @@ export function findAllConflicts(s: PerDaySchedule): boolean {
 }
 
 export default function PerDayScheduleEditor({
-  schedule, onChange, availableDays, extraDates = [], excludedDates = [], presets, onSavePreset, onDeletePreset,
+  schedule, onChange, defaultSlots, availableDays, extraDates = [], excludedDates = [], presets, onSavePreset, onDeletePreset,
 }: Props) {
   const [pickWeekday, setPickWeekday] = useState<string>('')
   const [pickDate, setPickDate]       = useState<string>('')
+  const [editing, setEditing]         = useState<{ kind: 'weekday' | 'date'; key: string } | null>(null)
+  const [adding, setAdding]           = useState<'weekday' | 'date' | null>(null)
 
-  function setEnabled(enabled: boolean) {
-    onChange({ ...schedule, enabled })
+  function copiedDefaultSlots(): TimeSlot[] {
+    return defaultSlots.length > 0
+      ? defaultSlots.map((slot) => ({ ...slot }))
+      : [{ label: '', value: '' }]
   }
 
   function addWeekday() {
     if (!pickWeekday) return
     if (schedule.byWeekday[pickWeekday]) return
-    onChange({ ...schedule, byWeekday: { ...schedule.byWeekday, [pickWeekday]: [] } })
+    onChange({
+      ...schedule,
+      enabled: true,
+      byWeekday: { ...schedule.byWeekday, [pickWeekday]: copiedDefaultSlots() },
+    })
+    setEditing({ kind: 'weekday', key: pickWeekday })
+    setAdding(null)
     setPickWeekday('')
   }
   function removeWeekday(day: string) {
     const next = { ...schedule.byWeekday }
     delete next[day]
-    onChange({ ...schedule, byWeekday: next })
+    onChange({ ...schedule, enabled: Object.keys(next).length > 0 || Object.keys(schedule.byDate).length > 0, byWeekday: next })
+    if (editing?.kind === 'weekday' && editing.key === day) setEditing(null)
   }
   function updateWeekday(day: string, slots: TimeSlot[]) {
-    onChange({ ...schedule, byWeekday: { ...schedule.byWeekday, [day]: slots } })
+    onChange({ ...schedule, enabled: true, byWeekday: { ...schedule.byWeekday, [day]: slots } })
   }
 
   function addDate() {
     if (!pickDate) return
     if (schedule.byDate[pickDate]) return
-    onChange({ ...schedule, byDate: { ...schedule.byDate, [pickDate]: [] } })
+    if (getDateWarning(pickDate, availableDays, extraDates, excludedDates)) return
+    onChange({
+      ...schedule,
+      enabled: true,
+      byDate: { ...schedule.byDate, [pickDate]: copiedDefaultSlots() },
+    })
+    setEditing({ kind: 'date', key: pickDate })
+    setAdding(null)
     setPickDate('')
   }
   function removeDate(date: string) {
     const next = { ...schedule.byDate }
     delete next[date]
-    onChange({ ...schedule, byDate: next })
+    onChange({ ...schedule, enabled: Object.keys(schedule.byWeekday).length > 0 || Object.keys(next).length > 0, byDate: next })
+    if (editing?.kind === 'date' && editing.key === date) setEditing(null)
   }
   function updateDate(date: string, slots: TimeSlot[]) {
-    onChange({ ...schedule, byDate: { ...schedule.byDate, [date]: slots } })
+    onChange({ ...schedule, enabled: true, byDate: { ...schedule.byDate, [date]: slots } })
   }
 
   const weekdayOptions = availableDays.filter((d) => !schedule.byWeekday[String(d)])
   const dateWarning = getDateWarning(pickDate, availableDays, extraDates, excludedDates)
+  const weekdayRules = Object.entries(schedule.byWeekday).sort(([a], [b]) => Number(a) - Number(b))
+  const dateRules = Object.entries(schedule.byDate).sort(([a], [b]) => a.localeCompare(b))
+  const hasRules = weekdayRules.length > 0 || dateRules.length > 0
 
   return (
     <div>
-      <label className="flex items-center gap-2 mb-3 cursor-pointer text-[0.95rem]">
-        <input
-          type="checkbox"
-          checked={schedule.enabled}
-          onChange={(e) => setEnabled(e.target.checked)}
-          className="w-[18px] h-[18px] cursor-pointer accent-brand"
-        />
-        <span>曜日・日付ごとに時間枠を変える</span>
-      </label>
+      <p className="text-[0.85rem] text-ink-sub mb-3">
+        通常と異なる時間枠を適用する日だけ登録します。適用順: 特定日 &gt; 曜日ルール &gt; デフォルト時間枠
+      </p>
 
-      {schedule.enabled && (
-        <>
-          <OverrideSection title="曜日別オーバーライド">
-            {Object.entries(schedule.byWeekday).map(([day, slots]) => (
-              <OverrideCard key={day} title={`${WEEK_DAYS[Number(day)]}曜`} onRemove={() => removeWeekday(day)}>
-                <TimeSlotsEditor slots={slots} onChange={(s) => updateWeekday(day, s)}
-                  presets={presets} onSavePreset={onSavePreset} onDeletePreset={onDeletePreset} />
-              </OverrideCard>
-            ))}
-            {weekdayOptions.length > 0 && (
-              <div className="flex gap-2 mt-2">
-                <select className="text-input w-auto" value={pickWeekday}
-                  onChange={(e) => setPickWeekday(e.target.value)}>
-                  <option value="">曜日を選択</option>
-                  {weekdayOptions.map((d) => (
-                    <option key={d} value={String(d)}>{WEEK_DAYS[d]}曜</option>
-                  ))}
-                </select>
-                <button className="btn-outline w-auto px-3 py-2" onClick={addWeekday}>
-                  <span className="icon icon-sm">add</span> 曜日を追加
-                </button>
-              </div>
-            )}
-          </OverrideSection>
+      {hasRules && !schedule.enabled && (
+        <div className="banner-warn mb-4">
+          保存済みのルールは現在無効です。
+          <button type="button" className="btn-outline w-auto px-3 py-1 ml-3 text-[0.8rem]"
+            onClick={() => onChange({ ...schedule, enabled: true })}>
+            ルールを有効にする
+          </button>
+        </div>
+      )}
 
-          <OverrideSection title="日付別オーバーライド">
-            {Object.entries(schedule.byDate).map(([date, slots]) => (
-              <OverrideCard key={date} title={date} onRemove={() => removeDate(date)}>
-                <TimeSlotsEditor slots={slots} onChange={(s) => updateDate(date, s)}
-                  presets={presets} onSavePreset={onSavePreset} onDeletePreset={onDeletePreset} />
-              </OverrideCard>
-            ))}
-            <div className="flex gap-2 mt-2 items-center flex-wrap">
-              <input
-                type="date"
-                className="text-input w-auto"
-                value={pickDate}
-                onChange={(e) => setPickDate(e.target.value)}
-              />
-              <button
-                className="btn-outline w-auto px-3 py-2"
-                onClick={addDate}
-                disabled={!pickDate || !!schedule.byDate[pickDate] || !!dateWarning}
-              >
-                <span className="icon icon-sm">add</span> 日付を追加
-              </button>
-            </div>
-            {dateWarning && (
-              <p className="mt-2 text-warn text-[0.85rem] flex items-center gap-1">
-                <span className="icon icon-sm">warning</span>
-                {dateWarning}
-              </p>
-            )}
-          </OverrideSection>
-        </>
+      <div className="flex gap-2 flex-wrap mb-4">
+        {weekdayOptions.length > 0 && (
+          <button type="button" className="btn-outline w-auto px-3 py-2" onClick={() => setAdding('weekday')}>
+            <span className="icon icon-sm">add</span> 曜日ルールを追加
+          </button>
+        )}
+        <button type="button" className="btn-outline w-auto px-3 py-2" onClick={() => setAdding('date')}>
+          <span className="icon icon-sm">add</span> 特定日ルールを追加
+        </button>
+      </div>
+
+      {adding === 'weekday' && (
+        <RuleComposer title="曜日ルールを追加" onClose={() => { setAdding(null); setPickWeekday('') }}>
+          <div className="flex gap-2 items-center flex-wrap">
+            <select className="text-input w-auto" value={pickWeekday}
+              onChange={(e) => setPickWeekday(e.target.value)}>
+              <option value="">曜日を選択</option>
+              {weekdayOptions.map((d) => (
+                <option key={d} value={String(d)}>{WEEK_DAYS[d]}曜</option>
+              ))}
+            </select>
+            <button type="button" className="btn-primary w-auto px-4 py-2" onClick={addWeekday} disabled={!pickWeekday}>
+              作成して編集
+            </button>
+          </div>
+        </RuleComposer>
+      )}
+
+      {adding === 'date' && (
+        <RuleComposer title="特定日ルールを追加" onClose={() => { setAdding(null); setPickDate('') }}>
+          <div className="flex gap-2 items-center flex-wrap">
+            <input
+              type="date"
+              className="text-input w-auto"
+              min={todayJST()}
+              value={pickDate}
+              onChange={(e) => setPickDate(e.target.value)}
+            />
+            <button
+              type="button"
+              className="btn-primary w-auto px-4 py-2"
+              onClick={addDate}
+              disabled={!pickDate || !!schedule.byDate[pickDate] || !!dateWarning}
+            >
+              作成して編集
+            </button>
+          </div>
+          {dateWarning && (
+            <p className="mt-2 text-warn text-[0.85rem] flex items-center gap-1">
+              <span className="icon icon-sm">warning</span>
+              {dateWarning}
+            </p>
+          )}
+        </RuleComposer>
+      )}
+
+      {!hasRules && !adding && (
+        <div className="bg-bg border border-dashed border-line rounded-[10px] px-4 py-5 text-[0.85rem] text-ink-pale text-center">
+          例外ルールはありません。全ての日にデフォルト時間枠が適用されます。
+        </div>
+      )}
+
+      {weekdayRules.length > 0 && (
+        <RuleList title="曜日ルール">
+          {weekdayRules.map(([day, slots]) => (
+            <RuleCard
+              key={day}
+              title={`毎週 ${WEEK_DAYS[Number(day)]}曜日`}
+              slots={slots}
+              active={schedule.enabled}
+              editing={editing?.kind === 'weekday' && editing.key === day}
+              onEdit={() => setEditing((prev) => prev?.kind === 'weekday' && prev.key === day ? null : { kind: 'weekday', key: day })}
+              onRemove={() => removeWeekday(day)}
+            >
+              <TimeSlotsEditor slots={slots} onChange={(next) => updateWeekday(day, next)}
+                presets={presets} onSavePreset={onSavePreset} onDeletePreset={onDeletePreset} />
+            </RuleCard>
+          ))}
+        </RuleList>
+      )}
+
+      {dateRules.length > 0 && (
+        <RuleList title="特定日ルール">
+          {dateRules.map(([date, slots]) => (
+            <RuleCard
+              key={date}
+              title={formatDate(date)}
+              slots={slots}
+              active={schedule.enabled}
+              editing={editing?.kind === 'date' && editing.key === date}
+              onEdit={() => setEditing((prev) => prev?.kind === 'date' && prev.key === date ? null : { kind: 'date', key: date })}
+              onRemove={() => removeDate(date)}
+            >
+              <TimeSlotsEditor slots={slots} onChange={(next) => updateDate(date, next)}
+                presets={presets} onSavePreset={onSavePreset} onDeletePreset={onDeletePreset} />
+            </RuleCard>
+          ))}
+        </RuleList>
       )}
     </div>
   )
 }
 
-function OverrideSection({ title, children }: { title: string; children: React.ReactNode }) {
+function formatDate(date: string): string {
+  const [year, month, day] = date.split('-').map(Number)
+  const weekday = WEEK_DAYS[new Date(year, month - 1, day).getDay()]
+  return `${date} (${weekday})`
+}
+
+function summarizeSlots(slots: TimeSlot[]): string {
+  if (slots.length === 0) return '時間枠未設定'
+  return slots.map((slot) => slot.label || slot.value || '未設定').join(' / ')
+}
+
+function RuleComposer({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return (
-    <div className="mt-4 pt-4 border-t border-line">
-      <div className="text-[0.85rem] font-semibold text-ink-sub mb-2">{title}</div>
+    <div className="bg-bg border border-line rounded-[10px] p-4 mb-4">
+      <div className="flex justify-between items-center mb-3">
+        <strong className="text-[0.9rem]">{title}</strong>
+        <button type="button" className="btn-icon-close" onClick={onClose} aria-label="閉じる">
+          <span className="icon">close</span>
+        </button>
+      </div>
       {children}
     </div>
   )
 }
 
-function OverrideCard({ title, onRemove, children }: { title: string; onRemove: () => void; children: React.ReactNode }) {
+function RuleList({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="mt-4">
+      <div className="text-[0.82rem] font-semibold text-ink-sub mb-2">{title}</div>
+      {children}
+    </div>
+  )
+}
+
+function RuleCard({
+  title, slots, active, editing, onEdit, onRemove, children,
+}: {
+  title: string
+  slots: TimeSlot[]
+  active: boolean
+  editing: boolean
+  onEdit: () => void
+  onRemove: () => void
+  children: React.ReactNode
+}) {
   return (
     <div className="bg-bg border border-line rounded-[10px] p-3 mb-2">
-      <div className="flex justify-between items-center mb-2">
-        <strong>{title}</strong>
-        <button className="btn-icon-danger" onClick={onRemove}>
-          <span className="icon">delete</span>
-        </button>
+      <div className="flex justify-between items-start gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 mb-1">
+            <strong>{title}</strong>
+            {!active && <span className="badge badge-neutral">無効</span>}
+          </div>
+          <p className="text-[0.82rem] text-ink-sub truncate">{summarizeSlots(slots)}</p>
+        </div>
+        <div className="flex gap-1.5 shrink-0">
+          <button type="button" className="btn-outline w-auto px-3 py-1.5 text-[0.85rem]" onClick={onEdit}>
+            <span className="icon icon-sm">{editing ? 'expand_less' : 'edit'}</span>
+            {editing ? '閉じる' : '編集'}
+          </button>
+          <button type="button" className="btn-icon-danger" onClick={onRemove} aria-label={`${title}を削除`}>
+            <span className="icon">delete</span>
+          </button>
+        </div>
       </div>
-      {children}
+      {editing && (
+        <div className="mt-3 pt-3 border-t border-line">
+          {children}
+        </div>
+      )}
     </div>
   )
 }

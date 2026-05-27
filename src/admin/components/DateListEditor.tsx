@@ -15,17 +15,36 @@ type Props = {
   onChange: (dates: string[]) => void
   emptyText?: string
   min?: string
+  label?: string
+  conflictDates?: string[]
+  conflictLabel?: string
+  onMoveConflict?: (date: string) => void
 }
 
-export default function DateListEditor({ dates, onChange, emptyText, min }: Props) {
+export default function DateListEditor({
+  dates, onChange, emptyText, min, label = '日付を選択して追加',
+  conflictDates = [], conflictLabel, onMoveConflict,
+}: Props) {
   const [picker, setPicker] = useState('')
   const [err, setErr] = useState<string | null>(null)
 
-  function add() {
+  function add(date: string) {
     setErr(null)
-    if (!picker) return
-    if (dates.includes(picker)) { setErr('既に追加されています'); return }
-    onChange([...dates, picker].sort())
+    if (!date) return
+    if (dates.includes(date)) {
+      setErr('既に追加されています')
+      setPicker('')
+      return
+    }
+    if (conflictDates.includes(date)) {
+      const shouldMove = confirm(`${formatDate(date)} は${conflictLabel ?? '別の設定'}に登録されています。こちらに変更しますか？`)
+      if (!shouldMove) {
+        setPicker('')
+        return
+      }
+      onMoveConflict?.(date)
+    }
+    onChange([...dates, date].sort())
     setPicker('')
   }
 
@@ -35,18 +54,19 @@ export default function DateListEditor({ dates, onChange, emptyText, min }: Prop
 
   return (
     <div>
-      <div className="flex gap-2 mb-2">
-        <input
-          type="date"
-          className="text-input w-auto"
-          value={picker}
-          min={min}
-          onChange={(e) => setPicker(e.target.value)}
-        />
-        <button className="btn-outline w-auto px-3 py-2" onClick={add}>
-          <span className="icon icon-sm">add</span> 追加
-        </button>
-      </div>
+      <input
+        type="date"
+        aria-label={label}
+        className="text-input w-auto mb-2"
+        value={picker}
+        min={min}
+        onChange={(e) => {
+          const value = e.target.value
+          setPicker(value)
+          add(value)
+        }}
+      />
+      <p className="text-[0.78rem] text-ink-pale mb-2">日付を選択すると追加されます</p>
       {err && <div className="text-danger text-[0.85rem] mb-2">{err}</div>}
       {dates.length === 0
         ? <div className="text-ink-pale text-[0.85rem]">{emptyText ?? '登録なし'}</div>

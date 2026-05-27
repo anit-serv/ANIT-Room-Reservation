@@ -275,10 +275,11 @@ export default function KobuSettings() {
       </div>
 
       <div className="admin-card">
-        <h2 className="text-base font-bold mb-3">曜日・日付別の営業時間</h2>
+        <h2 className="text-base font-bold mb-3">営業時間の例外設定</h2>
         <PerDayScheduleEditor
           schedule={perDaySchedule}
           onChange={setPerDaySchedule}
+          defaultSlots={timeSlots}
           availableDays={availableDays}
           extraDates={extraDates}
           excludedDates={excludedDates}
@@ -288,26 +289,46 @@ export default function KobuSettings() {
         />
       </div>
 
-      <div className="admin-card">
-        <h2 className="text-base font-bold mb-3">追加日</h2>
-        <p className="text-[0.85rem] text-ink-sub mb-3">
-          上記の曜日に該当しない日でも、ここに追加した日は予約可能になります。
-        </p>
-        <DateListEditor dates={extraDates} onChange={setExtraDates} min={todayJST()} emptyText="追加日なし" />
-      </div>
-
-      <div className="admin-card">
-        <h2 className="text-base font-bold mb-3">除外日</h2>
-        <p className="text-[0.85rem] text-ink-sub mb-3">
-          通常は予約可能曜日でも、ここに登録した日は予約できなくなります（祝日や臨時休業など）。
-        </p>
-        <DateListEditor dates={excludedDates} onChange={setExcludedDates} min={todayJST()} emptyText="除外日なし" />
-        {hasDateOverlap && (
-          <p className="mt-2 text-danger text-[0.85rem]">
-            <span className="icon icon-sm align-middle">warning</span>
-            {' '}同じ日付が追加日と除外日の両方に指定されています
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="admin-card">
+          <h2 className="text-base font-bold mb-3">追加日</h2>
+          <p className="text-[0.85rem] text-ink-sub mb-3">
+            上記の曜日に該当しない日でも、ここに追加した日は予約可能になります。
           </p>
-        )}
+          <DateListEditor
+            dates={extraDates}
+            onChange={setExtraDates}
+            min={todayJST()}
+            emptyText="追加日なし"
+            label="予約可能にする日を選択"
+            conflictDates={excludedDates}
+            conflictLabel="除外日"
+            onMoveConflict={(date) => setExcludedDates((prev) => prev.filter((d) => d !== date))}
+          />
+        </div>
+
+        <div className="admin-card">
+          <h2 className="text-base font-bold mb-3">除外日</h2>
+          <p className="text-[0.85rem] text-ink-sub mb-3">
+            通常は予約可能曜日でも、ここに登録した日は予約できなくなります（祝日や臨時休業など）。
+          </p>
+          <DateListEditor
+            dates={excludedDates}
+            onChange={setExcludedDates}
+            min={todayJST()}
+            emptyText="除外日なし"
+            label="予約不可にする日を選択"
+            conflictDates={extraDates}
+            conflictLabel="追加日"
+            onMoveConflict={(date) => setExtraDates((prev) => prev.filter((d) => d !== date))}
+          />
+          {hasDateOverlap && (
+            <p className="mt-2 text-danger text-[0.85rem]">
+              <span className="icon icon-sm align-middle">warning</span>
+              {' '}同じ日付が追加日と除外日の両方に指定されています
+            </p>
+          )}
+        </div>
       </div>
 
       <button className="btn-primary max-w-[300px]" onClick={goToConfirm}>
