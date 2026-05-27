@@ -3,7 +3,7 @@ import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { getAdminToken, clearAdminToken, adminFetch } from './auth'
 import Skeleton from '../components/Skeleton'
 
-type AdminMe = { userId: string; displayName: string }
+type AdminMe = { userId: string; displayName: string; pictureUrl: string | null }
 type DropdownData = { for: 'reservations' | 'settings'; top: number; left: number; width: number }
 
 const SIDEBAR_CLS = 'w-60 bg-surface border-r border-line p-3 pt-5 flex flex-col sticky top-0 h-dvh max-md:w-full max-md:h-auto max-md:static max-md:border-r-0 max-md:border-b max-md:p-3 max-md:relative'
@@ -285,7 +285,9 @@ export default function AdminLayout() {
         </nav>
 
         <div className="flex items-center gap-2 px-3 py-2.5 text-[0.85rem] text-ink-sub border-t border-line mt-2 max-md:hidden">
-          <span className="icon">account_circle</span>
+          {me.pictureUrl
+            ? <img src={me.pictureUrl} alt="" className="w-5 h-5 rounded-full object-cover shrink-0" />
+            : <span className="icon">account_circle</span>}
           <span className="truncate">{me.displayName}</span>
         </div>
         <button

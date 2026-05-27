@@ -4,6 +4,7 @@ import { verifyLineToken } from './verifyLineToken'
 export type AdminInfo = {
   userId: string
   displayName: string
+  pictureUrl: string | null
   isSuperAdmin: boolean
 }
 
@@ -20,9 +21,12 @@ export async function verifyAdmin(authHeader: string | undefined): Promise<Admin
     throw new Error('Forbidden')
   }
   const data = doc.data() ?? {}
+  const userDoc = await db.collection('users').doc(userId).get()
+  const userData = userDoc.data() ?? {}
   return {
     userId,
     displayName: data.displayName ?? '',
+    pictureUrl: userData.pictureUrl ?? null,
     isSuperAdmin: data.isSuperAdmin === true,
   }
 }
