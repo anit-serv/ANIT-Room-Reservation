@@ -903,10 +903,10 @@ export default function NobuRoomSchedule({ profile, initialEdit, onEditHandled, 
                             <>
                               <p className="text-[0.82rem] text-ink-sub">再来週に予約しますか？</p>
                               <div className="flex gap-2">
-                                <button className="btn-secondary flex-1 py-2" onClick={() => setRepeatBlocked(null)}>
+                                <button className="btn-secondary flex-1 py-2 text-[0.82rem] whitespace-nowrap" onClick={() => setRepeatBlocked(null)}>
                                   キャンセル
                                 </button>
-                                <button className="btn-primary flex-1 py-2" onClick={handleRepeatConfirmNextNext}>
+                                <button className="btn-primary flex-1 py-2 text-[0.82rem] whitespace-nowrap" onClick={handleRepeatConfirmNextNext}>
                                   再来週に予約
                                 </button>
                               </div>
