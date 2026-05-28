@@ -61,7 +61,7 @@ export default function KobuSettings() {
     })
     if (!res.ok) {
       const err = await res.json().catch(() => ({}))
-      alert(err.error ?? 'プリセットの保存に失敗しました')
+      setMessage({ type: 'error', text: err.error ?? 'プリセットの保存に失敗しました' })
       return
     }
     await loadPresets()
@@ -201,7 +201,7 @@ export default function KobuSettings() {
     if (!confirm(`${date} の適用予定を取り消しますか？`)) return
     const res = await adminFetch(`/api/admin/kobu-settings/scheduled?date=${encodeURIComponent(date)}`, { method: 'DELETE' })
     if (res.ok) {
-      alert('予約済みの変更を取り消しました')
+      setMessage({ type: 'success', text: '予約済みの変更を取り消しました' })
       setEditingScheduled(false)
       setEditingScheduledDate(null)
       load()
