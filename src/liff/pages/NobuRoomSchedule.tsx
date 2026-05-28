@@ -222,12 +222,6 @@ export default function NobuRoomSchedule({ profile, initialEdit, onEditHandled, 
   }, [])
 
   useEffect(() => {
-    if (!scrollRef.current) return
-    const top = scrollRef.current.getBoundingClientRect().top
-    setScheduleHeight(Math.max(200, (window.visualViewport?.height ?? window.innerHeight) - top - 16))
-  }, [dayMap])
-
-  useEffect(() => {
     fetch('/api/favorites', { headers: { Authorization: `Bearer ${profile.getAccessToken()}` } })
       .then(r => r.json()).then(d => setFavorites(d.favorites ?? [])).catch(() => {})
   }, [])
@@ -244,6 +238,12 @@ export default function NobuRoomSchedule({ profile, initialEdit, onEditHandled, 
   }
 
   const dayMap = weekCache[weekStart] ?? null
+
+  useEffect(() => {
+    if (!scrollRef.current) return
+    const top = scrollRef.current.getBoundingClientRect().top
+    setScheduleHeight(Math.max(200, (window.visualViewport?.height ?? window.innerHeight) - top - 16))
+  }, [dayMap])
 
   useEffect(() => {
     if (modal === null) { onBookingActive?.(false); return }
