@@ -66,6 +66,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       excludedDates:  resolved.excludedDates,
       timeSlots:      resolved.timeSlots.filter((s: any) => !s.deleted),
       perDaySchedule: resolved.perDaySchedule,
+      timePresets:    baseData.timePresets ?? [],
     })
   } catch (err: any) {
     return res.status(500).json({ error: err.message })

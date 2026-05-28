@@ -14,12 +14,15 @@ type Props = {
 type TimeSlot      = { label: string; value: string }
 type PerDaySchedule = { enabled: boolean; byWeekday: Record<string, TimeSlot[]>; byDate: Record<string, TimeSlot[]> }
 
+type TimePreset = { label: string; startTime: string; endTime: string }
+
 type NobuRoomSettings = {
   availableDays:  number[]
   extraDates:     string[]
   excludedDates:  string[]
   timeSlots:      TimeSlot[]
   perDaySchedule: PerDaySchedule
+  timePresets?:   TimePreset[]
 }
 
 type BookingBlock = { id: string; userId: string; bandName: string; startTime: string; endTime: string }
@@ -388,6 +391,11 @@ export default function NobuRoomSchedule({ profile, initialEdit, onEditHandled, 
     setSubmitError(null)
     setCloseConfirm(false)
     setEditOriginal(null)
+  }
+
+  function handlePresetSelect(preset: TimePreset) {
+    setModalStart(preset.startTime)
+    setModalEnd(preset.endTime)
   }
 
   function handleStartChange(newStart: string) {
@@ -986,6 +994,33 @@ export default function NobuRoomSchedule({ profile, initialEdit, onEditHandled, 
                   }}
                 />
               </div>
+
+              {(settings.timePresets ?? []).length > 0 && (
+                <div className="mb-3">
+                  <label className="block text-[0.8rem] text-ink-sub mb-1.5">時間プリセット</label>
+                  <div className="flex gap-1.5 overflow-x-auto no-scrollbar pb-1" style={{ WebkitOverflowScrolling: 'touch' }}>
+                    {(settings.timePresets ?? []).map((p, i) => {
+                      const active = p.startTime === modalStart && p.endTime === modalEnd
+                      return (
+                        <button
+                          key={i}
+                          type="button"
+                          className={
+                            'flex-shrink-0 px-3 py-2 rounded-lg text-[0.82rem] border-[1.5px] transition ' +
+                            (active
+                              ? 'bg-brand border-brand text-white font-semibold'
+                              : 'bg-surface border-line text-ink-sub hover:border-brand hover:text-brand')
+                          }
+                          onClick={() => handlePresetSelect(p)}
+                        >
+                          <span className="font-semibold">{p.label}</span>
+                          <span className="ml-1 opacity-75">{p.startTime}〜{p.endTime}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
 
               <div className="mb-5 space-y-3">
                 <div>

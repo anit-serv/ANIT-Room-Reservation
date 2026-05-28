@@ -16,7 +16,10 @@ type KobuSettingsCore = {
 
 type KobuSettingsResponse = KobuSettingsCore & {
   scheduledChanges?: (KobuSettingsCore & { effectiveFrom: string })[]
+  timePresets?: TimePreset[]
 }
+
+type TimePreset = { label: string; startTime: string; endTime: string }
 
 const WEEK_DAYS = ['日', '月', '火', '水', '木', '金', '土']
 
@@ -43,6 +46,12 @@ export default function KobuSettings() {
   const [step, setStep]                     = useState<'editing' | 'confirming' | 'saved'>('editing')
   const [savedMessage, setSavedMessage]     = useState('')
   const [presets, setPresets]               = useState<TimeSlotPreset[]>([])
+  const [timePresets, setTimePresets]       = useState<TimePreset[]>([])
+  const [presetSaving, setPresetSaving]     = useState(false)
+  const [presetMessage, setPresetMessage]   = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [newPresetLabel, setNewPresetLabel] = useState('')
+  const [newPresetStart, setNewPresetStart] = useState('')
+  const [newPresetEnd, setNewPresetEnd]     = useState('')
 
   useEffect(() => { load(); loadPresets() }, [])
 
@@ -85,7 +94,31 @@ export default function KobuSettings() {
     if (!res.ok) { setMessage({ type: 'error', text: '設定の取得に失敗しました' }); return }
     const data = (await res.json()) as KobuSettingsResponse
     setCurrent(data)
+    setTimePresets(data.timePresets ?? [])
     if (!editingScheduled) applyToForm(data)
+  }
+
+  async function saveTimePresets(updated: TimePreset[]) {
+    setPresetSaving(true)
+    setPresetMessage(null)
+    try {
+      const res = await adminFetch('/api/admin/kobu-settings/presets', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ timePresets: updated }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        setPresetMessage({ type: 'error', text: err.error ?? '保存に失敗しました' })
+        return
+      }
+      setTimePresets(updated)
+      setPresetMessage({ type: 'success', text: 'プリセットを保存しました' })
+    } catch {
+      setPresetMessage({ type: 'error', text: '保存に失敗しました' })
+    } finally {
+      setPresetSaving(false)
+    }
   }
 
   const scheduledChanges = current?.scheduledChanges ?? []
@@ -459,6 +492,76 @@ export default function KobuSettings() {
               {' '}同じ日付が追加日と除外日の両方に指定されています
             </p>
           )}
+        </div>
+      </div>
+
+      <div className="admin-card">
+        <h2 className="text-base font-bold mb-1">時間プリセット</h2>
+        <p className="text-[0.85rem] text-ink-sub mb-4">
+          ユーザーが予約時にワンタップで適用できる時間枠のショートカットです。この設定は即時反映されます。
+        </p>
+
+        {timePresets.length > 0 && (
+          <div className="flex flex-col gap-2 mb-4">
+            {timePresets.map((p, i) => (
+              <div key={i} className="flex items-center gap-3 px-3 py-2.5 bg-bg rounded-lg border border-line">
+                <span className="font-semibold text-[0.9rem] text-ink min-w-[80px]">{p.label}</span>
+                <span className="text-[0.88rem] text-ink-sub flex-1">{p.startTime} 〜 {p.endTime}</span>
+                <button
+                  className="btn-icon-danger flex-shrink-0"
+                  onClick={() => setTimePresets(prev => prev.filter((_, j) => j !== i))}
+                >
+                  <span className="icon">delete</span>
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        {timePresets.length === 0 && (
+          <p className="text-[0.85rem] text-ink-pale mb-4">プリセットはまだありません</p>
+        )}
+
+        <div className="flex gap-2 items-end flex-wrap">
+          <div className="form-row mb-0 flex-1 min-w-[100px]">
+            <label>ラベル</label>
+            <input className="text-input" placeholder="午前" value={newPresetLabel} onChange={e => setNewPresetLabel(e.target.value)} />
+          </div>
+          <div className="form-row mb-0">
+            <label>開始</label>
+            <input className="text-input w-[110px]" type="time" value={newPresetStart} onChange={e => setNewPresetStart(e.target.value)} />
+          </div>
+          <div className="form-row mb-0">
+            <label>終了</label>
+            <input className="text-input w-[110px]" type="time" value={newPresetEnd} onChange={e => setNewPresetEnd(e.target.value)} />
+          </div>
+          <button
+            className="btn-outline w-auto px-4 py-[0.7rem]"
+            disabled={!newPresetLabel.trim() || !newPresetStart || !newPresetEnd || newPresetStart >= newPresetEnd}
+            onClick={() => {
+              setTimePresets(prev => [...prev, { label: newPresetLabel.trim(), startTime: newPresetStart, endTime: newPresetEnd }])
+              setNewPresetLabel('')
+              setNewPresetStart('')
+              setNewPresetEnd('')
+            }}
+          >
+            追加
+          </button>
+        </div>
+
+        {presetMessage && (
+          <div className={`mt-3 ${presetMessage.type === 'success' ? 'banner-success' : 'banner-error'} mb-0`}>
+            {presetMessage.text}
+          </div>
+        )}
+
+        <div className="mt-4">
+          <button
+            className="btn-primary max-w-[200px]"
+            disabled={presetSaving}
+            onClick={() => saveTimePresets(timePresets)}
+          >
+            {presetSaving ? '保存中...' : 'プリセットを保存'}
+          </button>
         </div>
       </div>
 

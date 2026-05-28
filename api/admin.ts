@@ -126,6 +126,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // 工部室設定
   if (path === 'kobu-settings') return handleKobuSettings(req, res)
   if (path === 'kobu-settings/scheduled') return handleFacilitySettingsScheduled(req, res, 'kobu')
+  if (path === 'kobu-settings/presets') return handleFacilityTimePresets(req, res, 'kobu')
 
   // 農部室予約管理
   if (segments[0] === 'nobu-room-reservations') {
@@ -136,6 +137,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // 農部室設定
   if (path === 'nobu-room-settings') return handleNobuRoomSettings(req, res)
   if (path === 'nobu-room-settings/scheduled') return handleFacilitySettingsScheduled(req, res, 'nobu-room')
+  if (path === 'nobu-room-settings/presets') return handleFacilityTimePresets(req, res, 'nobu-room')
 
   // 監査ログ
   if (path === 'logs') return handleLogs(req, res)
@@ -306,6 +308,10 @@ type Settings = SettingsCore & {
 
 function isValidDate(s: string): boolean {
   return /^\d{4}-\d{2}-\d{2}$/.test(s) && !isNaN(Date.parse(s))
+}
+
+function isValidTime(s: string): boolean {
+  return /^\d{2}:\d{2}$/.test(s)
 }
 
 function toMinutes(t: string): number {
@@ -1481,6 +1487,7 @@ async function handleKobuSettings(req: VercelRequest, res: VercelResponse) {
       excludedDates:   data.excludedDates  ?? DEFAULTS.excludedDates,
       timeSlots:       (timeSlots ?? DEFAULTS.timeSlots).filter((s: any) => !s.deleted),
       perDaySchedule:  data.perDaySchedule ?? DEFAULTS.perDaySchedule,
+      timePresets:     data.timePresets    ?? [],
       scheduledChanges,
     })
   }
@@ -1685,6 +1692,7 @@ async function handleNobuRoomSettings(req: VercelRequest, res: VercelResponse) {
       excludedDates:   data.excludedDates  ?? NR_DEFAULTS.excludedDates,
       timeSlots:       (timeSlots ?? NR_DEFAULTS.timeSlots).filter((s: any) => !s.deleted),
       perDaySchedule:  data.perDaySchedule ?? NR_DEFAULTS.perDaySchedule,
+      timePresets:     data.timePresets    ?? [],
       scheduledChanges,
     })
   }
@@ -1759,4 +1767,41 @@ async function handleFacilitySettingsScheduled(req: VercelRequest, res: VercelRe
     details: { effectiveFrom: date },
   })
   return res.status(200).json({ success: true })
+}
+
+// ─── 工部室・農部室 時間プリセット ────────────────────────
+async function handleFacilityTimePresets(req: VercelRequest, res: VercelResponse, docId: string) {
+  let me: AuditActor
+  try {
+    me = await verifyAdmin(req.headers.authorization)
+  } catch (err: any) {
+    return res.status(err.message === 'Forbidden' ? 403 : 401).json({ error: err.message })
+  }
+
+  if (req.method === 'GET') {
+    const doc = await db.collection('settings').doc(docId).get()
+    const data = doc.exists ? doc.data()! : {}
+    return res.status(200).json({ timePresets: data.timePresets ?? [] })
+  }
+
+  if (req.method === 'PUT') {
+    const { timePresets } = (req.body ?? {}) as { timePresets?: any[] }
+    if (!Array.isArray(timePresets)) return res.status(400).json({ error: '不正なデータです' })
+    for (const p of timePresets) {
+      if (typeof p.label !== 'string' || !p.label.trim()) return res.status(400).json({ error: 'ラベルを入力してください' })
+      if (!isValidTime(p.startTime) || !isValidTime(p.endTime)) return res.status(400).json({ error: '時刻の形式が不正です' })
+      if (p.startTime >= p.endTime) return res.status(400).json({ error: '開始時刻は終了時刻より前にしてください' })
+    }
+    await db.collection('settings').doc(docId).set(
+      { timePresets: timePresets.map(p => ({ label: p.label, startTime: p.startTime, endTime: p.endTime })) },
+      { merge: true }
+    )
+    await audit(me, `${docId.replace('-', '_')}_settings.time_presets.update`, {
+      targetType: 'settings', targetId: docId,
+      details: { count: timePresets.length },
+    })
+    return res.status(200).json({ success: true })
+  }
+
+  return res.status(405).json({ error: 'Method Not Allowed' })
 }
