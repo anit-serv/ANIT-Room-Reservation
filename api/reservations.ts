@@ -34,12 +34,15 @@ function getReservationAvailability(dateTime: string, settings: ReservationSetti
 } {
   const [dateOnly, timeSlot] = dateTime.split('T')
   const availableTimeSlots = pickTimeSlotsForDate(dateOnly, settings)
+  const override = settings.dayOverride?.date === dateOnly ? settings.dayOverride : null
 
   if (!isDateAvailableBySettings(dateOnly, settings)) {
     return {
       availabilityStatus: 'emergency_blocked',
       availabilityLabel: '受付停止中',
-      availabilityMessage: 'この日は現在、予約受付が停止されています。予約自体は保持されています。管理者からの案内をお待ちください。',
+      availabilityMessage: override?.reason
+        ? `この日は現在、予約受付が停止されています。理由: ${override.reason}。予約自体は保持されています。管理者からの案内をお待ちください。`
+        : 'この日は現在、予約受付が停止されています。予約自体は保持されています。管理者からの案内をお待ちください。',
       availableTimeSlots: [],
     }
   }
@@ -54,7 +57,7 @@ function getReservationAvailability(dateTime: string, settings: ReservationSetti
   }
 
   const weekday = new Date(dateOnly + 'T00:00:00Z').getUTCDay()
-  if (!settings.availableDays.includes(weekday) && settings.extraDates.includes(dateOnly)) {
+  if (override?.type === 'opened' || (!settings.availableDays.includes(weekday) && settings.extraDates.includes(dateOnly))) {
     return {
       availabilityStatus: 'temporary_open',
       availabilityLabel: '臨時開放日',

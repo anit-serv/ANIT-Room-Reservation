@@ -19,10 +19,18 @@ export type ReservationSettingsCore = {
 export type ReservationSettings = ReservationSettingsCore & {
   effectiveFrom: string
   lotteryTime: string
+  dayOverride?: ReservationDayOverride | null
 }
 
 export type ReservationSettingsVersion = ReservationSettingsCore & {
   effectiveFrom: string
+}
+
+export type ReservationDayOverride = {
+  date: string
+  type: 'blocked' | 'opened'
+  reason: string
+  timeSlots?: TimeSlot[]
 }
 
 export const DEFAULT_AVAILABLE_DAYS = [3, 4, 6]
@@ -77,6 +85,11 @@ export function normalizeReservationSettings(data: any, effectiveFrom = BASE_EFF
 }
 
 export function pickTimeSlotsForDate(date: string, settings: ReservationSettingsCore): TimeSlot[] {
+  const override = (settings as ReservationSettings).dayOverride
+  if (override?.date === date) {
+    if (override.type === 'blocked') return []
+    if (override.timeSlots?.length) return override.timeSlots
+  }
   const sched = settings.perDaySchedule
   const defaultSlots = settings.timeSlots?.length ? settings.timeSlots : DEFAULT_TIME_SLOTS
   if (!sched?.enabled) return defaultSlots
@@ -87,6 +100,8 @@ export function pickTimeSlotsForDate(date: string, settings: ReservationSettings
 }
 
 export function isDateAvailableBySettings(date: string, settings: ReservationSettingsCore): boolean {
+  const override = (settings as ReservationSettings).dayOverride
+  if (override?.date === date) return override.type === 'opened'
   if (settings.excludedDates.includes(date)) return false
   const weekday = new Date(date + 'T00:00:00Z').getUTCDay()
   return settings.availableDays.includes(weekday) || settings.extraDates.includes(date)
@@ -103,6 +118,20 @@ function normalizeVersion(data: any): ReservationSettingsVersion | null {
   return {
     ...normalizeReservationSettingsCore(data),
     effectiveFrom: data.effectiveFrom,
+  }
+}
+
+function normalizeDayOverride(data: any): ReservationDayOverride | null {
+  if (!data?.date || typeof data.date !== 'string') return null
+  if (data.type !== 'blocked' && data.type !== 'opened') return null
+  const timeSlots = Array.isArray(data.timeSlots)
+    ? data.timeSlots.filter((slot: any) => slot && typeof slot.label === 'string' && typeof slot.value === 'string')
+    : undefined
+  return {
+    date: data.date,
+    type: data.type,
+    reason: typeof data.reason === 'string' ? data.reason : '',
+    ...(timeSlots?.length ? { timeSlots } : {}),
   }
 }
 
@@ -127,6 +156,38 @@ export async function listReservationSettingsVersions(
     .map((doc) => normalizeVersion(doc.data()))
     .filter((version): version is ReservationSettingsVersion => version !== null)
     .sort(compareEffectiveFrom)
+}
+
+export async function getReservationDayOverride(
+  db: Firestore,
+  date: string,
+): Promise<ReservationDayOverride | null> {
+  const doc = await db
+    .collection('settings')
+    .doc('reservation')
+    .collection('dayOverrides')
+    .doc(date)
+    .get()
+  return doc.exists ? normalizeDayOverride(doc.data()) : null
+}
+
+export async function listReservationDayOverrides(
+  db: Firestore,
+  options: { minDate?: string; maxDate?: string } = {},
+): Promise<ReservationDayOverride[]> {
+  let query: FirebaseFirestore.Query = db
+    .collection('settings')
+    .doc('reservation')
+    .collection('dayOverrides')
+
+  if (options.minDate) query = query.where('date', '>=', options.minDate)
+  if (options.maxDate) query = query.where('date', '<=', options.maxDate)
+
+  const snap = await query.get()
+  return snap.docs
+    .map((doc) => normalizeDayOverride(doc.data()))
+    .filter((override): override is ReservationDayOverride => override !== null)
+    .sort((a, b) => a.date.localeCompare(b.date))
 }
 
 export async function getPendingReservationSettingsChange(
@@ -154,9 +215,10 @@ export async function resolveReservationSettingsForDate(
   date: string,
 ): Promise<ReservationSettings> {
   const docRef = db.collection('settings').doc('reservation')
-  const [doc, versions] = await Promise.all([
+  const [doc, versions, dayOverride] = await Promise.all([
     docRef.get(),
     listReservationSettingsVersions(db, { maxEffectiveFrom: date }),
+    getReservationDayOverride(db, date),
   ])
   const data = doc.exists ? doc.data() : {}
   const base = normalizeReservationSettings(data, BASE_EFFECTIVE_FROM)
@@ -167,11 +229,12 @@ export async function resolveReservationSettingsForDate(
 
   const sortedApplicable = applicable.sort(compareEffectiveFrom)
   const latest = sortedApplicable[sortedApplicable.length - 1]
-  if (!latest) return base
+  if (!latest) return { ...base, dayOverride }
 
   return {
     ...latest,
     lotteryTime: base.lotteryTime,
+    dayOverride,
   }
 }
 
@@ -184,9 +247,10 @@ export async function resolveReservationSettingsForDates(
   const sortedDates = [...dates].sort()
   const maxDate = sortedDates[sortedDates.length - 1]
   const docRef = db.collection('settings').doc('reservation')
-  const [doc, versions] = await Promise.all([
+  const [doc, versions, overrideEntries] = await Promise.all([
     docRef.get(),
     listReservationSettingsVersions(db, { maxEffectiveFrom: maxDate }),
+    Promise.all(sortedDates.map(async (date) => [date, await getReservationDayOverride(db, date)] as const)),
   ])
   const data = doc.exists ? doc.data() : {}
   const base = normalizeReservationSettings(data, BASE_EFFECTIVE_FROM)
@@ -196,10 +260,13 @@ export async function resolveReservationSettingsForDates(
     : versions
 
   const result: Record<string, ReservationSettings> = {}
+  const overridesByDate = Object.fromEntries(overrideEntries)
   for (const date of sortedDates) {
     const candidates = allVersions.filter((version) => version.effectiveFrom <= date)
     const latest = candidates[candidates.length - 1]
-    result[date] = latest ? { ...latest, lotteryTime: base.lotteryTime } : base
+    result[date] = latest
+      ? { ...latest, lotteryTime: base.lotteryTime, dayOverride: overridesByDate[date] }
+      : { ...base, dayOverride: overridesByDate[date] }
   }
   return result
 }

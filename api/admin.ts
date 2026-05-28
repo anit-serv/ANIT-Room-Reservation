@@ -6,6 +6,7 @@ import { verifyAdmin } from '../lib/verifyAdmin'
 import {
   addDaysJST,
   getPendingReservationSettingsChange,
+  listReservationDayOverrides,
   resolveReservationSettingsForDate,
   todayJST,
 } from '../lib/reservationSettings'
@@ -74,6 +75,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (path === 'settings')              return handleSettings(req, res)
   if (path === 'settings/scheduled')    return handleSettingsScheduled(req, res)
   if (path === 'settings/lottery-time') return handleSettingsLotteryTime(req, res)
+  if (segments[0] === 'settings' && segments[1] === 'day-overrides') {
+    if (segments.length === 2) return handleSettingsDayOverrides(req, res)
+    if (segments.length === 3) return handleSettingsDayOverrideByDate(req, res, segments[2])
+  }
 
   // 予約管理
   if (segments[0] === 'reservations') {
@@ -472,6 +477,112 @@ async function handleSettingsScheduled(req: VercelRequest, res: VercelResponse) 
   }, { merge: true })
   await audit(me, 'settings.scheduled.cancel', { targetType: 'settings' })
   return res.status(200).json({ success: true })
+}
+
+async function reservationCountForDate(date: string): Promise<number> {
+  const snap = await db.collection('reservations')
+    .where('date', '>=', `${date}T00:00`)
+    .where('date', '<=', `${date}T23:59`)
+    .get()
+  return snap.size
+}
+
+// ─── 農部生協の直近日付例外（緊急ブロック/臨時開放） ───
+async function handleSettingsDayOverrides(req: VercelRequest, res: VercelResponse) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method Not Allowed' })
+  try {
+    await verifyAdmin(req.headers.authorization)
+  } catch (err: any) {
+    const status = err.message === 'Forbidden' ? 403 : 401
+    return res.status(status).json({ error: err.message })
+  }
+
+  const date = req.query.date as string | undefined
+  if (date) {
+    if (!isValidDate(date)) return res.status(400).json({ error: '日付の形式が不正です' })
+    const [doc, reservationCount] = await Promise.all([
+      db.collection('settings').doc('reservation').collection('dayOverrides').doc(date).get(),
+      reservationCountForDate(date),
+    ])
+    return res.status(200).json({
+      override: doc.exists ? doc.data() : null,
+      reservationCount,
+    })
+  }
+
+  const overrides = await listReservationDayOverrides(db, { minDate: todayJST() })
+  const withCounts = await Promise.all(overrides.map(async (override) => ({
+    ...override,
+    reservationCount: await reservationCountForDate(override.date),
+  })))
+  return res.status(200).json({ overrides: withCounts })
+}
+
+async function handleSettingsDayOverrideByDate(req: VercelRequest, res: VercelResponse, date: string) {
+  let me: AuditActor
+  try {
+    me = await verifyAdmin(req.headers.authorization)
+  } catch (err: any) {
+    const status = err.message === 'Forbidden' ? 403 : 401
+    return res.status(status).json({ error: err.message })
+  }
+
+  if (!isValidDate(date)) return res.status(400).json({ error: '日付の形式が不正です' })
+  if (date < todayJST()) return res.status(400).json({ error: '過去の日付は指定できません' })
+
+  const docRef = db.collection('settings').doc('reservation').collection('dayOverrides').doc(date)
+
+  if (req.method === 'DELETE') {
+    await docRef.delete()
+    await audit(me, 'settings.dayOverride.delete', {
+      targetType: 'settings',
+      targetId: date,
+      details: { date },
+    })
+    return res.status(200).json({ success: true })
+  }
+
+  if (req.method !== 'PUT') return res.status(405).json({ error: 'Method Not Allowed' })
+
+  const { type, reason, timeSlots } = (req.body ?? {}) as {
+    type?: 'blocked' | 'opened'
+    reason?: string
+    timeSlots?: TimeSlot[]
+  }
+  if (type !== 'blocked' && type !== 'opened') {
+    return res.status(400).json({ error: '操作種別が不正です' })
+  }
+  const trimmedReason = (reason ?? '').trim()
+  if (!trimmedReason) return res.status(400).json({ error: '理由を入力してください' })
+
+  let validatedSlots: TimeSlot[] | undefined
+  if (type === 'opened' && Array.isArray(timeSlots) && timeSlots.length > 0) {
+    const result = validateTimeSlots(timeSlots, '臨時開放の')
+    if (typeof result === 'string') return res.status(400).json({ error: result })
+    validatedSlots = result
+  }
+
+  const data = {
+    date,
+    type,
+    reason: trimmedReason,
+    ...(validatedSlots ? { timeSlots: validatedSlots } : { timeSlots: admin.firestore.FieldValue.delete() }),
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    updatedBy: me.userId,
+  }
+  await docRef.set(data, { merge: true })
+
+  const reservationCount = await reservationCountForDate(date)
+  await audit(me, type === 'blocked' ? 'settings.dayOverride.block' : 'settings.dayOverride.open', {
+    targetType: 'settings',
+    targetId: date,
+    details: { date, type, reason: trimmedReason, timeSlots: validatedSlots ?? null, reservationCount },
+  })
+
+  return res.status(200).json({
+    override: { date, type, reason: trimmedReason, ...(validatedSlots ? { timeSlots: validatedSlots } : {}) },
+    reservationCount,
+  })
 }
 
 // ─── 抽選時刻の即時更新 ───────────────────────────────
