@@ -277,7 +277,7 @@
 
 /* ── LIFF シェル（中央480px） ─────────────────────── */
 @utility liff-shell {
-  @apply max-w-[480px] mx-auto min-h-[100dvh] bg-surface flex flex-col;
+  @apply max-w-[480px] mx-auto h-[100dvh] bg-surface flex flex-col overflow-hidden;
 }
 
 /* ── アバター ─────────────────────────────────────── */
