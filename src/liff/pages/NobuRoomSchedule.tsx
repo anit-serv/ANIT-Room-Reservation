@@ -184,6 +184,7 @@ export default function NobuRoomSchedule({ profile, initialEdit, onEditHandled, 
   const [saveAsFavChecked, setSaveAsFavChecked] = useState(false)
   const [pendingRepeat, setPendingRepeat] = useState<{ date: string; bandName: string; startTime: string; endTime: string } | null>(null)
   const [repeatBlocked, setRepeatBlocked] = useState<{ reason: string; nextNextDate: string; nextNextAvail: boolean } | null>(null)
+  const [sheetPeeking, setSheetPeeking] = useState(false)
 
   useEffect(() => {
     const id = setInterval(() => setNowMinutes(nowJSTMinutes()), 60_000)
@@ -196,6 +197,7 @@ export default function NobuRoomSchedule({ profile, initialEdit, onEditHandled, 
   }, [])
 
   function closeModal() {
+    setSheetPeeking(false)
     setModalClosing(true)
     setTimeout(() => {
       setModal(null)
@@ -328,6 +330,7 @@ export default function NobuRoomSchedule({ profile, initialEdit, onEditHandled, 
 
   // ─── タップ処理 ───────────────────────────────────────
   function handleDayTap(e: React.MouseEvent<HTMLDivElement>, date: string) {
+    if (sheetPeeking) return
     if (!dayMap || !settings) return
     const today   = todayJST()
     const maxDate = maxBookingDate()
@@ -420,17 +423,23 @@ export default function NobuRoomSchedule({ profile, initialEdit, onEditHandled, 
             .then(d => { if (d?.id) setFavorites(prev => [...prev, { id: d.id, name: savedName, nobuTimeSlot: null }]) })
             .catch(() => {})
         }
+        const reservedWeek = getSundayOfWeek(modal.date)
+        setSheetPeeking(false)
         setModal(null)
         setEditingId(null)
         setSaveAsFavChecked(false)
         setSelectedFavId(null)
-        refreshWeek(weekStart)
+        setWeekStart(reservedWeek)
+        refreshWeek(reservedWeek)
         return
       }
       if (!res.ok) throw new Error((await res.json()).error ?? '変更に失敗しました')
+      const reservedWeek = getSundayOfWeek(modal.date)
+      setSheetPeeking(false)
       setModal(null)
       setEditingId(null)
-      refreshWeek(weekStart)
+      setWeekStart(reservedWeek)
+      refreshWeek(reservedWeek)
     } catch (err: unknown) {
       setSubmitError(err instanceof Error ? err.message : '失敗しました')
     } finally {
@@ -588,6 +597,7 @@ export default function NobuRoomSchedule({ profile, initialEdit, onEditHandled, 
             <div className="absolute top-full left-0 mt-1.5 z-30">
               <CalendarPicker
                 selectedWeek={weekStart}
+                min={today}
                 maxDate={maxDate}
                 onChange={(date) => {
                   const target = getSundayOfWeek(date)
@@ -795,7 +805,7 @@ export default function NobuRoomSchedule({ profile, initialEdit, onEditHandled, 
                       <button
                         className="btn-outline w-full flex items-center justify-center gap-1.5 py-2.5"
                         onClick={handleEditFromDetail}
-                        disabled={cancelling}
+                        disabled={cancelling || sheetPeeking}
                       >
                         <span className="icon" style={{ fontSize: 16 }}>edit</span>
                         編集
@@ -803,7 +813,7 @@ export default function NobuRoomSchedule({ profile, initialEdit, onEditHandled, 
                       <button
                         className="btn-danger w-full"
                         onClick={() => setCancelConfirm(true)}
-                        disabled={cancelling}
+                        disabled={cancelling || sheetPeeking}
                       >
                         <span className="icon" style={{ fontSize: 16 }}>delete</span>
                         削除
@@ -815,10 +825,10 @@ export default function NobuRoomSchedule({ profile, initialEdit, onEditHandled, 
                       <p className="text-[0.88rem] text-ink text-center py-1 font-semibold">本当に削除しますか？</p>
                       {cancelError && <div className="banner-error">{cancelError}</div>}
                       <div className="flex gap-2">
-                        <button className="btn-secondary flex-1" onClick={() => setCancelConfirm(false)} disabled={cancelling}>
+                        <button className="btn-secondary flex-1" onClick={() => setCancelConfirm(false)} disabled={cancelling || sheetPeeking}>
                           キャンセル
                         </button>
-                        <button className="btn-danger flex-1" onClick={handleCancel} disabled={cancelling}>
+                        <button className="btn-danger flex-1" onClick={handleCancel} disabled={cancelling || sheetPeeking}>
                           {cancelling ? '削除中...' : 'OK'}
                         </button>
                       </div>
@@ -832,7 +842,7 @@ export default function NobuRoomSchedule({ profile, initialEdit, onEditHandled, 
                         <button
                           className="btn-primary w-full"
                           onClick={handleRepeatNext}
-                          disabled={cancelling}
+                          disabled={cancelling || sheetPeeking}
                         >
                           <span className="icon" style={{ fontSize: 16 }}>event_repeat</span>
                           次の週も予約
@@ -844,10 +854,10 @@ export default function NobuRoomSchedule({ profile, initialEdit, onEditHandled, 
                             <>
                               <p className="text-[0.82rem] text-ink-sub">再来週に予約しますか？</p>
                               <div className="flex gap-2">
-                                <button className="btn-secondary flex-1 py-2 text-[0.82rem] whitespace-nowrap" onClick={() => setRepeatBlocked(null)}>
+                                <button className="btn-secondary flex-1 py-2 text-[0.82rem] whitespace-nowrap" disabled={sheetPeeking} onClick={() => setRepeatBlocked(null)}>
                                   キャンセル
                                 </button>
-                                <button className="btn-primary flex-1 py-2 text-[0.82rem] whitespace-nowrap" onClick={handleRepeatConfirmNextNext}>
+                                <button className="btn-primary flex-1 py-2 text-[0.82rem] whitespace-nowrap" disabled={sheetPeeking} onClick={handleRepeatConfirmNextNext}>
                                   再来週に予約
                                 </button>
                               </div>
@@ -855,7 +865,7 @@ export default function NobuRoomSchedule({ profile, initialEdit, onEditHandled, 
                           ) : (
                             <>
                               <p className="text-[0.82rem] text-ink-sub">再来週も予約不可です。</p>
-                              <button className="btn-secondary w-full py-2" onClick={() => setRepeatBlocked(null)}>
+                              <button className="btn-secondary w-full py-2" disabled={sheetPeeking} onClick={() => setRepeatBlocked(null)}>
                                 閉じる
                               </button>
                             </>
@@ -888,9 +898,26 @@ export default function NobuRoomSchedule({ profile, initialEdit, onEditHandled, 
         const effectiveSlots = getEffectiveSlots(modal.date, settings)
         return (
           <div className={`fixed inset-0 z-50 flex flex-col justify-end ${modalClosing ? 'animate-fade-out' : 'animate-fade-in'}`}>
-            <div className="absolute inset-0 bg-black/40" onClick={closeFn} />
-            <div className={`relative bg-surface rounded-t-2xl px-5 pt-4 pb-8 shadow-xl ${modalClosing ? 'animate-sheet-down' : 'animate-sheet-up'}`}>
+            <div
+              className={`absolute inset-0 transition-opacity duration-[280ms] ${sheetPeeking ? 'bg-black/10' : 'bg-black/40'}`}
+              onClick={() => {
+                if (sheetPeeking) { setSheetPeeking(false); return }
+                if (submitting || modalClosing) return
+                if (isDirty) setCloseConfirm(true)
+                else setSheetPeeking(true)
+              }}
+            />
+            <div
+              className={`relative bg-surface rounded-t-2xl px-5 pt-4 pb-8 shadow-xl ${modalClosing ? 'animate-sheet-down' : 'animate-sheet-up'}`}
+              style={!modalClosing ? {
+                transform: sheetPeeking ? 'translateY(calc(100% - 52px))' : 'translateY(0)',
+                transition: 'transform 0.28s cubic-bezier(0.4, 0, 0.2, 1)',
+              } : undefined}
+            >
               <div className="w-10 h-1 bg-line rounded-full mx-auto mb-4" />
+              {sheetPeeking && (
+                <div className="absolute inset-x-0 top-0 h-[52px] z-10 cursor-pointer" onClick={() => setSheetPeeking(false)} />
+              )}
 
               <div className="flex items-center justify-between mb-4">
                 <div>

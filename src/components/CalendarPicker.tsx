@@ -87,20 +87,28 @@ export default function CalendarPicker({ value, selectedDates, selectedWeek, onC
             </button>
           </div>
           <div className="grid grid-cols-3 gap-1">
-            {MONTHS.map((label, i) => (
-              <button
-                key={i}
-                type="button"
-                onClick={() => { setDisplay([displayYear, i]); setView('days') }}
-                className={`py-2 rounded-lg text-[0.83rem] transition ${
-                  i === displayMonth
-                    ? 'bg-brand text-white font-bold'
-                    : 'text-ink hover:bg-brand-light cursor-pointer'
-                }`}
-              >
-                {label}
-              </button>
-            ))}
+            {MONTHS.map((label, i) => {
+              const firstDay = `${displayYear}-${String(i + 1).padStart(2, '0')}-01`
+              const lastDay  = `${displayYear}-${String(i + 1).padStart(2, '0')}-${String(new Date(displayYear, i + 1, 0).getDate()).padStart(2, '0')}`
+              const isMonthDisabled = (!!min && lastDay < min) || (!!maxDate && firstDay > maxDate)
+              return (
+                <button
+                  key={i}
+                  type="button"
+                  disabled={isMonthDisabled}
+                  onClick={() => { if (!isMonthDisabled) { setDisplay([displayYear, i]); setView('days') } }}
+                  className={`py-2 rounded-lg text-[0.83rem] transition ${
+                    isMonthDisabled
+                      ? 'text-ink-pale opacity-40 cursor-not-allowed'
+                      : i === displayMonth
+                        ? 'bg-brand text-white font-bold'
+                        : 'text-ink hover:bg-brand-light cursor-pointer'
+                  }`}
+                >
+                  {label}
+                </button>
+              )
+            })}
           </div>
         </>
       )}
