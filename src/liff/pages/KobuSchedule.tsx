@@ -728,10 +728,11 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled, onBo
         }
 
         return (
-          <div className="border border-line rounded-xl shadow-[var(--shadow-card-sm)] overflow-hidden flex flex-col flex-1 min-h-0">
+          <div className="border border-line rounded-xl shadow-[var(--shadow-card-sm)] overflow-hidden flex flex-col flex-1 min-h-0"
+            onClick={sheetPeeking ? () => setCloseConfirm(true) : undefined}>
             <div
               ref={scrollRef}
-              className="overflow-y-auto flex-1 min-h-0"
+              className="overflow-y-auto flex-1 min-h-0 pb-4"
               style={{ scrollbarGutter: 'stable' }}
               onTouchStart={handleTouchStart}
               onTouchEnd={handleTouchEnd}
@@ -759,8 +760,7 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled, onBo
                     <div key={label} className="absolute right-1 text-[0.58rem] text-ink-pale leading-none" style={{ top: top - 4 }}>{label}</div>
                   ))}
                 </div>
-                <div className="flex-1 relative" style={{ overflow: 'clip' }}
-                  onClick={sheetPeeking ? () => setCloseConfirm(true) : undefined}>
+                <div className="flex-1 relative" style={{ overflow: 'clip' }}>
                   {outgoingWeek && weekCache[outgoingWeek] && (
                     <div className="absolute inset-0 flex pointer-events-none" style={{
                       animation: `${slideDir === 'left' ? 'week-slide-out-left' : 'week-slide-out-right'} 0.32s ease-in-out forwards`,
