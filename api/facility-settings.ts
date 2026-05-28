@@ -1,5 +1,6 @@
 import { VercelRequest, VercelResponse } from '@vercel/node'
 import * as admin from 'firebase-admin'
+import { resolveFacilitySettingsForDate, todayJST } from '../lib/reservationSettings'
 import 'dotenv/config'
 
 const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n')
@@ -15,7 +16,7 @@ if (!admin.apps.length) {
 const db = admin.firestore()
 
 const SETTINGS_DOC: Record<string, string> = {
-  kobu:       'kobu',
+  kobu:        'kobu',
   'nobu-room': 'nobu-room',
 }
 
@@ -33,26 +34,38 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method Not Allowed' })
 
   const f = req.query.facility as string
+  const date = (req.query.date as string | undefined) ?? todayJST()
   const docId = SETTINGS_DOC[f]
   if (!docId) return res.status(400).json({ error: 'Invalid facility' })
 
   try {
-    const doc  = await db.collection('settings').doc(docId).get()
-    const data = doc.exists ? doc.data()! : {}
+    // バージョン管理に対応: 指定日時点で有効なバージョンを解決する
+    const baseDoc = await db.collection('settings').doc(docId).get()
+    const baseData = baseDoc.exists ? baseDoc.data()! : {}
 
-    let timeSlots = data.timeSlots
-    if (!timeSlots && (data.openTime || data.closeTime)) {
-      const open  = data.openTime  ?? '08:00'
-      const close = data.closeTime ?? '20:00'
-      timeSlots = [{ label: `${open}〜${close}`, value: `${open}-${close}` }]
+    let baseTimeSlots = baseData.timeSlots
+    if (!baseTimeSlots && (baseData.openTime || baseData.closeTime)) {
+      const open  = baseData.openTime  ?? '08:00'
+      const close = baseData.closeTime ?? '20:00'
+      baseTimeSlots = [{ label: `${open}〜${close}`, value: `${open}-${close}` }]
     }
 
+    const baseDefaults = {
+      availableDays:  baseData.availableDays  ?? DEFAULTS.availableDays,
+      extraDates:     baseData.extraDates     ?? DEFAULTS.extraDates,
+      excludedDates:  baseData.excludedDates  ?? DEFAULTS.excludedDates,
+      timeSlots:      (baseTimeSlots ?? DEFAULTS.timeSlots).filter((s: any) => !s.deleted),
+      perDaySchedule: baseData.perDaySchedule ?? DEFAULTS.perDaySchedule,
+    }
+
+    const resolved = await resolveFacilitySettingsForDate(db, docId, date, baseDefaults)
+
     return res.status(200).json({
-      availableDays:  data.availableDays  ?? DEFAULTS.availableDays,
-      extraDates:     data.extraDates     ?? DEFAULTS.extraDates,
-      excludedDates:  data.excludedDates  ?? DEFAULTS.excludedDates,
-      timeSlots:      (timeSlots ?? DEFAULTS.timeSlots).filter((s: any) => !s.deleted),
-      perDaySchedule: data.perDaySchedule ?? DEFAULTS.perDaySchedule,
+      availableDays:  resolved.availableDays,
+      extraDates:     resolved.extraDates,
+      excludedDates:  resolved.excludedDates,
+      timeSlots:      resolved.timeSlots.filter((s: any) => !s.deleted),
+      perDaySchedule: resolved.perDaySchedule,
     })
   } catch (err: any) {
     return res.status(500).json({ error: err.message })

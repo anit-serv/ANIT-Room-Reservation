@@ -6,6 +6,8 @@ import { verifyAdmin } from '../lib/verifyAdmin'
 import {
   addDaysJST,
   getPendingReservationSettingsChange,
+  listFacilitySettingsVersions,
+  listPendingFacilitySettingsChanges,
   listPendingReservationSettingsChanges,
   listReservationDayOverrides,
   resolveReservationSettingsForDate,
@@ -123,6 +125,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   // 工部室設定
   if (path === 'kobu-settings') return handleKobuSettings(req, res)
+  if (path === 'kobu-settings/scheduled') return handleFacilitySettingsScheduled(req, res, 'kobu')
 
   // 農部室予約管理
   if (segments[0] === 'nobu-room-reservations') {
@@ -132,6 +135,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   // 農部室設定
   if (path === 'nobu-room-settings') return handleNobuRoomSettings(req, res)
+  if (path === 'nobu-room-settings/scheduled') return handleFacilitySettingsScheduled(req, res, 'nobu-room')
 
   // 監査ログ
   if (path === 'logs') return handleLogs(req, res)
@@ -1457,7 +1461,10 @@ async function handleKobuSettings(req: VercelRequest, res: VercelResponse) {
   }
 
   if (req.method === 'GET') {
-    const doc  = await db.collection('settings').doc('kobu').get()
+    const [doc, scheduledChanges] = await Promise.all([
+      db.collection('settings').doc('kobu').get(),
+      listPendingFacilitySettingsChanges(db, 'kobu', todayJST()),
+    ])
     const data = doc.exists ? doc.data()! : {}
 
     // 旧形式（openTime/closeTime）から新形式（timeSlots）へ自動移行
@@ -1469,18 +1476,19 @@ async function handleKobuSettings(req: VercelRequest, res: VercelResponse) {
     }
 
     return res.status(200).json({
-      availableDays:  data.availableDays  ?? DEFAULTS.availableDays,
-      extraDates:     data.extraDates     ?? DEFAULTS.extraDates,
-      excludedDates:  data.excludedDates  ?? DEFAULTS.excludedDates,
-      timeSlots:      (timeSlots ?? DEFAULTS.timeSlots).filter((s: any) => !s.deleted),
-      perDaySchedule: data.perDaySchedule ?? DEFAULTS.perDaySchedule,
+      availableDays:   data.availableDays  ?? DEFAULTS.availableDays,
+      extraDates:      data.extraDates     ?? DEFAULTS.extraDates,
+      excludedDates:   data.excludedDates  ?? DEFAULTS.excludedDates,
+      timeSlots:       (timeSlots ?? DEFAULTS.timeSlots).filter((s: any) => !s.deleted),
+      perDaySchedule:  data.perDaySchedule ?? DEFAULTS.perDaySchedule,
+      scheduledChanges,
     })
   }
 
   if (req.method === 'PUT') {
-    const { availableDays, extraDates, excludedDates, timeSlots, perDaySchedule } = (req.body ?? {}) as {
+    const { availableDays, extraDates, excludedDates, timeSlots, perDaySchedule, effectiveFrom } = (req.body ?? {}) as {
       availableDays?: number[]; extraDates?: string[]; excludedDates?: string[];
-      timeSlots?: TimeSlot[]; perDaySchedule?: PerDaySchedule
+      timeSlots?: TimeSlot[]; perDaySchedule?: PerDaySchedule; effectiveFrom?: string
     }
 
     if (!Array.isArray(availableDays) || !availableDays.every((d) => Number.isInteger(d) && d >= 0 && d <= 6)) {
@@ -1492,29 +1500,28 @@ async function handleKobuSettings(req: VercelRequest, res: VercelResponse) {
     if (!Array.isArray(timeSlots) || timeSlots.length === 0) {
       return res.status(400).json({ error: '営業時間枠を1つ以上指定してください' })
     }
+    if (!effectiveFrom || !isValidDate(effectiveFrom)) {
+      return res.status(400).json({ error: '適用日を指定してください' })
+    }
+    if (effectiveFrom < todayJST()) {
+      return res.status(400).json({ error: '適用日は今日以降を指定してください' })
+    }
 
-    // 既存スロットを論理削除でマージ（削除されたスロットも残す）
-    const currentDoc = await db.collection('settings').doc('kobu').get()
-    const existingSlots: (TimeSlot & { deleted?: boolean })[] =
-      currentDoc.exists ? (currentDoc.data()!.timeSlots ?? []) : []
-    const newSlotValues = new Set((timeSlots as TimeSlot[]).map((s) => s.value))
-    const softDeleted = existingSlots
-      .filter((s) => !s.deleted && !newSlotValues.has(s.value))
-      .map((s) => ({ ...s, deleted: true }))
-    const activeSlots = (timeSlots as TimeSlot[]).map((s) => ({ ...s, deleted: false }))
-    const finalTimeSlots = [...activeSlots, ...softDeleted]
-
-    await db.collection('settings').doc('kobu').set({
+    await db.collection('settings').doc('kobu').collection('versions').doc(effectiveFrom).set({
       availableDays,
       extraDates:     extraDates    ?? [],
       excludedDates:  excludedDates ?? [],
-      timeSlots:      finalTimeSlots,
+      timeSlots,
       perDaySchedule: perDaySchedule ?? DEFAULTS.perDaySchedule,
-    }, { merge: true })
+      effectiveFrom,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedBy: me.userId,
+    })
 
-    await audit(me, 'kobu_settings.update', {
+    await audit(me, 'kobu_settings.schedule', {
       targetType: 'settings', targetId: 'kobu',
       details: {
+        effectiveFrom,
         availableDays,
         timeSlotsCount:     timeSlots.length,
         extraDatesCount:    (extraDates    ?? []).length,
@@ -1522,7 +1529,7 @@ async function handleKobuSettings(req: VercelRequest, res: VercelResponse) {
         perDayEnabled:      perDaySchedule?.enabled ?? false,
       },
     })
-    return res.status(200).json({ success: true })
+    return res.status(200).json({ applied: 'scheduled', effectiveFrom })
   }
 
   return res.status(405).json({ error: 'Method Not Allowed' })
@@ -1659,7 +1666,10 @@ async function handleNobuRoomSettings(req: VercelRequest, res: VercelResponse) {
   }
 
   if (req.method === 'GET') {
-    const doc  = await db.collection('settings').doc('nobu-room').get()
+    const [doc, scheduledChanges] = await Promise.all([
+      db.collection('settings').doc('nobu-room').get(),
+      listPendingFacilitySettingsChanges(db, 'nobu-room', todayJST()),
+    ])
     const data = doc.exists ? doc.data()! : {}
 
     let timeSlots = data.timeSlots as TimeSlot[] | undefined
@@ -1670,18 +1680,19 @@ async function handleNobuRoomSettings(req: VercelRequest, res: VercelResponse) {
     }
 
     return res.status(200).json({
-      availableDays:  data.availableDays  ?? NR_DEFAULTS.availableDays,
-      extraDates:     data.extraDates     ?? NR_DEFAULTS.extraDates,
-      excludedDates:  data.excludedDates  ?? NR_DEFAULTS.excludedDates,
-      timeSlots:      (timeSlots ?? NR_DEFAULTS.timeSlots).filter((s: any) => !s.deleted),
-      perDaySchedule: data.perDaySchedule ?? NR_DEFAULTS.perDaySchedule,
+      availableDays:   data.availableDays  ?? NR_DEFAULTS.availableDays,
+      extraDates:      data.extraDates     ?? NR_DEFAULTS.extraDates,
+      excludedDates:   data.excludedDates  ?? NR_DEFAULTS.excludedDates,
+      timeSlots:       (timeSlots ?? NR_DEFAULTS.timeSlots).filter((s: any) => !s.deleted),
+      perDaySchedule:  data.perDaySchedule ?? NR_DEFAULTS.perDaySchedule,
+      scheduledChanges,
     })
   }
 
   if (req.method === 'PUT') {
-    const { availableDays, extraDates, excludedDates, timeSlots, perDaySchedule } = (req.body ?? {}) as {
+    const { availableDays, extraDates, excludedDates, timeSlots, perDaySchedule, effectiveFrom } = (req.body ?? {}) as {
       availableDays?: number[]; extraDates?: string[]; excludedDates?: string[];
-      timeSlots?: TimeSlot[]; perDaySchedule?: PerDaySchedule
+      timeSlots?: TimeSlot[]; perDaySchedule?: PerDaySchedule; effectiveFrom?: string
     }
 
     if (!Array.isArray(availableDays) || !availableDays.every((d) => Number.isInteger(d) && d >= 0 && d <= 6)) {
@@ -1693,28 +1704,28 @@ async function handleNobuRoomSettings(req: VercelRequest, res: VercelResponse) {
     if (!Array.isArray(timeSlots) || timeSlots.length === 0) {
       return res.status(400).json({ error: '営業時間枠を1つ以上指定してください' })
     }
+    if (!effectiveFrom || !isValidDate(effectiveFrom)) {
+      return res.status(400).json({ error: '適用日を指定してください' })
+    }
+    if (effectiveFrom < todayJST()) {
+      return res.status(400).json({ error: '適用日は今日以降を指定してください' })
+    }
 
-    const currentDoc = await db.collection('settings').doc('nobu-room').get()
-    const existingSlots: (TimeSlot & { deleted?: boolean })[] =
-      currentDoc.exists ? (currentDoc.data()!.timeSlots ?? []) : []
-    const newSlotValues = new Set((timeSlots as TimeSlot[]).map((s) => s.value))
-    const softDeleted = existingSlots
-      .filter((s) => !s.deleted && !newSlotValues.has(s.value))
-      .map((s) => ({ ...s, deleted: true }))
-    const activeSlots = (timeSlots as TimeSlot[]).map((s) => ({ ...s, deleted: false }))
-    const finalTimeSlots = [...activeSlots, ...softDeleted]
-
-    await db.collection('settings').doc('nobu-room').set({
+    await db.collection('settings').doc('nobu-room').collection('versions').doc(effectiveFrom).set({
       availableDays,
       extraDates:     extraDates    ?? [],
       excludedDates:  excludedDates ?? [],
-      timeSlots:      finalTimeSlots,
+      timeSlots,
       perDaySchedule: perDaySchedule ?? NR_DEFAULTS.perDaySchedule,
-    }, { merge: true })
+      effectiveFrom,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedBy: me.userId,
+    })
 
-    await audit(me, 'nobu_room_settings.update', {
+    await audit(me, 'nobu_room_settings.schedule', {
       targetType: 'settings', targetId: 'nobu-room',
       details: {
+        effectiveFrom,
         availableDays,
         timeSlotsCount:     timeSlots.length,
         extraDatesCount:    (extraDates    ?? []).length,
@@ -1722,8 +1733,30 @@ async function handleNobuRoomSettings(req: VercelRequest, res: VercelResponse) {
         perDayEnabled:      perDaySchedule?.enabled ?? false,
       },
     })
-    return res.status(200).json({ success: true })
+    return res.status(200).json({ applied: 'scheduled', effectiveFrom })
   }
 
   return res.status(405).json({ error: 'Method Not Allowed' })
+}
+
+// ─── 工部室・農部室 スケジュール変更キャンセル ────────────
+async function handleFacilitySettingsScheduled(req: VercelRequest, res: VercelResponse, settingDocId: string) {
+  if (req.method !== 'DELETE') return res.status(405).json({ error: 'Method Not Allowed' })
+  let me: AuditActor
+  try {
+    me = await verifyAdmin(req.headers.authorization)
+  } catch (err: any) {
+    const status = err.message === 'Forbidden' ? 403 : 401
+    return res.status(status).json({ error: err.message })
+  }
+
+  const date = req.query.date as string | undefined
+  if (!date || !isValidDate(date)) return res.status(400).json({ error: '日付を指定してください' })
+
+  await db.collection('settings').doc(settingDocId).collection('versions').doc(date).delete()
+  await audit(me, `${settingDocId.replace('-', '_')}_settings.scheduled.cancel`, {
+    targetType: 'settings', targetId: settingDocId,
+    details: { effectiveFrom: date },
+  })
+  return res.status(200).json({ success: true })
 }

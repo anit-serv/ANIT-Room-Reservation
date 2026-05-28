@@ -1,6 +1,7 @@
 import { VercelRequest, VercelResponse } from '@vercel/node'
 import * as admin from 'firebase-admin'
 import { verifyLineToken } from '../lib/verifyLineToken'
+import { resolveFacilitySettingsForDate } from '../lib/reservationSettings'
 import 'dotenv/config'
 
 const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n')
@@ -83,27 +84,39 @@ async function handleCreate(req: VercelRequest, res: VercelResponse) {
     if (Date.now() >= new Date(`${date}T${startTime}:00+09:00`).getTime())
       return res.status(400).json({ error: '予約開始時刻を過ぎているため登録できません' })
 
+    const settingsDocRef = db.collection('settings').doc(cfg.settingsDoc)
     const [userDoc, settingsDoc] = await Promise.all([
       db.collection('users').doc(userId).get(),
-      db.collection('settings').doc(cfg.settingsDoc).get(),
+      settingsDocRef.get(),
     ])
     if (userDoc.exists && userDoc.data()?.banned === true)
       return res.status(403).json({ error: '予約機能の利用が停止されています' })
 
-    const settings = settingsDoc.data() ?? {}
-    const availableDays: number[] = settings.availableDays ?? [0, 1, 2, 3, 4, 5, 6]
-    const extraDates: string[]    = settings.extraDates    ?? []
-    const excludedDates: string[] = settings.excludedDates ?? []
+    const baseData = settingsDoc.data() ?? {}
+    let baseTimeSlots = baseData.timeSlots ?? []
+    if (!baseTimeSlots.length && (baseData.openTime || baseData.closeTime))
+      baseTimeSlots = [{ label: '', value: `${baseData.openTime ?? '08:00'}-${baseData.closeTime ?? '20:00'}` }]
+    if (!baseTimeSlots.length) baseTimeSlots = [{ label: '', value: '08:00-20:00' }]
+
+    const baseDefaults = {
+      availableDays:  baseData.availableDays  ?? [0, 1, 2, 3, 4, 5, 6],
+      extraDates:     baseData.extraDates     ?? [],
+      excludedDates:  baseData.excludedDates  ?? [],
+      timeSlots:      baseTimeSlots.filter((s: any) => !s.deleted),
+      perDaySchedule: baseData.perDaySchedule ?? { enabled: false, byWeekday: {}, byDate: {} },
+    }
+    const settings = await resolveFacilitySettingsForDate(db, cfg.settingsDoc, date, baseDefaults)
+
+    const availableDays: number[] = settings.availableDays
+    const extraDates: string[]    = settings.extraDates
+    const excludedDates: string[] = settings.excludedDates
     const dateObj   = new Date(date + 'T00:00:00Z')
     const dayOfWeek = dateObj.getUTCDay()
     const isAvailable = (availableDays.includes(dayOfWeek) || extraDates.includes(date)) && !excludedDates.includes(date)
     if (!isAvailable)
       return res.status(400).json({ error: `この日は${cfg.label}を予約できません` })
 
-    let timeSlots: { label: string; value: string }[] = settings.timeSlots ?? []
-    if (!timeSlots.length && (settings.openTime || settings.closeTime))
-      timeSlots = [{ label: '', value: `${settings.openTime ?? '08:00'}-${settings.closeTime ?? '20:00'}` }]
-    if (!timeSlots.length) timeSlots = [{ label: '', value: '08:00-20:00' }]
+    let timeSlots: { label: string; value: string }[] = settings.timeSlots
     const perDay = settings.perDaySchedule
     if (perDay?.enabled) {
       const byDate = perDay.byDate?.[date]

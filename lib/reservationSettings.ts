@@ -246,6 +246,49 @@ export async function resolveReservationSettingsForDate(
   }
 }
 
+// ─── 汎用施設設定バージョン管理 (工部室・農部室) ───────────
+
+export async function listFacilitySettingsVersions(
+  db: Firestore,
+  settingDocId: string,
+  options: { maxEffectiveFrom?: string; minEffectiveFrom?: string } = {},
+): Promise<ReservationSettingsVersion[]> {
+  let query: FirebaseFirestore.Query = db
+    .collection('settings')
+    .doc(settingDocId)
+    .collection('versions')
+
+  if (options.maxEffectiveFrom) query = query.where('effectiveFrom', '<=', options.maxEffectiveFrom)
+  if (options.minEffectiveFrom) query = query.where('effectiveFrom', '>=', options.minEffectiveFrom)
+
+  const snap = await query.get()
+  return snap.docs
+    .map((doc) => normalizeVersion(doc.data()))
+    .filter((v): v is ReservationSettingsVersion => v !== null)
+    .sort(compareEffectiveFrom)
+}
+
+export async function listPendingFacilitySettingsChanges(
+  db: Firestore,
+  settingDocId: string,
+  fromDate = addDaysJST(1),
+): Promise<ReservationSettingsVersion[]> {
+  return listFacilitySettingsVersions(db, settingDocId, { minEffectiveFrom: fromDate })
+}
+
+export async function resolveFacilitySettingsForDate(
+  db: Firestore,
+  settingDocId: string,
+  date: string,
+  defaults: ReservationSettingsCore,
+): Promise<ReservationSettingsVersion> {
+  const [versions] = await Promise.all([
+    listFacilitySettingsVersions(db, settingDocId, { maxEffectiveFrom: date }),
+  ])
+  const latest = versions[versions.length - 1]
+  return latest ?? { ...defaults, effectiveFrom: BASE_EFFECTIVE_FROM }
+}
+
 export async function resolveReservationSettingsForDates(
   db: Firestore,
   dates: string[],
