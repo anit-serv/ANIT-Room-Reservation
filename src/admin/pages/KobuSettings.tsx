@@ -6,12 +6,16 @@ import DateListEditor from '../components/DateListEditor'
 import PerDayScheduleEditor, { findAllConflicts, type PerDaySchedule } from '../components/PerDayScheduleEditor'
 import Skeleton from '../../components/Skeleton'
 
-type KobuSettings = {
+type KobuSettingsCore = {
   availableDays:  number[]
   extraDates:     string[]
   excludedDates:  string[]
   timeSlots:      TimeSlot[]
   perDaySchedule: PerDaySchedule
+}
+
+type KobuSettingsResponse = KobuSettingsCore & {
+  scheduledChanges?: (KobuSettingsCore & { effectiveFrom: string })[]
 }
 
 const WEEK_DAYS = ['日', '月', '火', '水', '木', '金', '土']
@@ -25,17 +29,20 @@ function emptySchedule(): PerDaySchedule {
 }
 
 export default function KobuSettings() {
-  const [current, setCurrent]               = useState<KobuSettings | null>(null)
+  const [current, setCurrent]               = useState<KobuSettingsResponse | null>(null)
   const [availableDays, setAvailableDays]   = useState<number[]>([0,1,2,3,4,5,6])
   const [extraDates, setExtraDates]         = useState<string[]>([])
   const [excludedDates, setExcludedDates]   = useState<string[]>([])
   const [timeSlots, setTimeSlots]           = useState<TimeSlot[]>([])
   const [perDaySchedule, setPerDaySchedule] = useState<PerDaySchedule>(emptySchedule())
+  const [effectiveFrom, setEffectiveFrom]   = useState<string>(todayJST())
+  const [editingScheduled, setEditingScheduled]     = useState(false)
+  const [editingScheduledDate, setEditingScheduledDate] = useState<string | null>(null)
   const [saving, setSaving]                 = useState(false)
   const [message, setMessage]               = useState<{ type: 'success' | 'error'; text: string } | null>(null)
-  const [step,         setStep]         = useState<'editing' | 'confirming' | 'saved'>('editing')
-  const [savedMessage, setSavedMessage] = useState('')
-  const [presets, setPresets]           = useState<TimeSlotPreset[]>([])
+  const [step, setStep]                     = useState<'editing' | 'confirming' | 'saved'>('editing')
+  const [savedMessage, setSavedMessage]     = useState('')
+  const [presets, setPresets]               = useState<TimeSlotPreset[]>([])
 
   useEffect(() => { load(); loadPresets() }, [])
 
@@ -65,16 +72,38 @@ export default function KobuSettings() {
     if (res.ok) await loadPresets()
   }
 
+  function applyToForm(s: KobuSettingsCore) {
+    setAvailableDays(s.availableDays)
+    setTimeSlots(s.timeSlots)
+    setExtraDates(s.extraDates ?? [])
+    setExcludedDates(s.excludedDates ?? [])
+    setPerDaySchedule(s.perDaySchedule ?? emptySchedule())
+  }
+
   async function load() {
     const res = await adminFetch('/api/admin/kobu-settings')
     if (!res.ok) { setMessage({ type: 'error', text: '設定の取得に失敗しました' }); return }
-    const data = (await res.json()) as KobuSettings
+    const data = (await res.json()) as KobuSettingsResponse
     setCurrent(data)
-    setAvailableDays(data.availableDays)
-    setExtraDates(data.extraDates ?? [])
-    setExcludedDates(data.excludedDates ?? [])
-    setTimeSlots(data.timeSlots ?? [])
-    setPerDaySchedule(data.perDaySchedule ?? emptySchedule())
+    if (!editingScheduled) applyToForm(data)
+  }
+
+  const scheduledChanges = current?.scheduledChanges ?? []
+
+  function loadScheduledForEdit(change: KobuSettingsCore & { effectiveFrom: string }) {
+    applyToForm(change)
+    setEffectiveFrom(change.effectiveFrom)
+    setEditingScheduled(true)
+    setEditingScheduledDate(change.effectiveFrom)
+    setMessage(null)
+  }
+
+  function cancelEditScheduled() {
+    if (!current) return
+    applyToForm(current)
+    setEffectiveFrom(todayJST())
+    setEditingScheduled(false)
+    setEditingScheduledDate(null)
   }
 
   function toggleDay(d: number) {
@@ -131,6 +160,10 @@ export default function KobuSettings() {
       setMessage({ type: 'error', text: '同じ日付が追加日と除外日の両方に指定されています' })
       return
     }
+    if (!effectiveFrom || effectiveFrom < todayJST()) {
+      setMessage({ type: 'error', text: '適用日は今日以降を指定してください' })
+      return
+    }
     setStep('confirming')
   }
 
@@ -140,10 +173,17 @@ export default function KobuSettings() {
       const res = await adminFetch('/api/admin/kobu-settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ availableDays, extraDates, excludedDates, timeSlots, perDaySchedule }),
+        body: JSON.stringify({ availableDays, extraDates, excludedDates, timeSlots, perDaySchedule, effectiveFrom }),
       })
       if (!res.ok) throw new Error((await res.json()).error ?? '保存に失敗しました')
-      setSavedMessage('設定は即時に反映されました')
+      const result = await res.json()
+      setSavedMessage(
+        effectiveFrom === todayJST()
+          ? '設定は本日から適用されます'
+          : `${result.effectiveFrom} から適用予定`
+      )
+      setEditingScheduled(false)
+      setEditingScheduledDate(null)
       setStep('saved')
       load()
     } catch (err: any) {
@@ -151,6 +191,19 @@ export default function KobuSettings() {
       setStep('editing')
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function cancelScheduled(date: string) {
+    if (!confirm(`${date} の適用予定を取り消しますか？`)) return
+    const res = await adminFetch(`/api/admin/kobu-settings/scheduled?date=${encodeURIComponent(date)}`, { method: 'DELETE' })
+    if (res.ok) {
+      alert('予約済みの変更を取り消しました')
+      setEditingScheduled(false)
+      setEditingScheduledDate(null)
+      load()
+    } else {
+      setMessage({ type: 'error', text: '取り消しに失敗しました' })
     }
   }
 
@@ -180,6 +233,7 @@ export default function KobuSettings() {
         <table className="w-full text-[0.9rem]">
           <tbody>
             {([
+              ['適用日',       effectiveFrom],
               ['利用可能曜日', availableDays.length === 0 ? 'なし' : availableDays.map(d => WEEK_DAYS[d]).join('・')],
               ['営業時間枠',   `${timeSlots.length}件`],
               ['追加日',       `${extraDates.length}件`],
@@ -231,6 +285,62 @@ export default function KobuSettings() {
       {message && (
         <div className={message.type === 'success' ? 'banner-success' : 'banner-error'}>
           {message.text}
+        </div>
+      )}
+
+      {editingScheduled && (
+        <div className="banner-warn">
+          <span className="icon icon-sm align-middle">edit</span>
+          {' '}{editingScheduledDate ? `${editingScheduledDate} の` : ''}適用予定の変更を編集中（保存すると上書きされます）
+          <button className="btn-outline w-auto px-2.5 py-1 ml-3 text-[0.8rem]" onClick={cancelEditScheduled}>
+            キャンセル
+          </button>
+        </div>
+      )}
+
+      {scheduledChanges.length > 0 && !editingScheduled && (
+        <div className="bg-warn-light border border-warn rounded-xl p-5 mb-4 shadow-[var(--shadow-card-sm)]">
+          <div className="flex justify-between items-center mb-3 gap-2 flex-wrap">
+            <strong className="text-warn">
+              <span className="icon align-middle">schedule</span> 適用予定の変更
+            </strong>
+            <span className="text-[0.85rem] text-warn">{scheduledChanges.length}件</span>
+          </div>
+          <div className="flex flex-col gap-2">
+            {scheduledChanges.map((change) => (
+              <div key={change.effectiveFrom} className="bg-surface/70 border border-warn/50 rounded-lg p-3">
+                <div className="flex items-start justify-between gap-3 flex-wrap">
+                  <div className="text-[0.9rem] text-ink-sub">
+                    適用日: <strong>{change.effectiveFrom}</strong>
+                    {' / '}
+                    曜日: <strong>{change.availableDays.map((d) => WEEK_DAYS[d]).join('・') || 'なし'}</strong>
+                    {' / '}
+                    追加日: <strong>{change.extraDates?.length ?? 0}件</strong>
+                    {' / '}
+                    除外日: <strong>{change.excludedDates?.length ?? 0}件</strong>
+                  </div>
+                  <div className="flex gap-2 shrink-0">
+                    <button
+                      className="btn-icon-nav"
+                      onClick={() => loadScheduledForEdit(change)}
+                      aria-label={`${change.effectiveFrom}の適用予定を編集`}
+                      title="編集"
+                    >
+                      <span className="icon">edit</span>
+                    </button>
+                    <button
+                      className="btn-icon-danger"
+                      onClick={() => cancelScheduled(change.effectiveFrom)}
+                      aria-label={`${change.effectiveFrom}の適用予定を取り消し`}
+                      title="取り消し"
+                    >
+                      <span className="icon">delete</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
@@ -331,8 +441,22 @@ export default function KobuSettings() {
         </div>
       </div>
 
+      <div className="admin-card">
+        <h2 className="text-base font-bold mb-3">適用日</h2>
+        <p className="text-[0.85rem] text-ink-sub mb-3">
+          今日の日付を指定すると即時反映されます。将来の日付を指定すると、その日から設定が適用されます。
+        </p>
+        <input
+          type="date"
+          className="text-input w-auto"
+          value={effectiveFrom}
+          min={todayJST()}
+          onChange={(e) => setEffectiveFrom(e.target.value)}
+        />
+      </div>
+
       <button className="btn-primary max-w-[300px]" onClick={goToConfirm}>
-        確認する
+        {editingScheduled ? '上書き内容を確認する' : '確認する'}
       </button>
 
       {blocker.state === 'blocked' && (
