@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { adminFetch } from '../auth'
 import TimeSlotsEditor, { findConflicts, type TimeSlot } from '../components/TimeSlotsEditor'
 import Skeleton from '../../components/Skeleton'
+import DatePicker from '../../components/DatePicker'
 
 type DayOverride = {
   date: string
@@ -208,14 +209,7 @@ export default function NobuEmergencySettings() {
         <div className="grid grid-cols-1 lg:grid-cols-[180px_1fr] gap-4 mb-4">
           <div className="form-row mb-0">
             <label>対象日</label>
-            <input
-              type="date"
-              className="text-input"
-              value={emergencyDate}
-              min={todayJST()}
-              max={maxEmergencyDate()}
-              onChange={(e) => setEmergencyDate(e.target.value)}
-            />
+            <DatePicker value={emergencyDate} onChange={setEmergencyDate} min={todayJST()} maxDate={maxEmergencyDate()} />
             <p className="text-[0.78rem] text-ink-sub mt-1">
               対象可能範囲: {todayJST()} 〜 {maxEmergencyDate()} / {' '}
               既存予約: <strong>{emergencyCount ?? '-'}</strong> 件

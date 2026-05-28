@@ -4,6 +4,7 @@ import { adminFetch } from '../auth'
 import TimeRangeInput from '../components/TimeRangeInput'
 import Skeleton from '../../components/Skeleton'
 import ConfirmDialog from '../../components/ConfirmDialog'
+import DatePicker from '../../components/DatePicker'
 
 type Reservation = {
   id: string
@@ -81,7 +82,7 @@ export default function Reservations() {
 
       <div className="admin-card">
         <div className="filter-row">
-          <input type="date" className="text-input w-auto" value={dateFilter} onChange={(e) => setDateFilter(e.target.value)} />
+          <DatePicker value={dateFilter} onChange={setDateFilter} clearable />
           <select className="text-input w-auto" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as any)}>
             <option value="">全ステータス</option>
             <option value="pending">抽選待ち</option>
@@ -336,7 +337,7 @@ function EditModal({
         </div>
         <div className="form-row">
           <label>日付</label>
-          <input type="date" className="text-input" value={date} onChange={(e) => setDate(e.target.value)} />
+          <DatePicker value={date} onChange={setDate} />
         </div>
         <div className="form-row">
           <label>時間帯</label>

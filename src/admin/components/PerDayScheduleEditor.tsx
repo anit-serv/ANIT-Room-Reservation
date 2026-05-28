@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import TimeSlotsEditor, { type TimeSlot, type TimeSlotPreset, findConflicts } from './TimeSlotsEditor'
+import DatePicker from '../../components/DatePicker'
 
 const WEEK_DAYS = ['日', '月', '火', '水', '木', '金', '土']
 
@@ -165,13 +166,7 @@ export default function PerDayScheduleEditor({
       {adding === 'date' && (
         <RuleComposer title="特定日ルールを追加" onClose={() => { setAdding(null); setPickDate('') }}>
           <div className="flex gap-2 items-center flex-wrap">
-            <input
-              type="date"
-              className="text-input w-auto"
-              min={todayJST()}
-              value={pickDate}
-              onChange={(e) => setPickDate(e.target.value)}
-            />
+            <DatePicker value={pickDate} onChange={setPickDate} min={todayJST()} placeholder="日付を選択" />
             <button
               type="button"
               className="btn-primary w-auto px-4 py-2"

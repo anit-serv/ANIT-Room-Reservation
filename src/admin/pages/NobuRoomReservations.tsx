@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import { adminFetch } from '../auth'
 import Skeleton from '../../components/Skeleton'
 import ConfirmDialog from '../../components/ConfirmDialog'
+import DatePicker from '../../components/DatePicker'
 
 type NobuRoomReservation = {
   id: string
@@ -82,8 +83,7 @@ export default function NobuRoomReservations() {
 
       <div className="admin-card">
         <div className="filter-row">
-          <input type="date" className="text-input w-auto" value={dateFilter}
-            onChange={(e) => setDateFilter(e.target.value)} />
+          <DatePicker value={dateFilter} onChange={setDateFilter} clearable />
           <input type="text" className="text-input flex-1" placeholder="バンド名で検索"
             value={search} onChange={(e) => setSearch(e.target.value)} />
           <button className="btn-outline w-auto px-3 py-2"
@@ -309,7 +309,7 @@ function NobuRoomEditModal({ reservation, onClose, onSaved }: {
         </div>
         <div className="form-row">
           <label>日付</label>
-          <input type="date" className="text-input" value={date} onChange={(e) => setDate(e.target.value)} />
+          <DatePicker value={date} onChange={setDate} />
         </div>
         <div className="form-row">
           <label>開始時刻</label>

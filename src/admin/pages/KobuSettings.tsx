@@ -7,6 +7,7 @@ import PerDayScheduleEditor, { findAllConflicts, type PerDaySchedule } from '../
 import Skeleton from '../../components/Skeleton'
 import ConfirmDialog from '../../components/ConfirmDialog'
 import Toast from '../../components/Toast'
+import DatePicker from '../../components/DatePicker'
 
 type KobuSettingsCore = {
   availableDays:  number[]
@@ -478,13 +479,7 @@ export default function KobuSettings() {
         <p className="text-[0.85rem] text-ink-sub mb-3">
           今日の日付を指定すると即時反映されます。将来の日付を指定すると、その日から設定が適用されます。
         </p>
-        <input
-          type="date"
-          className="text-input w-auto"
-          value={effectiveFrom}
-          min={todayJST()}
-          onChange={(e) => setEffectiveFrom(e.target.value)}
-        />
+        <DatePicker value={effectiveFrom} onChange={setEffectiveFrom} min={todayJST()} />
       </div>
 
       <button className="btn-primary max-w-[300px]" onClick={goToConfirm}>

@@ -7,6 +7,7 @@ import PerDayScheduleEditor, { findAllConflicts, type PerDaySchedule } from '../
 import Skeleton from '../../components/Skeleton'
 import ConfirmDialog from '../../components/ConfirmDialog'
 import Toast from '../../components/Toast'
+import DatePicker from '../../components/DatePicker'
 
 type SettingsCore = {
   availableDays: number[]
@@ -543,13 +544,7 @@ export default function Settings() {
           現在予約可能な最長日（7日後）との競合を避けるため、
           <strong>{minDate}</strong> 以降の日付を指定してください。
         </p>
-        <input
-          type="date"
-          className="text-input w-auto"
-          value={effectiveFrom}
-          min={minDate}
-          onChange={(e) => setEffectiveFrom(e.target.value)}
-        />
+        <DatePicker value={effectiveFrom} onChange={setEffectiveFrom} min={minDate} />
       </div>
 
       <button className="btn-primary max-w-[300px]" onClick={goToConfirm}>

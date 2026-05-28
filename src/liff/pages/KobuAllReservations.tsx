@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import Skeleton from '../../components/Skeleton'
+import DatePicker from '../../components/DatePicker'
 
 type BookingBlock = { bandName: string; startTime: string; endTime: string }
 type DayMap = Record<string, BookingBlock[]>
@@ -101,8 +102,7 @@ export default function KobuAllReservations() {
           今週
         </button>
         <div className="flex items-center gap-1.5 ml-auto">
-          <input type="date" className="text-input w-auto text-[0.85rem] py-1.5"
-            value={jumpDate} onChange={(e) => setJumpDate(e.target.value)} />
+          <DatePicker value={jumpDate} onChange={setJumpDate} placeholder="日付を選択" />
           <button className="btn-outline w-auto px-3 py-1.5 text-[0.8rem]" onClick={handleJump}>
             移動
           </button>
