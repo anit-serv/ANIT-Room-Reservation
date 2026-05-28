@@ -199,6 +199,8 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled, onBo
   const [favorites,        setFavorites]        = useState<Favorite[]>([])
   const [selectedFavId,    setSelectedFavId]    = useState<string | null>(null)
   const [saveAsFavChecked, setSaveAsFavChecked] = useState(false)
+  const [pendingRepeat, setPendingRepeat] = useState<{ date: string; bandName: string; startTime: string; endTime: string } | null>(null)
+  const [repeatBlocked, setRepeatBlocked] = useState<{ reason: string; nextNextDate: string; nextNextAvail: boolean } | null>(null)
 
   useEffect(() => {
     const id = setInterval(() => setNowMinutes(nowJSTMinutes()), 60_000)
@@ -219,6 +221,12 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled, onBo
       setSaveAsFavChecked(false)
       setModalClosing(false)
     }, 220)
+  }
+
+  function closeDetailModal() {
+    setDetailModal(null)
+    setRepeatBlocked(null)
+    setCancelConfirm(false)
   }
 
   const dayMap = weekCache[weekStart] ?? null
@@ -272,6 +280,24 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled, onBo
     setCloseConfirm(false)
     setEditOriginal({ bandName: pendingEdit.bandName, startTime: pendingEdit.startTime, endTime: pendingEdit.endTime })
   }, [pendingEdit, dayMap])
+
+  // dayMapが読み込まれたらpendingRepeatを適用
+  useEffect(() => {
+    if (!pendingRepeat || !dayMap) return
+    const targetWeek = getSundayOfWeek(pendingRepeat.date)
+    if (weekStart !== targetWeek) return
+    setModal({ date: pendingRepeat.date })
+    setBandName(pendingRepeat.bandName)
+    setModalStart(pendingRepeat.startTime)
+    setModalEnd(pendingRepeat.endTime)
+    setEditingId(null)
+    setSelectedFavId(null)
+    setSaveAsFavChecked(false)
+    setSubmitError(null)
+    setCloseConfirm(false)
+    setEditOriginal(null)
+    setPendingRepeat(null)
+  }, [pendingRepeat, dayMap, weekStart])
 
   async function fetchWeek(start: string, silent = false, force = false) {
     if (!force && weekCache[start] !== undefined) return
@@ -466,6 +492,57 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled, onBo
     } finally {
       setCancelling(false)
     }
+  }
+
+  // ─── 「次の週も予約」ハンドラ ─────────────────────────
+  function openRepeat(date: string, bName: string, startTime: string, endTime: string) {
+    setRepeatBlocked(null)
+    setDetailModal(null)
+    setPendingRepeat({ date, bandName: bName, startTime, endTime })
+    navigateTo(getSundayOfWeek(date), 'left')
+  }
+
+  function handleRepeatNext() {
+    if (!detailModal || !settings) return
+    const { block, date } = detailModal
+    const nextDate = addDays(date, 7)
+    const today = todayJST()
+    const maxDate = maxBookingDate()
+    setRepeatBlocked(null)
+    if (!isDateAvailable(nextDate, settings, today, maxDate)) {
+      const { md, wd } = formatDate(nextDate)
+      const nextNextDate = addDays(date, 14)
+      setRepeatBlocked({
+        reason: `来週（${md}${wd}）は予約不可日のため予約できません。`,
+        nextNextDate,
+        nextNextAvail: isDateAvailable(nextNextDate, settings, today, maxDate),
+      })
+      return
+    }
+    const nextWeekStart = getSundayOfWeek(nextDate)
+    const nextDayMap = weekCache[nextWeekStart]
+    if (nextDayMap !== undefined) {
+      const blocks = nextDayMap[nextDate] ?? []
+      const taken = blocks.some(
+        b => toMinutes(block.startTime) < toMinutes(b.endTime) && toMinutes(b.startTime) < toMinutes(block.endTime)
+      )
+      if (taken) {
+        const { md, wd } = formatDate(nextDate)
+        const nextNextDate = addDays(date, 14)
+        setRepeatBlocked({
+          reason: `来週（${md}${wd}）の ${block.startTime}〜${block.endTime} はすでに予約が入っています。`,
+          nextNextDate,
+          nextNextAvail: isDateAvailable(nextNextDate, settings, today, maxDate),
+        })
+        return
+      }
+    }
+    openRepeat(nextDate, block.bandName, block.startTime, block.endTime)
+  }
+
+  function handleRepeatConfirmNextNext() {
+    if (!detailModal || !repeatBlocked) return
+    openRepeat(repeatBlocked.nextNextDate, detailModal.block.bandName, detailModal.block.startTime, detailModal.block.endTime)
   }
 
   // ─── 表示範囲の計算 ───────────────────────────────────
@@ -733,80 +810,125 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled, onBo
       })() : null}
 
       {/* 予約詳細モーダル（ライトボックス） */}
-      {detailModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/50" onClick={() => !cancelling && setDetailModal(null)} />
-          <div className="relative bg-surface rounded-2xl shadow-[var(--shadow-modal)] w-full max-w-[320px] overflow-hidden">
-            {/* ヘッダー */}
-            <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-line">
-              <p className="text-base font-bold text-ink">予約詳細</p>
-              <button className="btn-icon-close" onClick={() => setDetailModal(null)} disabled={cancelling}>
-                <span className="icon">close</span>
-              </button>
-            </div>
+      {detailModal && (() => {
+        const isOwn = detailModal.block.userId === profile.userId
+        const isBeforeStart = Date.now() < new Date(`${detailModal.date}T${detailModal.block.startTime}:00+09:00`).getTime()
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div className="absolute inset-0 bg-black/50" onClick={() => !cancelling && closeDetailModal()} />
+            <div className="relative bg-surface rounded-2xl shadow-[var(--shadow-modal)] w-full max-w-[320px] overflow-hidden">
+              {/* ヘッダー */}
+              <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-line">
+                <p className="text-base font-bold text-ink">予約詳細</p>
+                <button className="btn-icon-close" onClick={closeDetailModal} disabled={cancelling}>
+                  <span className="icon">close</span>
+                </button>
+              </div>
 
-            {/* 内容 */}
-            <div className="px-5 py-4 space-y-3">
-              <div className="flex items-center gap-2.5">
-                <span className="icon text-brand" style={{ fontSize: 20 }}>groups</span>
-                <span className="text-[0.95rem] font-semibold text-ink">{detailModal.block.bandName}</span>
+              {/* 内容 */}
+              <div className="px-5 py-4 space-y-3">
+                <div className="flex items-center gap-2.5">
+                  <span className="icon text-brand" style={{ fontSize: 20 }}>groups</span>
+                  <span className="text-[0.95rem] font-semibold text-ink">{detailModal.block.bandName}</span>
+                </div>
+                <div className="flex items-center gap-2.5">
+                  <span className="icon text-ink-pale" style={{ fontSize: 20 }}>calendar_today</span>
+                  <span className="text-[0.88rem] text-ink-sub">
+                    {formatDate(detailModal.date).md}（{formatDate(detailModal.date).wd}）
+                  </span>
+                </div>
+                <div className="flex items-center gap-2.5">
+                  <span className="icon text-ink-pale" style={{ fontSize: 20 }}>schedule</span>
+                  <span className="text-[0.88rem] text-ink-sub">
+                    {detailModal.block.startTime} 〜 {detailModal.block.endTime}
+                  </span>
+                </div>
               </div>
-              <div className="flex items-center gap-2.5">
-                <span className="icon text-ink-pale" style={{ fontSize: 20 }}>calendar_today</span>
-                <span className="text-[0.88rem] text-ink-sub">
-                  {formatDate(detailModal.date).md}（{formatDate(detailModal.date).wd}）
-                </span>
-              </div>
-              <div className="flex items-center gap-2.5">
-                <span className="icon text-ink-pale" style={{ fontSize: 20 }}>schedule</span>
-                <span className="text-[0.88rem] text-ink-sub">
-                  {detailModal.block.startTime} 〜 {detailModal.block.endTime}
-                </span>
-              </div>
-            </div>
 
-            {/* 自分の予約のみ：編集・キャンセル（開始前のみ） */}
-            {detailModal.block.userId === profile.userId &&
-              Date.now() < new Date(`${detailModal.date}T${detailModal.block.startTime}:00+09:00`).getTime() && (
-              <div className="px-5 pb-5 flex flex-col gap-2">
-                {!cancelConfirm ? (
-                  <>
-                    <button
-                      className="btn-outline w-full flex items-center justify-center gap-1.5 py-2.5"
-                      onClick={handleEditFromDetail}
-                      disabled={cancelling}
-                    >
-                      <span className="icon" style={{ fontSize: 16 }}>edit</span>
-                      編集
-                    </button>
-                    <button
-                      className="btn-danger w-full"
-                      onClick={() => setCancelConfirm(true)}
-                      disabled={cancelling}
-                    >
-                      <span className="icon" style={{ fontSize: 16 }}>delete</span>
-                      削除
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <p className="text-[0.88rem] text-ink text-center py-1 font-semibold">本当に削除しますか？</p>
-                    {cancelError && <div className="banner-error">{cancelError}</div>}
-                    <div className="flex gap-2">
-                      <button className="btn-secondary flex-1" onClick={() => setCancelConfirm(false)} disabled={cancelling}>
-                        キャンセル
+              {/* 自分の予約のみ：アクション */}
+              {isOwn && (
+                <div className="px-5 pb-5 flex flex-col gap-2">
+                  {/* 編集・削除（開始前のみ） */}
+                  {isBeforeStart && !cancelConfirm && (
+                    <>
+                      <button
+                        className="btn-outline w-full flex items-center justify-center gap-1.5 py-2.5"
+                        onClick={handleEditFromDetail}
+                        disabled={cancelling}
+                      >
+                        <span className="icon" style={{ fontSize: 16 }}>edit</span>
+                        編集
                       </button>
-                      <button className="btn-danger flex-1" onClick={handleCancel} disabled={cancelling}>
-                        {cancelling ? '削除中...' : 'OK'}
+                      <button
+                        className="btn-danger w-full"
+                        onClick={() => setCancelConfirm(true)}
+                        disabled={cancelling}
+                      >
+                        <span className="icon" style={{ fontSize: 16 }}>delete</span>
+                        削除
                       </button>
-                    </div>
-                  </>
-                )}
-              </div>
-            )}
+                    </>
+                  )}
+                  {isBeforeStart && cancelConfirm && (
+                    <>
+                      <p className="text-[0.88rem] text-ink text-center py-1 font-semibold">本当に削除しますか？</p>
+                      {cancelError && <div className="banner-error">{cancelError}</div>}
+                      <div className="flex gap-2">
+                        <button className="btn-secondary flex-1" onClick={() => setCancelConfirm(false)} disabled={cancelling}>
+                          キャンセル
+                        </button>
+                        <button className="btn-danger flex-1" onClick={handleCancel} disabled={cancelling}>
+                          {cancelling ? '削除中...' : 'OK'}
+                        </button>
+                      </div>
+                    </>
+                  )}
+
+                  {/* 次の週も予約（削除確認中は非表示） */}
+                  {!cancelConfirm && (
+                    <>
+                      {!repeatBlocked ? (
+                        <button
+                          className="btn-primary w-full"
+                          onClick={handleRepeatNext}
+                          disabled={cancelling}
+                        >
+                          <span className="icon" style={{ fontSize: 16 }}>event_repeat</span>
+                          次の週も予約
+                        </button>
+                      ) : (
+                        <div className="bg-warn-light border border-warn/30 rounded-xl px-4 py-3 flex flex-col gap-2">
+                          <p className="text-[0.85rem] text-warn font-semibold">{repeatBlocked.reason}</p>
+                          {repeatBlocked.nextNextAvail ? (
+                            <>
+                              <p className="text-[0.82rem] text-ink-sub">再来週に予約しますか？</p>
+                              <div className="flex gap-2">
+                                <button className="btn-secondary flex-1 py-2" onClick={() => setRepeatBlocked(null)}>
+                                  キャンセル
+                                </button>
+                                <button className="btn-primary flex-1 py-2" onClick={handleRepeatConfirmNextNext}>
+                                  再来週に予約
+                                </button>
+                              </div>
+                            </>
+                          ) : (
+                            <>
+                              <p className="text-[0.82rem] text-ink-sub">再来週も予約不可です。</p>
+                              <button className="btn-secondary w-full py-2" onClick={() => setRepeatBlocked(null)}>
+                                閉じる
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
-        </div>
-      )}
+        )
+      })()}
 
       {/* 予約モーダル（ボトムシート） */}
       {(modal || modalClosing) && dayMap && (() => {
