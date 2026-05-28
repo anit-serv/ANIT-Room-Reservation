@@ -1,5 +1,9 @@
 import { VercelRequest, VercelResponse } from '@vercel/node';
 import * as admin from 'firebase-admin';
+import {
+  isDateAvailableBySettings,
+  resolveReservationSettingsForDate,
+} from '../lib/reservationSettings';
 import 'dotenv/config';
 
 // ---------------------------------------------------------
@@ -28,42 +32,6 @@ function shuffleArray<T>(array: T[]): T[] {
     [array[i], array[j]] = [array[j], array[i]];
   }
   return array;
-}
-
-// Firestoreから設定を取得
-async function getConfig(): Promise<{
-  availableDays: number[];
-  timeSlots: { label: string; value: string }[];
-}> {
-  const configDoc = await db.collection('settings').doc('reservation').get();
-
-  if (configDoc.exists) {
-    const data = configDoc.data()!;
-    return {
-      availableDays: data.availableDays || [3, 4, 6],
-      timeSlots: data.timeSlots || [
-        { label: '9:00~10:00', value: '09:00-10:00' },
-        { label: '10:00~12:00', value: '10:00-12:00' },
-        { label: '12:00~14:00', value: '12:00-14:00' },
-        { label: '14:00~16:00', value: '14:00-16:00' },
-        { label: '16:00~18:00', value: '16:00-18:00' },
-        { label: '18:00~20:00', value: '18:00-20:00' },
-      ],
-    };
-  }
-
-  // デフォルト値
-  return {
-    availableDays: [3, 4, 6],
-    timeSlots: [
-      { label: '9:00~10:00', value: '09:00-10:00' },
-      { label: '10:00~12:00', value: '10:00-12:00' },
-      { label: '12:00~14:00', value: '12:00-14:00' },
-      { label: '14:00~16:00', value: '14:00-16:00' },
-      { label: '16:00~18:00', value: '16:00-18:00' },
-      { label: '18:00~20:00', value: '18:00-20:00' },
-    ],
-  };
 }
 
 // ---------------------------------------------------------
@@ -112,13 +80,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     // 翌日が登録可能日かチェック（force=true の場合はスキップ）
     if (!forceExecute) {
-      const config = await getConfig();
-      const targetDayIndex = targetDateJST.getDay();
-      
-      if (!config.availableDays.includes(targetDayIndex)) {
+      const settings = await resolveReservationSettingsForDate(db, targetDateStr);
+
+      if (!isDateAvailableBySettings(targetDateStr, settings)) {
         return res.status(200).json({ 
           status: 'skipped', 
-          message: `Tomorrow (dayIndex: ${targetDayIndex}) is not an available day. Skipping lottery.` 
+          message: `${targetDateStr} is not an available day. Skipping lottery.`
         });
       }
     }

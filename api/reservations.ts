@@ -1,6 +1,11 @@
 import { VercelRequest, VercelResponse } from '@vercel/node'
 import * as admin from 'firebase-admin'
 import { verifyLineToken } from '../lib/verifyLineToken'
+import {
+  isTimeSlotAvailableBySettings,
+  pickTimeSlotsForDate,
+  resolveReservationSettingsForDate,
+} from '../lib/reservationSettings'
 import 'dotenv/config'
 
 const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n')
@@ -70,13 +75,22 @@ async function handleCreate(req: VercelRequest, res: VercelResponse) {
     }
 
     // 設定とBANチェックを並列取得
-    const [userDoc, settingsDoc] = await Promise.all([
+    const [userDoc, settings] = await Promise.all([
       db.collection('users').doc(userId).get(),
-      db.collection('settings').doc('reservation').get(),
+      resolveReservationSettingsForDate(db, datePart),
     ])
     const userRef = db.collection('users').doc(userId)
     if (userDoc.exists && userDoc.data()?.banned === true) {
       return res.status(403).json({ error: '予約機能の利用が停止されています' })
+    }
+
+    if (!isTimeSlotAvailableBySettings(date, settings)) {
+      const slotStr = pickTimeSlotsForDate(datePart, settings).map((s) => s.value.replace('-', '〜')).join(' / ')
+      return res.status(400).json({
+        error: slotStr
+          ? `選択された日時は現在の設定では予約できません。利用可能な時間枠: ${slotStr}`
+          : '選択された日付は現在の設定では予約できません',
+      })
     }
 
     // 同日に同名バンドが既に登録されていないかチェック
@@ -94,7 +108,7 @@ async function handleCreate(req: VercelRequest, res: VercelResponse) {
     }
 
     // 抽選10分前〜抽選時刻の間は当日・翌日の登録不可
-    const lotteryTime = (settingsDoc.exists ? settingsDoc.data()?.lotteryTime : null) ?? '21:00'
+    const lotteryTime = settings.lotteryTime
     const [lh, lm] = lotteryTime.split(':').map(Number)
     const lotteryMinutes = lh * 60 + lm
     const nowJST = new Date(Date.now() + 9 * 60 * 60 * 1000)

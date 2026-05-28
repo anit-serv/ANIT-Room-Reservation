@@ -3,6 +3,12 @@ import * as admin from 'firebase-admin'
 import * as crypto from 'crypto'
 import axios from 'axios'
 import { verifyAdmin } from '../lib/verifyAdmin'
+import {
+  addDaysJST,
+  getPendingReservationSettingsChange,
+  resolveReservationSettingsForDate,
+  todayJST,
+} from '../lib/reservationSettings'
 import 'dotenv/config'
 
 const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n')
@@ -288,10 +294,6 @@ type Settings = SettingsCore & {
   nextChange?: SettingsCore & { effectiveFrom: string }
 }
 
-function todayJST(): string {
-  return new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10)
-}
-
 function isValidDate(s: string): boolean {
   return /^\d{4}-\d{2}-\d{2}$/.test(s) && !isNaN(Date.parse(s))
 }
@@ -402,16 +404,18 @@ async function handleSettings(req: VercelRequest, res: VercelResponse) {
   const docRef = db.collection('settings').doc('reservation')
 
   if (req.method === 'GET') {
-    const doc = await docRef.get()
-    const data = (doc.exists ? doc.data() : {}) as Settings
+    const [data, pendingChange] = await Promise.all([
+      resolveReservationSettingsForDate(db, todayJST()),
+      getPendingReservationSettingsChange(db),
+    ])
     return res.status(200).json({
-      availableDays:  data.availableDays  ?? [3, 4, 6],
-      timeSlots:      data.timeSlots      ?? [],
-      extraDates:     data.extraDates     ?? [],
-      excludedDates:  data.excludedDates  ?? [],
-      perDaySchedule: data.perDaySchedule ?? { enabled: false, byWeekday: {}, byDate: {} },
-      nextChange:     data.nextChange     ?? null,
-      lotteryTime:    (data as any).lotteryTime ?? '21:00',
+      availableDays:  data.availableDays,
+      timeSlots:      data.timeSlots,
+      extraDates:     data.extraDates,
+      excludedDates:  data.excludedDates,
+      perDaySchedule: data.perDaySchedule,
+      nextChange:     pendingChange,
+      lotteryTime:    data.lotteryTime,
     })
   }
 
@@ -427,19 +431,20 @@ async function handleSettings(req: VercelRequest, res: VercelResponse) {
 
     // 現在の予約可能期間（7日後まで）と競合させないため、
     // 適用日は 今日+8日 以降に制限する
-    const nowJST = new Date(Date.now() + 9 * 60 * 60 * 1000)
-    const minDate = new Date(nowJST)
-    minDate.setUTCDate(nowJST.getUTCDate() + 8)
-    const minDateStr = minDate.toISOString().slice(0, 10)
+    const minDateStr = addDaysJST(8)
     if (effectiveFrom < minDateStr) {
       return res.status(400).json({
         error: `適用日は${minDateStr}以降を指定してください（現在の予約可能期間との競合を避けるため）`,
       })
     }
 
-    await docRef.set({
-      nextChange: { ...validated, effectiveFrom },
-    }, { merge: true })
+    await docRef.collection('versions').doc(effectiveFrom).set({
+      ...validated,
+      effectiveFrom,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedBy: me.userId,
+    })
+    await docRef.set({ nextChange: admin.firestore.FieldValue.delete() }, { merge: true })
     await audit(me, 'settings.schedule', { targetType: 'settings', details: { ...validated, effectiveFrom } })
     return res.status(200).json({ applied: 'scheduled', effectiveFrom })
   }
@@ -457,7 +462,12 @@ async function handleSettingsScheduled(req: VercelRequest, res: VercelResponse) 
     const status = err.message === 'Forbidden' ? 403 : 401
     return res.status(status).json({ error: err.message })
   }
-  await db.collection('settings').doc('reservation').set({
+  const docRef = db.collection('settings').doc('reservation')
+  const pendingChange = await getPendingReservationSettingsChange(db)
+  if (pendingChange?.source === 'version') {
+    await docRef.collection('versions').doc(pendingChange.effectiveFrom).delete()
+  }
+  await docRef.set({
     nextChange: admin.firestore.FieldValue.delete(),
   }, { merge: true })
   await audit(me, 'settings.scheduled.cancel', { targetType: 'settings' })
@@ -828,13 +838,12 @@ async function handleDashboard(req: VercelRequest, res: VercelResponse) {
     const in7Days = new Date(nowJST); in7Days.setUTCDate(nowJST.getUTCDate() + 7)
     const in7DaysStr = in7Days.toISOString().slice(0, 10)
 
-    const [resSnap, kobuSnap, nobuRoomSnap, usersSnap, adminsSnap, settingsDoc, logsSnap] = await Promise.all([
+    const [resSnap, kobuSnap, nobuRoomSnap, usersSnap, adminsSnap, logsSnap] = await Promise.all([
       db.collection('reservations').where('date', '>=', `${todayStr}T00:00`).get(),
       db.collection('kobu_reservations').where('date', '>=', todayStr).where('date', '<=', in7DaysStr).get(),
       db.collection('nobu_room_reservations').where('date', '>=', todayStr).where('date', '<=', in7DaysStr).get(),
       db.collection('users').get(),
       db.collection('admins').get(),
-      db.collection('settings').doc('reservation').get(),
       db.collection('auditLogs').orderBy('createdAt', 'desc').limit(8).get(),
     ])
 
@@ -899,8 +908,7 @@ async function handleDashboard(req: VercelRequest, res: VercelResponse) {
     }))
 
     // 農部生協の適用予定設定変更
-    const settings = settingsDoc.exists ? settingsDoc.data()! : {}
-    const pendingChange = settings.nextChange ?? null
+    const pendingChange = await getPendingReservationSettingsChange(db)
 
     // 最近のログ
     const recentLogs = logsSnap.docs.map((d) => {
