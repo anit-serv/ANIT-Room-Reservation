@@ -618,7 +618,7 @@ export default function NobuRoomSchedule({ profile, initialEdit, onEditHandled, 
                   const cutoff = (Math.floor(nowMinutes / 15) + 1) * 15
                   const grayHeight = Math.max(0, Math.min(cutoff - dispStart, totalDisp))
                   return grayHeight > 0 ? (
-                    <div className="absolute left-0 right-0 bg-[#f0f0f0]/80 pointer-events-none" style={{ top: 0, height: grayHeight, zIndex: 4 }} />
+                    <div className="absolute left-0 right-0 bg-[#f0f0f0] cursor-default" style={{ top: 0, height: grayHeight, zIndex: 4 }} />
                   ) : null
                 })()}
                 {interactive && modal?.date === date && modalStart && modalEnd && (
