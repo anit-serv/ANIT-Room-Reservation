@@ -31,7 +31,7 @@ function getSunday(date: string): string {
 }
 
 export default function CalendarPicker({ value, selectedWeek, onChange, min, maxDate, getDayClass }: Props) {
-  const initBase = selectedWeek ?? value ?? min ?? todayJST()
+  const initBase = selectedWeek || value || min || todayJST()
   const [[displayYear, displayMonth], setDisplay] = useState<[number, number]>(() => [
     parseInt(initBase.slice(0, 4)),
     parseInt(initBase.slice(5, 7)) - 1,
