@@ -27,7 +27,7 @@ function todayJST(): string {
 
 function minEffectiveDate(): string {
   const d = new Date(Date.now() + 9 * 60 * 60 * 1000)
-  d.setUTCDate(d.getUTCDate() + 7)
+  d.setUTCDate(d.getUTCDate() + 8)
   return d.toISOString().slice(0, 10)
 }
 
@@ -508,7 +508,7 @@ export default function Settings() {
       <div className="admin-card">
         <h2 className="text-base font-bold mb-3">適用日</h2>
         <p className="text-[0.85rem] text-ink-sub mb-3">
-          現在表示中の予約期間（今日含め7日間）との競合を避けるため、
+          現在予約可能な最長日（7日後）との競合を避けるため、
           <strong>{minDate}</strong> 以降の日付を指定してください。
         </p>
         <input

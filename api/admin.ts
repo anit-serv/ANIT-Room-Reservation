@@ -425,11 +425,11 @@ async function handleSettings(req: VercelRequest, res: VercelResponse) {
       return res.status(400).json({ error: '適用日を指定してください' })
     }
 
-    // 現在の予約可能期間（今日含め7日間 = 今日～+6日）と競合させないため、
-    // 適用日は 今日+7日 以降に制限する
+    // 現在の予約可能期間（7日後まで）と競合させないため、
+    // 適用日は 今日+8日 以降に制限する
     const nowJST = new Date(Date.now() + 9 * 60 * 60 * 1000)
     const minDate = new Date(nowJST)
-    minDate.setUTCDate(nowJST.getUTCDate() + 7)
+    minDate.setUTCDate(nowJST.getUTCDate() + 8)
     const minDateStr = minDate.toISOString().slice(0, 10)
     if (effectiveFrom < minDateStr) {
       return res.status(400).json({
