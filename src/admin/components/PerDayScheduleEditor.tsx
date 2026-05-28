@@ -293,20 +293,33 @@ function RuleCard({
           <p className="text-[0.82rem] text-ink-sub truncate">{summarizeSlots(slots)}</p>
         </div>
         <div className="flex gap-1.5 shrink-0">
-          <button type="button" className="btn-outline w-auto px-3 py-1.5 text-[0.85rem]" onClick={onEdit}>
-            <span className="icon icon-sm">{editing ? 'expand_less' : 'edit'}</span>
-            {editing ? '閉じる' : '編集'}
+          <button
+            type="button"
+            className="btn-icon-nav"
+            onClick={onEdit}
+            aria-expanded={editing}
+            aria-label={`${title}の時間枠を${editing ? '閉じる' : '開く'}`}
+          >
+            <span className={`icon transition-transform duration-200 ${editing ? 'rotate-180' : ''}`}>
+              expand_more
+            </span>
           </button>
           <button type="button" className="btn-icon-danger" onClick={onRemove} aria-label={`${title}を削除`}>
             <span className="icon">delete</span>
           </button>
         </div>
       </div>
-      {editing && (
-        <div className="mt-3 pt-3 border-t border-line">
-          {children}
+      <div
+        className={`grid transition-all duration-200 ease-out ${
+          editing ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'
+        }`}
+      >
+        <div className="overflow-hidden min-h-0">
+          <div className="mt-3 pt-3 border-t border-line">
+            {children}
+          </div>
         </div>
-      )}
+      </div>
     </div>
   )
 }
