@@ -17,39 +17,51 @@ type Log = {
 const WEEK_DAYS_JP = ['日', '月', '火', '水', '木', '金', '土']
 
 const ACTION_LABELS: Record<string, { label: string; icon: string; color: string }> = {
-  'user.ban':                  { label: 'BAN',                icon: 'block',           color: 'var(--color-danger)' },
-  'user.unban':                { label: 'BAN解除',            icon: 'lock_open',       color: 'var(--color-brand)' },
-  'reservation.update':        { label: '予約編集(農部)',     icon: 'edit',            color: 'var(--color-warn)' },
-  'reservation.delete':        { label: '予約削除(農部)',     icon: 'delete',          color: 'var(--color-danger)' },
-  'kobu_reservation.update':   { label: '予約編集(工部室)',   icon: 'edit',            color: 'var(--color-warn)' },
-  'kobu_reservation.delete':   { label: '予約削除(工部室)',   icon: 'delete',          color: 'var(--color-danger)' },
-  'settings.update':           { label: '設定変更(農部/即時)', icon: 'settings',       color: 'var(--color-brand)' },
-  'settings.schedule':         { label: '設定変更(農部/予定)', icon: 'schedule',       color: 'var(--color-warn)' },
-  'settings.scheduled.cancel': { label: '設定予定の取消',     icon: 'cancel',          color: 'var(--color-ink-sub)' },
-  'settings.lotteryTime':      { label: '抽選時刻変更',       icon: 'alarm',           color: 'var(--color-ink-sub)' },
-  'settings.dayOverride.block': { label: '緊急対応(予約不可)', icon: 'block',           color: 'var(--color-warn)' },
-  'settings.dayOverride.open':  { label: '緊急対応(臨時開放)', icon: 'event_available', color: 'var(--color-brand)' },
-  'settings.dayOverride.delete':{ label: '緊急対応の解除',     icon: 'delete',          color: 'var(--color-ink-sub)' },
-  'kobu_settings.update':      { label: '設定変更(工部室)',   icon: 'settings',        color: 'var(--color-brand)' },
-  'admin.add':                 { label: '管理者追加',         icon: 'person_add',      color: 'var(--color-brand)' },
-  'admin.remove':              { label: '管理者削除',         icon: 'person_remove',   color: 'var(--color-danger)' },
-  'admin.super.transfer':      { label: 'スーパー管理者移譲', icon: 'star',            color: 'var(--color-super)' },
-  'invitation.create':         { label: '招待発行',           icon: 'add_link',        color: 'var(--color-brand)' },
-  'invitation.revoke':         { label: '招待取消',           icon: 'link_off',        color: 'var(--color-ink-sub)' },
-  'preset.create':             { label: 'プリセット作成',     icon: 'bookmark_add',    color: 'var(--color-brand)' },
-  'preset.delete':             { label: 'プリセット削除',     icon: 'bookmark_remove', color: 'var(--color-danger)' },
+  'user.ban':                           { label: 'BAN',                     icon: 'block',           color: 'var(--color-danger)' },
+  'user.unban':                         { label: 'BAN解除',                 icon: 'lock_open',       color: 'var(--color-brand)' },
+  'reservation.update':                 { label: '予約編集(農部生協)',       icon: 'edit',            color: 'var(--color-warn)' },
+  'reservation.delete':                 { label: '予約削除(農部生協)',       icon: 'delete',          color: 'var(--color-danger)' },
+  'kobu_reservation.update':            { label: '予約編集(工部室)',         icon: 'edit',            color: 'var(--color-warn)' },
+  'kobu_reservation.delete':            { label: '予約削除(工部室)',         icon: 'delete',          color: 'var(--color-danger)' },
+  'nobu_room_reservation.update':       { label: '予約編集(農部室)',         icon: 'edit',            color: 'var(--color-warn)' },
+  'nobu_room_reservation.delete':       { label: '予約削除(農部室)',         icon: 'delete',          color: 'var(--color-danger)' },
+  'settings.update':                    { label: '設定変更(農部生協/即時)', icon: 'settings',        color: 'var(--color-brand)' },
+  'settings.schedule':                  { label: '設定変更(農部生協/予定)', icon: 'schedule',        color: 'var(--color-warn)' },
+  'settings.scheduled.cancel':          { label: '設定予定の取消(農部生協)', icon: 'cancel',          color: 'var(--color-ink-sub)' },
+  'settings.lotteryTime':               { label: '抽選時刻変更',             icon: 'alarm',           color: 'var(--color-ink-sub)' },
+  'settings.dayOverride.block':         { label: '緊急対応(予約不可)',       icon: 'block',           color: 'var(--color-warn)' },
+  'settings.dayOverride.open':          { label: '緊急対応(臨時開放)',       icon: 'event_available', color: 'var(--color-brand)' },
+  'settings.dayOverride.delete':        { label: '緊急対応の解除',           icon: 'delete',          color: 'var(--color-ink-sub)' },
+  'kobu_settings.update':               { label: '設定変更(工部室/即時)',    icon: 'settings',        color: 'var(--color-brand)' },
+  'kobu_settings.schedule':             { label: '設定変更(工部室/予定)',    icon: 'schedule',        color: 'var(--color-warn)' },
+  'kobu_settings.scheduled.cancel':     { label: '設定予定の取消(工部室)',   icon: 'cancel',          color: 'var(--color-ink-sub)' },
+  'kobu_settings.time_presets.update':  { label: '時間プリセット更新(工部室)', icon: 'tune',          color: 'var(--color-ink-sub)' },
+  'nobu_room_settings.schedule':        { label: '設定変更(農部室/予定)',    icon: 'schedule',        color: 'var(--color-warn)' },
+  'nobu_room_settings.scheduled.cancel':{ label: '設定予定の取消(農部室)',   icon: 'cancel',          color: 'var(--color-ink-sub)' },
+  'nobu_room_settings.time_presets.update': { label: '時間プリセット更新(農部室)', icon: 'tune',      color: 'var(--color-ink-sub)' },
+  'admin.add':                          { label: '管理者追加',               icon: 'person_add',      color: 'var(--color-brand)' },
+  'admin.remove':                       { label: '管理者削除',               icon: 'person_remove',   color: 'var(--color-danger)' },
+  'admin.super.transfer':               { label: 'スーパー管理者移譲',       icon: 'star',            color: 'var(--color-super)' },
+  'invitation.create':                  { label: '招待発行',                 icon: 'add_link',        color: 'var(--color-brand)' },
+  'invitation.revoke':                  { label: '招待取消',                 icon: 'link_off',        color: 'var(--color-ink-sub)' },
+  'preset.create':                      { label: 'プリセット作成',           icon: 'bookmark_add',    color: 'var(--color-brand)' },
+  'preset.delete':                      { label: 'プリセット削除',           icon: 'bookmark_remove', color: 'var(--color-danger)' },
 }
 
 function renderDetails(action: string, details: any): React.ReactNode {
   if (!details) return null
 
-  // 農部・工部室 予約編集
-  if (action === 'reservation.update' || action === 'kobu_reservation.update') {
+  // 予約編集（農部生協 / 工部室 / 農部室）
+  if (
+    action === 'reservation.update' ||
+    action === 'kobu_reservation.update' ||
+    action === 'nobu_room_reservation.update'
+  ) {
     const before = details.before ?? {}
     const after  = details.after  ?? {}
     const merged = { ...before, ...after }
-    const isKobu = action === 'kobu_reservation.update'
-    const fmt = (r: any) => isKobu
+    const hasTime = action === 'kobu_reservation.update' || action === 'nobu_room_reservation.update'
+    const fmt = (r: any) => hasTime
       ? `${r.bandName ?? ''}　${r.date ?? ''}　${r.startTime ?? ''}〜${r.endTime ?? ''}`
       : `${r.bandName ?? ''}　${r.date ?? ''}`
     return (
@@ -66,7 +78,7 @@ function renderDetails(action: string, details: any): React.ReactNode {
     )
   }
 
-  // 農部 設定変更
+  // 設定変更（農部生協）
   if (action === 'settings.schedule' || action === 'settings.update') {
     return (
       <div className="mt-1.5 space-y-0.5 text-[0.78rem] text-ink-sub">
@@ -88,21 +100,66 @@ function renderDetails(action: string, details: any): React.ReactNode {
     )
   }
 
-  // 工部室 設定変更
-  if (action === 'kobu_settings.update') {
+  // 設定変更（工部室 / 農部室）— schedule アクション
+  if (
+    action === 'kobu_settings.schedule' ||
+    action === 'kobu_settings.update' ||
+    action === 'nobu_room_settings.schedule'
+  ) {
     return (
       <div className="mt-1.5 space-y-0.5 text-[0.78rem] text-ink-sub">
-        {details.openTime && details.closeTime && (
-          <div>営業時間: <span className="text-ink">{details.openTime} 〜 {details.closeTime}</span></div>
+        {details.effectiveFrom && (
+          <div>適用日: <span className="font-semibold text-ink">{details.effectiveFrom}</span></div>
         )}
         {Array.isArray(details.availableDays) && (
           <div>利用可能曜日: <span className="text-ink">
             {details.availableDays.length === 0 ? 'なし' : details.availableDays.map((d: number) => WEEK_DAYS_JP[d]).join('・')}
           </span></div>
         )}
-        {(details.extraDatesCount !== undefined || details.excludedDatesCount !== undefined) && (
-          <div>追加日: <span className="text-ink">{details.extraDatesCount ?? 0}件</span> / 除外日: <span className="text-ink">{details.excludedDatesCount ?? 0}件</span></div>
+        {(details.timeSlotsCount !== undefined || details.extraDatesCount !== undefined) && (
+          <div>
+            時間枠: <span className="text-ink">{details.timeSlotsCount ?? 0}件</span>
+            {' / '}追加日: <span className="text-ink">{details.extraDatesCount ?? 0}件</span>
+            {' / '}除外日: <span className="text-ink">{details.excludedDatesCount ?? 0}件</span>
+          </div>
         )}
+        {details.openTime && details.closeTime && (
+          <div>営業時間: <span className="text-ink">{details.openTime} 〜 {details.closeTime}</span></div>
+        )}
+      </div>
+    )
+  }
+
+  // 設定予定の取消（農部生協 / 工部室 / 農部室）
+  if (
+    action === 'settings.scheduled.cancel' ||
+    action === 'kobu_settings.scheduled.cancel' ||
+    action === 'nobu_room_settings.scheduled.cancel'
+  ) {
+    return details.effectiveFrom ? (
+      <div className="mt-1 text-[0.78rem] text-ink-sub">
+        取消した適用日: <span className="font-semibold text-ink">{details.effectiveFrom}</span>
+      </div>
+    ) : null
+  }
+
+  // 抽選時刻変更
+  if (action === 'settings.lotteryTime') {
+    return details.lotteryTime ? (
+      <div className="mt-1 text-[0.78rem] text-ink-sub">
+        新しい抽選時刻: <span className="font-semibold text-ink">{details.lotteryTime}</span>
+      </div>
+    ) : null
+  }
+
+  // 時間プリセット更新（工部室 / 農部室）
+  if (
+    action === 'kobu_settings.time_presets.update' ||
+    action === 'nobu_room_settings.time_presets.update'
+  ) {
+    return (
+      <div className="mt-1 text-[0.78rem] text-ink-sub">
+        プリセット数: <span className="font-semibold text-ink">{details.count ?? 0}件</span>
       </div>
     )
   }
