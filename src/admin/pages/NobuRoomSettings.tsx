@@ -141,6 +141,9 @@ export default function NobuRoomSettings() {
   const hasDateOverlap      = extraDates.some((d) => excludedDates.includes(d))
   const defaultConflicts    = findConflicts(timeSlots)
   const hasOverrideConflict = findAllConflicts(perDaySchedule)
+  const earlyExtraDates    = extraDates.filter((d) => d < effectiveFrom)
+  const earlyExcludedDates = excludedDates.filter((d) => d < effectiveFrom)
+  const earlyPerDayDates   = Object.keys(perDaySchedule.byDate ?? {}).filter((d) => d < effectiveFrom)
 
   function goToConfirm() {
     setMessage(null)
@@ -397,6 +400,12 @@ export default function NobuRoomSettings() {
           onSavePreset={savePreset}
           onDeletePreset={deletePreset}
         />
+        {earlyPerDayDates.length > 0 && (
+          <p className="mt-3 text-warn text-[0.85rem]">
+            <span className="icon icon-sm align-middle">warning</span>
+            {' '}特定日ルールに適用日（{effectiveFrom}）より前の日付が含まれています。これらは設定の対象外です：{earlyPerDayDates.join('、')}
+          </p>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -415,6 +424,12 @@ export default function NobuRoomSettings() {
             conflictLabel="除外日"
             onMoveConflict={(date) => setExcludedDates((prev) => prev.filter((d) => d !== date))}
           />
+          {earlyExtraDates.length > 0 && (
+            <p className="mt-2 text-warn text-[0.85rem]">
+              <span className="icon icon-sm align-middle">warning</span>
+              {' '}適用日（{effectiveFrom}）より前の日付が含まれています。これらは設定の対象外です：{earlyExtraDates.join('、')}
+            </p>
+          )}
         </div>
 
         <div className="admin-card">
@@ -432,6 +447,12 @@ export default function NobuRoomSettings() {
             conflictLabel="追加日"
             onMoveConflict={(date) => setExtraDates((prev) => prev.filter((d) => d !== date))}
           />
+          {earlyExcludedDates.length > 0 && (
+            <p className="mt-2 text-warn text-[0.85rem]">
+              <span className="icon icon-sm align-middle">warning</span>
+              {' '}適用日（{effectiveFrom}）より前の日付が含まれています。これらは設定の対象外です：{earlyExcludedDates.join('、')}
+            </p>
+          )}
           {hasDateOverlap && (
             <p className="mt-2 text-danger text-[0.85rem]">
               <span className="icon icon-sm align-middle">warning</span>

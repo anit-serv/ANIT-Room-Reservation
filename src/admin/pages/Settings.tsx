@@ -181,6 +181,9 @@ export default function Settings() {
   const defaultConflicts = findConflicts(timeSlots)
   const hasOverrideConflict = findAllConflicts(perDaySchedule)
   const hasDateOverlap = extraDates.some((d) => excludedDates.includes(d))
+  const earlyExtraDates    = extraDates.filter((d) => d < effectiveFrom)
+  const earlyExcludedDates = excludedDates.filter((d) => d < effectiveFrom)
+  const earlyPerDayDates   = Object.keys(perDaySchedule.byDate ?? {}).filter((d) => d < effectiveFrom)
 
   function goToConfirm() {
     setMessage(null)
@@ -466,34 +469,48 @@ export default function Settings() {
           <h2 className="text-base font-bold mb-3">追加日</h2>
           <p className="text-[0.85rem] text-ink-sub mb-3">
             上記の曜日に該当しない日でも、ここに追加した日は予約可能になります。
+            直近8日間は緊急対応で設定してください。
           </p>
           <DateListEditor
             dates={extraDates}
             onChange={setExtraDates}
-            min={todayJST()}
+            min={minDate}
             emptyText="追加日なし"
             label="予約可能にする日を選択"
             conflictDates={excludedDates}
             conflictLabel="除外日"
             onMoveConflict={(date) => setExcludedDates((prev) => prev.filter((d) => d !== date))}
           />
+          {earlyExtraDates.length > 0 && (
+            <p className="mt-2 text-warn text-[0.85rem]">
+              <span className="icon icon-sm align-middle">warning</span>
+              {' '}適用日（{effectiveFrom}）より前の日付が含まれています。これらは設定の対象外です：{earlyExtraDates.join('、')}
+            </p>
+          )}
         </div>
 
         <div className="admin-card">
           <h2 className="text-base font-bold mb-3">除外日</h2>
           <p className="text-[0.85rem] text-ink-sub mb-3">
             通常は予約可能曜日でも、ここに登録した日は予約できなくなります（祝日や臨時休業など）。
+            直近8日間は緊急対応で設定してください。
           </p>
           <DateListEditor
             dates={excludedDates}
             onChange={setExcludedDates}
-            min={todayJST()}
+            min={minDate}
             emptyText="除外日なし"
             label="予約不可にする日を選択"
             conflictDates={extraDates}
             conflictLabel="追加日"
             onMoveConflict={(date) => setExtraDates((prev) => prev.filter((d) => d !== date))}
           />
+          {earlyExcludedDates.length > 0 && (
+            <p className="mt-2 text-warn text-[0.85rem]">
+              <span className="icon icon-sm align-middle">warning</span>
+              {' '}適用日（{effectiveFrom}）より前の日付が含まれています。これらは設定の対象外です：{earlyExcludedDates.join('、')}
+            </p>
+          )}
         </div>
       </div>
 
@@ -531,6 +548,12 @@ export default function Settings() {
           onSavePreset={savePreset}
           onDeletePreset={deletePreset}
         />
+        {earlyPerDayDates.length > 0 && (
+          <p className="mt-3 text-warn text-[0.85rem]">
+            <span className="icon icon-sm align-middle">warning</span>
+            {' '}特定日ルールに適用日（{effectiveFrom}）より前の日付が含まれています。これらは設定の対象外です：{earlyPerDayDates.join('、')}
+          </p>
+        )}
       </div>
 
       <div className="admin-card">
