@@ -15,6 +15,16 @@ type KobuSettings = {
 
 const WEEK_DAYS_SHORT = ['日', '月', '火', '水', '木', '金', '土']
 
+function toMinutes(t: string): number {
+  const [h, m] = t.split(':').map(Number)
+  return h * 60 + m
+}
+
+function nowJSTMinutes(): number {
+  const d = new Date(Date.now() + 9 * 60 * 60 * 1000)
+  return d.getUTCHours() * 60 + d.getUTCMinutes()
+}
+
 function buildTimeOptions(open: string, close: string): string[] {
   const options: string[] = []
   const [oh, om] = open.split(':').map(Number)
@@ -69,6 +79,13 @@ export default function KobuReservationForm({ profile }: Props) {
   const [submitting,    setSubmitting]    = useState(false)
   const [done,          setDone]          = useState(false)
   const [error,         setError]         = useState<string | null>(null)
+  const [nowMinutes,    setNowMinutes]    = useState(() => nowJSTMinutes())
+  const today = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10)
+
+  useEffect(() => {
+    const id = setInterval(() => setNowMinutes(nowJSTMinutes()), 60_000)
+    return () => clearInterval(id)
+  }, [])
 
   useEffect(() => {
     fetch('/api/kobu-settings')
@@ -171,12 +188,15 @@ export default function KobuReservationForm({ profile }: Props) {
 
       <SectionCard step={3} label="開始時刻" complete={!!startTime}>
         <div className="grid grid-cols-4 gap-1.5">
-          {timeOptions.slice(0, -1).map((t) => (
-            <SelectButton key={t} active={startTime === t}
-              onClick={() => { setStartTime(t); setEndTime('') }}>
-              {t}
-            </SelectButton>
-          ))}
+          {timeOptions.slice(0, -1).map((t) => {
+            const isPast = selectedDate === today && toMinutes(t) < (Math.floor(nowMinutes / 15) + 1) * 15
+            return (
+              <SelectButton key={t} active={startTime === t} disabled={isPast}
+                onClick={() => { setStartTime(t); setEndTime('') }}>
+                {t}
+              </SelectButton>
+            )
+          })}
         </div>
       </SectionCard>
 
@@ -233,15 +253,20 @@ function SectionCard({ step, label, complete, children }: {
   )
 }
 
-function SelectButton({ active, onClick, children }: {
-  active: boolean; onClick: () => void; children: React.ReactNode
+function SelectButton({ active, onClick, children, disabled }: {
+  active: boolean; onClick: () => void; children: React.ReactNode; disabled?: boolean
 }) {
   return (
     <button
-      onClick={onClick}
+      onClick={disabled ? undefined : onClick}
+      disabled={disabled}
       className={
-        'px-1 py-2.5 rounded-lg text-[0.85rem] cursor-pointer text-center transition active:scale-[0.97] border-[1.5px] ' +
-        (active ? 'bg-brand border-brand text-white font-semibold' : 'bg-[#fafafa] border-line text-ink-sub')
+        'px-1 py-2.5 rounded-lg text-[0.85rem] text-center transition border-[1.5px] ' +
+        (disabled
+          ? 'bg-[#f0f0f0] border-line text-[#c8c8c8] cursor-default'
+          : active
+            ? 'bg-brand border-brand text-white font-semibold cursor-pointer active:scale-[0.97]'
+            : 'bg-[#fafafa] border-line text-ink-sub cursor-pointer active:scale-[0.97]')
       }
     >
       {children}

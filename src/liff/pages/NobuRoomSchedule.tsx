@@ -40,6 +40,11 @@ function todayJST(): string {
   return new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10)
 }
 
+function nowJSTMinutes(): number {
+  const d = new Date(Date.now() + 9 * 60 * 60 * 1000)
+  return d.getUTCHours() * 60 + d.getUTCMinutes()
+}
+
 function maxBookingDate(): string {
   const d = new Date(Date.now() + 9 * 60 * 60 * 1000)
   d.setFullYear(d.getFullYear() + 1)
@@ -190,6 +195,12 @@ export default function NobuRoomSchedule({ profile, initialEdit, onEditHandled, 
   const [editOriginal,  setEditOriginal]  = useState<{ bandName: string; startTime: string; endTime: string } | null>(null)
   const [modalClosing,  setModalClosing]  = useState(false)
   const [pendingEdit,   setPendingEdit]   = useState<NobuRoomEditTarget | null>(null)
+  const [nowMinutes,    setNowMinutes]    = useState(() => nowJSTMinutes())
+
+  useEffect(() => {
+    const id = setInterval(() => setNowMinutes(nowJSTMinutes()), 60_000)
+    return () => clearInterval(id)
+  }, [])
 
   function closeModal() {
     setModalClosing(true)
@@ -317,6 +328,11 @@ export default function NobuRoomSchedule({ profile, initialEdit, onEditHandled, 
     const slotStart = toMinutes(activeSlot.value.split('-')[0])
     const slotEnd   = toMinutes(activeSlot.value.split('-')[1])
     const startMinutes = Math.max(slotStart, Math.min(rawMinutes, slotEnd - 15))
+
+    if (date === today) {
+      const cutoff = (Math.floor(nowMinutes / 15) + 1) * 15
+      if (startMinutes < cutoff) return
+    }
 
     const blocks = dayMap[date] ?? []
     if (blocks.some(b => startMinutes >= toMinutes(b.startTime) && startMinutes < toMinutes(b.endTime))) return
@@ -598,6 +614,13 @@ export default function NobuRoomSchedule({ profile, initialEdit, onEditHandled, 
                     ))
                   : <div className="absolute inset-0 bg-[#f0f0f0] pointer-events-none" style={{ zIndex: 5 }} />
                 }
+                {isToday && (() => {
+                  const cutoff = (Math.floor(nowMinutes / 15) + 1) * 15
+                  const grayHeight = Math.max(0, Math.min(cutoff - dispStart, totalDisp))
+                  return grayHeight > 0 ? (
+                    <div className="absolute left-0 right-0 bg-[#f0f0f0]/80 pointer-events-none" style={{ top: 0, height: grayHeight, zIndex: 4 }} />
+                  ) : null
+                })()}
                 {interactive && modal?.date === date && modalStart && modalEnd && (
                   <div className="absolute inset-x-0.5 rounded border-2 border-brand bg-brand/15 pointer-events-none z-[9]"
                     style={{ top: toMinutes(modalStart) - dispStart, height: toMinutes(modalEnd) - toMinutes(modalStart) }} />
@@ -804,19 +827,25 @@ export default function NobuRoomSchedule({ profile, initialEdit, onEditHandled, 
                 <div>
                   <label className="block text-[0.8rem] text-ink-sub mb-1.5">開始</label>
                   <div className="flex gap-1.5 overflow-x-auto pb-1" style={{ WebkitOverflowScrolling: 'touch' }}>
-                    {buildStartOptions(modal.date, effectiveDayMap, effectiveSlots).map((t) => (
-                      <button
-                        key={t}
-                        type="button"
-                        className={
-                          'flex-shrink-0 px-3 py-2 rounded-lg text-[0.82rem] border-[1.5px] transition ' +
-                          (t === modalStart
-                            ? 'bg-brand border-brand text-white font-semibold'
-                            : 'bg-surface border-line text-ink-sub')
-                        }
-                        onClick={() => handleStartChange(t)}
-                      >{t}</button>
-                    ))}
+                    {buildStartOptions(modal.date, effectiveDayMap, effectiveSlots).map((t) => {
+                      const isPast = modal.date === today && toMinutes(t) < (Math.floor(nowMinutes / 15) + 1) * 15
+                      return (
+                        <button
+                          key={t}
+                          type="button"
+                          disabled={isPast}
+                          className={
+                            'flex-shrink-0 px-3 py-2 rounded-lg text-[0.82rem] border-[1.5px] transition ' +
+                            (isPast
+                              ? 'bg-[#f0f0f0] border-line text-[#c8c8c8] cursor-default'
+                              : t === modalStart
+                                ? 'bg-brand border-brand text-white font-semibold'
+                                : 'bg-surface border-line text-ink-sub')
+                          }
+                          onClick={isPast ? undefined : () => handleStartChange(t)}
+                        >{t}</button>
+                      )
+                    })}
                   </div>
                 </div>
                 <div>
