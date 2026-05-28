@@ -188,7 +188,7 @@
 /* ── ボタン ───────────────────────────────────────── */
 @utility btn-primary {
   @apply inline-flex items-center justify-center gap-1.5 leading-none;
-  @apply w-full pl-4 pr-6 py-[0.9rem] bg-brand text-white rounded-[10px] text-base font-bold cursor-pointer transition;
+  @apply w-full px-6 py-[0.9rem] bg-brand text-white rounded-[10px] text-base font-bold cursor-pointer transition;
   @apply hover:bg-brand-dark active:scale-[0.98];
   @apply disabled:bg-[#b2dfdb] disabled:cursor-not-allowed disabled:scale-100;
 }
@@ -199,15 +199,20 @@
 }
 @utility btn-secondary {
   @apply inline-flex items-center justify-center gap-1.5 leading-none;
-  @apply w-full pl-4 pr-6 py-[0.9rem] bg-[#e8e8e8] text-ink rounded-[10px] text-base font-bold cursor-pointer transition;
+  @apply w-full px-6 py-[0.9rem] bg-[#e8e8e8] text-ink rounded-[10px] text-base font-bold cursor-pointer transition;
   @apply hover:brightness-95 active:scale-[0.98];
   @apply disabled:opacity-50 disabled:cursor-not-allowed disabled:scale-100;
 }
 @utility btn-danger {
   @apply inline-flex items-center justify-center gap-1.5 leading-none;
-  @apply w-full pl-4 pr-6 py-[0.9rem] bg-danger text-white rounded-[10px] text-base font-bold cursor-pointer transition;
+  @apply w-full px-6 py-[0.9rem] bg-danger text-white rounded-[10px] text-base font-bold cursor-pointer transition;
   @apply hover:brightness-90 active:scale-[0.98];
   @apply disabled:opacity-50 disabled:cursor-not-allowed disabled:scale-100;
+}
+/* アイコン付きボタンは錯視補正で左寄り */
+.btn-primary:has(.icon), .btn-secondary:has(.icon), .btn-danger:has(.icon) {
+  padding-left: 1rem;
+  padding-right: 1.5rem;
 }
 @utility btn-icon {
   @apply w-9 h-9 flex items-center justify-center rounded-md border border-line bg-white text-ink-pale cursor-pointer transition;
