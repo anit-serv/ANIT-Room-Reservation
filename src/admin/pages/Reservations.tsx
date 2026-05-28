@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import { adminFetch } from '../auth'
 import TimeRangeInput from '../components/TimeRangeInput'
 import Skeleton from '../../components/Skeleton'
+import ConfirmDialog from '../../components/ConfirmDialog'
 
 type Reservation = {
   id: string
@@ -27,7 +28,8 @@ export default function Reservations() {
   const [dateFilter, setDateFilter]     = useState('')
   const [statusFilter, setStatusFilter] = useState<'' | 'pending' | 'confirmed'>('')
   const [search, setSearch]             = useState('')
-  const [editing, setEditing]           = useState<Reservation | null>(null)
+  const [editing,       setEditing]       = useState<Reservation | null>(null)
+  const [deleteTarget,  setDeleteTarget]  = useState<Reservation | null>(null)
   const [highlightedId, setHighlightedId] = useState<string | null>(null)
   const [openId,        setOpenId]        = useState<string | null>(null)
 
@@ -66,14 +68,11 @@ export default function Reservations() {
     }
   }, [focusId, reservations, setSearchParams])
 
-  async function handleDelete(r: Reservation) {
-    if (!confirm(`「${r.bandName}」(${r.date}) を削除しますか？\nこの操作は取り消せません。`)) return
+  async function execDelete(r: Reservation) {
     const res = await adminFetch(`/api/admin/reservations/${r.id}`, { method: 'DELETE' })
-    if (res.ok) {
-      setReservations((prev) => prev.filter((x) => x.id !== r.id))
-    } else {
-      alert('削除に失敗しました')
-    }
+    if (!res.ok) throw new Error('削除に失敗しました')
+    setReservations((prev) => prev.filter((x) => x.id !== r.id))
+    setDeleteTarget(null)
   }
 
   return (
@@ -171,7 +170,7 @@ export default function Reservations() {
                         <button className="btn-icon" onClick={() => setEditing(r)}>
                           <span className="icon">edit</span>
                         </button>
-                        <button className="btn-icon-danger" onClick={() => handleDelete(r)}>
+                        <button className="btn-icon-danger" onClick={() => setDeleteTarget(r)}>
                           <span className="icon">delete</span>
                         </button>
                       </div>
@@ -194,11 +193,20 @@ export default function Reservations() {
               open={openId === r.id}
               onToggle={() => setOpenId(openId === r.id ? null : r.id)}
               onEdit={() => setEditing(r)}
-              onDelete={() => handleDelete(r)}
+              onDelete={() => setDeleteTarget(r)}
             />
           ))}
         </div>
         </>
+      )}
+
+      {deleteTarget && (
+        <ConfirmDialog
+          title="予約を削除しますか？"
+          message={`「${deleteTarget.bandName}」(${deleteTarget.date}) を削除します。この操作は取り消せません。`}
+          onClose={() => setDeleteTarget(null)}
+          onConfirm={() => execDelete(deleteTarget)}
+        />
       )}
 
       {editing && (

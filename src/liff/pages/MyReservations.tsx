@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import type { LiffProfile } from '../LiffApp'
 import Skeleton from '../../components/Skeleton'
+import ConfirmDialog from '../../components/ConfirmDialog'
 
 type Favorite = { id: string; name: string; nobuTimeSlot: string | null }
 
@@ -334,10 +335,11 @@ export default function MyReservations({ profile, initialEdit, onEditHandled, on
           />
         )}
         {favDeleteConfirm && (
-          <FavoriteDeleteDialog
-            favorite={favDeleteConfirm}
+          <ConfirmDialog
+            title="お気に入りを削除しますか？"
+            message={`「${favDeleteConfirm.name}」を削除します。`}
             onClose={() => setFavDeleteConfirm(null)}
-            onDelete={async () => { await deleteFavorite(favDeleteConfirm.id); setFavDeleteConfirm(null) }}
+            onConfirm={async () => { await deleteFavorite(favDeleteConfirm.id); setFavDeleteConfirm(null) }}
           />
         )}
         {favAddModal && (
@@ -613,47 +615,6 @@ function FavoriteAddModal({
         <div className="px-5 pb-5">
           <button className="btn-primary" onClick={handleAdd} disabled={!name.trim() || saving}>
             {saving ? '追加中...' : '追加'}
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function FavoriteDeleteDialog({
-  favorite, onClose, onDelete,
-}: {
-  favorite: Favorite
-  onClose: () => void
-  onDelete: () => Promise<void>
-}) {
-  const [deleting, setDeleting] = useState(false)
-  const [error,    setError]    = useState<string | null>(null)
-
-  async function handleDelete() {
-    setDeleting(true)
-    setError(null)
-    try {
-      await onDelete()
-    } catch (err: any) {
-      setError(err.message)
-      setDeleting(false)
-    }
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/50" onClick={() => !deleting && onClose()} />
-      <div className="relative bg-surface rounded-2xl shadow-[var(--shadow-modal)] w-full max-w-[320px] p-6">
-        <p className="text-base font-bold text-ink mb-1.5">お気に入りを削除しますか？</p>
-        <p className="text-[0.85rem] text-ink-sub mb-4">「{favorite.name}」を削除します。</p>
-        {error && <div className="banner-error mb-3">{error}</div>}
-        <div className="flex gap-2">
-          <button className="btn-secondary flex-1" onClick={onClose} disabled={deleting}>
-            キャンセル
-          </button>
-          <button className="btn-danger flex-1" onClick={handleDelete} disabled={deleting}>
-            {deleting ? '削除中...' : '削除'}
           </button>
         </div>
       </div>
