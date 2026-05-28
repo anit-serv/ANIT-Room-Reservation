@@ -251,6 +251,10 @@ export default function AdminLayout() {
                     className={({ isActive }) => SUBLINK_BASE + (isActive ? LINK_ACTIVE : LINK_IDLE)}>
                     農部生協
                   </NavLink>
+                  <NavLink to="/admin/settings/nobu-emergency"
+                    className={({ isActive }) => SUBLINK_BASE + (isActive ? LINK_ACTIVE : LINK_IDLE)}>
+                    緊急対応
+                  </NavLink>
                   <NavLink to="/admin/settings/nobu-room"
                     className={({ isActive }) => SUBLINK_BASE + (isActive ? LINK_ACTIVE : LINK_IDLE)}>
                     農部室
@@ -319,6 +323,7 @@ export default function AdminLayout() {
                 <NavLink to="/admin/reservations/kobu"      onClick={closeDropdown} className={({ isActive }) => SUBLINK_MOB + (isActive ? LINK_ACTIVE : LINK_IDLE)}>工部室</NavLink>
               </>) : (<>
                 <NavLink to="/admin/settings/nobu"          onClick={closeDropdown} className={({ isActive }) => SUBLINK_MOB + (isActive ? LINK_ACTIVE : LINK_IDLE)}>農部生協</NavLink>
+                <NavLink to="/admin/settings/nobu-emergency" onClick={closeDropdown} className={({ isActive }) => SUBLINK_MOB + (isActive ? LINK_ACTIVE : LINK_IDLE)}>緊急対応</NavLink>
                 <NavLink to="/admin/settings/nobu-room"     onClick={closeDropdown} className={({ isActive }) => SUBLINK_MOB + (isActive ? LINK_ACTIVE : LINK_IDLE)}>農部室</NavLink>
                 <NavLink to="/admin/settings/kobu"          onClick={closeDropdown} className={({ isActive }) => SUBLINK_MOB + (isActive ? LINK_ACTIVE : LINK_IDLE)}>工部室</NavLink>
               </>)}
