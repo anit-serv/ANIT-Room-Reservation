@@ -732,7 +732,7 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled, onBo
             onClick={sheetPeeking ? () => setCloseConfirm(true) : undefined}>
             <div
               ref={scrollRef}
-              className="overflow-y-auto flex-1 min-h-0 pb-4"
+              className="overflow-y-auto flex-1 min-h-0 pb-[160px]"
               style={{ scrollbarGutter: 'stable' }}
               onTouchStart={handleTouchStart}
               onTouchEnd={handleTouchEnd}
