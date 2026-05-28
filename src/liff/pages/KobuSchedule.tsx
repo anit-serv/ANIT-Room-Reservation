@@ -199,25 +199,10 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled, onBo
   const [favorites,        setFavorites]        = useState<Favorite[]>([])
   const [selectedFavId,    setSelectedFavId]    = useState<string | null>(null)
   const [saveAsFavChecked, setSaveAsFavChecked] = useState(false)
-  const [scheduleHeight,   setScheduleHeight]   = useState(460)
 
   useEffect(() => {
     const id = setInterval(() => setNowMinutes(nowJSTMinutes()), 60_000)
     return () => clearInterval(id)
-  }, [])
-
-  useEffect(() => {
-    function update() {
-      if (!scrollRef.current) return
-      const top = scrollRef.current.getBoundingClientRect().top
-      setScheduleHeight(Math.max(200, (window.visualViewport?.height ?? window.innerHeight) - top - 16))
-    }
-    window.addEventListener('resize', update)
-    window.visualViewport?.addEventListener('resize', update)
-    return () => {
-      window.removeEventListener('resize', update)
-      window.visualViewport?.removeEventListener('resize', update)
-    }
   }, [])
 
   useEffect(() => {
@@ -237,12 +222,6 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled, onBo
   }
 
   const dayMap = weekCache[weekStart] ?? null
-
-  useEffect(() => {
-    if (!scrollRef.current) return
-    const top = scrollRef.current.getBoundingClientRect().top
-    setScheduleHeight(Math.max(200, (window.visualViewport?.height ?? window.innerHeight) - top - 16))
-  }, [dayMap])
 
   useEffect(() => {
     if (modal === null) { onBookingActive?.(false); return }
@@ -518,7 +497,7 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled, onBo
   )
 
   return (
-    <div>
+    <div className="flex flex-col flex-1 min-h-0">
       {/* 週ナビゲーション */}
       <div className="flex items-center gap-1.5 mb-2 flex-wrap relative">
         <button className="btn-icon-nav" onClick={() => {
@@ -702,11 +681,11 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled, onBo
         }
 
         return (
-          <div className="border border-line rounded-xl shadow-[var(--shadow-card-sm)] overflow-hidden">
+          <div className="border border-line rounded-xl shadow-[var(--shadow-card-sm)] overflow-hidden flex flex-col flex-1 min-h-0">
             <div
               ref={scrollRef}
-              className="overflow-y-auto"
-              style={{ height: scheduleHeight, scrollbarGutter: 'stable' }}
+              className="overflow-y-auto flex-1 min-h-0"
+              style={{ scrollbarGutter: 'stable' }}
               onTouchStart={handleTouchStart}
               onTouchEnd={handleTouchEnd}
             >

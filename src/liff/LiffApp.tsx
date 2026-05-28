@@ -175,7 +175,7 @@ function App() {
         ))}
       </nav>
 
-      <main className="flex-1 p-4 overflow-y-auto">
+      <main className="flex-1 p-4 overflow-y-auto flex flex-col">
         {mainTab === 'nobu' && (
           <>
             <NobuSubNav active={nobuSub} onChange={handleNobuSubChange} />
