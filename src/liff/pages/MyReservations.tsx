@@ -124,10 +124,7 @@ export default function MyReservations({ profile, initialEdit, onEditHandled, on
   // お気に入り
   const [favorites,    setFavorites]    = useState<Favorite[]>([])
   const [favOpen,      setFavOpen]      = useState(false)
-  const [editingFavId, setEditingFavId] = useState<string | null>(null)
-  const [editingName,  setEditingName]  = useState('')
-  const [savingFav,    setSavingFav]    = useState(false)
-  const [favError,     setFavError]     = useState<string | null>(null)
+  const [favEditModal, setFavEditModal] = useState<Favorite | null>(null)
   const [addingFav,    setAddingFav]    = useState(false)
   const [newFavName,   setNewFavName]   = useState('')
   const [addingFavErr, setAddingFavErr] = useState<string | null>(null)
@@ -180,35 +177,23 @@ export default function MyReservations({ profile, initialEdit, onEditHandled, on
 
   useEffect(() => { fetchFavorites() }, [fetchFavorites])
 
-  async function saveFavorite(id: string) {
-    if (!editingName.trim()) return
-    setSavingFav(true)
-    setFavError(null)
-    try {
-      const res = await fetch(`/api/favorites/${id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${profile.getAccessToken()}` },
-        body: JSON.stringify({ name: editingName.trim() }),
-      })
-      if (!res.ok) throw new Error((await res.json()).error ?? '更新に失敗しました')
-      setEditingFavId(null)
-      await Promise.all([fetchFavorites(), fetchReservations()])
-    } catch (err: any) {
-      setFavError(err.message)
-    } finally {
-      setSavingFav(false)
-    }
+  async function saveFavorite(id: string, name: string): Promise<void> {
+    const res = await fetch(`/api/favorites/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${profile.getAccessToken()}` },
+      body: JSON.stringify({ name: name.trim() }),
+    })
+    if (!res.ok) throw new Error((await res.json()).error ?? '更新に失敗しました')
+    await Promise.all([fetchFavorites(), fetchReservations()])
   }
 
-  async function deleteFavorite(id: string) {
-    try {
-      await fetch(`/api/favorites/${id}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${profile.getAccessToken()}` },
-      })
-      setFavorites(prev => prev.filter(f => f.id !== id))
-      if (editingFavId === id) setEditingFavId(null)
-    } catch {}
+  async function deleteFavorite(id: string): Promise<void> {
+    const res = await fetch(`/api/favorites/${id}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${profile.getAccessToken()}` },
+    })
+    if (!res.ok) throw new Error((await res.json()).error ?? '削除に失敗しました')
+    setFavorites(prev => prev.filter(f => f.id !== id))
   }
 
   async function addFavorite() {
@@ -318,42 +303,18 @@ export default function MyReservations({ profile, initialEdit, onEditHandled, on
           )}
 
           {favorites.map(f => (
-            editingFavId === f.id ? (
-              <div key={f.id} className="flex items-center gap-2">
-                <input
-                  className="text-input flex-1 py-1.5"
-                  value={editingName}
-                  onChange={e => setEditingName(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && saveFavorite(f.id)}
-                  autoFocus
-                />
-                <button className="btn-primary py-1 px-3 text-[0.82rem]" onClick={() => saveFavorite(f.id)} disabled={savingFav}>
-                  {savingFav ? '...' : '保存'}
-                </button>
-                <button className="btn-secondary py-1 px-3 text-[0.82rem]" onClick={() => { setEditingFavId(null); setFavError(null) }}>
-                  取消
-                </button>
-              </div>
-            ) : (
-              <div key={f.id} className="flex items-center gap-2">
-                <span className="flex-1 text-[0.9rem] text-ink truncate">{f.name}</span>
-                {f.nobuTimeSlot && (
-                  <span className="text-[0.7rem] text-ink-pale whitespace-nowrap">
-                    農部: {f.nobuTimeSlot.replace('-', '〜')}
-                  </span>
-                )}
-                <button className="btn-icon" title="名前を変更"
-                  onClick={() => { setEditingFavId(f.id); setEditingName(f.name); setFavError(null) }}>
-                  <span className="icon" style={{ fontSize: 18 }}>edit</span>
-                </button>
-                <button className="btn-icon-danger" title="削除" onClick={() => deleteFavorite(f.id)}>
-                  <span className="icon" style={{ fontSize: 18 }}>delete</span>
-                </button>
-              </div>
-            )
+            <div key={f.id} className="flex items-center gap-2">
+              <span className="flex-1 text-[0.9rem] text-ink truncate">{f.name}</span>
+              {f.nobuTimeSlot && (
+                <span className="text-[0.7rem] text-ink-pale whitespace-nowrap">
+                  農部: {f.nobuTimeSlot.replace('-', '〜')}
+                </span>
+              )}
+              <button className="btn-icon" title="編集" onClick={() => setFavEditModal(f)}>
+                <span className="icon" style={{ fontSize: 18 }}>edit</span>
+              </button>
+            </div>
           ))}
-
-          {favError && <p className="text-[0.78rem] text-warn">{favError}</p>}
 
           {addingFav ? (
             <div className="flex items-center gap-2 pt-1">
@@ -386,6 +347,14 @@ export default function MyReservations({ profile, initialEdit, onEditHandled, on
     return (
       <div>
         {favSection}
+        {favEditModal && (
+          <FavoriteEditModal
+            favorite={favEditModal}
+            onClose={() => setFavEditModal(null)}
+            onSave={async (name) => { await saveFavorite(favEditModal.id, name); setFavEditModal(null) }}
+            onDelete={async () => { await deleteFavorite(favEditModal.id); setFavEditModal(null) }}
+          />
+        )}
         <div className="flex flex-col items-center gap-2 py-10 px-4 text-ink-pale text-center">
           <span className="icon icon-xl text-ink-pale">event_busy</span>
           <span className="text-[0.9rem]">予約はまだありません</span>
@@ -489,6 +458,16 @@ export default function MyReservations({ profile, initialEdit, onEditHandled, on
         )
       })}
 
+      {/* お気に入り編集モーダル */}
+      {favEditModal && (
+        <FavoriteEditModal
+          favorite={favEditModal}
+          onClose={() => setFavEditModal(null)}
+          onSave={async (name) => { await saveFavorite(favEditModal.id, name); setFavEditModal(null) }}
+          onDelete={async () => { await deleteFavorite(favEditModal.id); setFavEditModal(null) }}
+        />
+      )}
+
       {/* 削除確認モーダル */}
       {confirmTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -512,6 +491,101 @@ export default function MyReservations({ profile, initialEdit, onEditHandled, on
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+// ─── お気に入り編集モーダル ───────────────────────────
+function FavoriteEditModal({
+  favorite, onClose, onSave, onDelete,
+}: {
+  favorite: Favorite
+  onClose: () => void
+  onSave: (name: string) => Promise<void>
+  onDelete: () => Promise<void>
+}) {
+  const [name,          setName]          = useState(favorite.name)
+  const [saving,        setSaving]        = useState(false)
+  const [deleting,      setDeleting]      = useState(false)
+  const [error,         setError]         = useState<string | null>(null)
+  const [deleteConfirm, setDeleteConfirm] = useState(false)
+
+  async function handleSave() {
+    if (!name.trim() || saving) return
+    setSaving(true)
+    setError(null)
+    try {
+      await onSave(name)
+    } catch (err: any) {
+      setError(err.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function handleDelete() {
+    setDeleting(true)
+    setError(null)
+    try {
+      await onDelete()
+    } catch (err: any) {
+      setError(err.message)
+      setDeleting(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/50" onClick={() => !saving && !deleting && onClose()} />
+      <div className="relative bg-surface rounded-2xl shadow-[var(--shadow-modal)] w-full max-w-[320px] overflow-hidden">
+        <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-line">
+          <p className="text-base font-bold text-ink">お気に入りを編集</p>
+          <button className="btn-icon-close" onClick={onClose} disabled={saving || deleting}>
+            <span className="icon">close</span>
+          </button>
+        </div>
+
+        <div className="px-5 py-4">
+          <label className="block text-[0.8rem] text-ink-sub mb-1.5">バンド名</label>
+          <input
+            className="text-input"
+            value={name}
+            onChange={e => setName(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && handleSave()}
+            autoFocus
+          />
+          {favorite.nobuTimeSlot && (
+            <p className="text-[0.75rem] text-ink-pale mt-2">
+              農部 時間枠: {favorite.nobuTimeSlot.replace('-', '〜')}
+            </p>
+          )}
+          {error && <div className="banner-error mt-2">{error}</div>}
+        </div>
+
+        <div className="px-5 pb-5 flex flex-col gap-2">
+          <button className="btn-primary" onClick={handleSave} disabled={!name.trim() || saving || deleting}>
+            {saving ? '保存中...' : '保存'}
+          </button>
+
+          {!deleteConfirm ? (
+            <button className="btn-danger" onClick={() => setDeleteConfirm(true)} disabled={saving || deleting}>
+              削除
+            </button>
+          ) : (
+            <div className="border border-warn/30 rounded-xl p-3 bg-warn-light">
+              <p className="text-[0.82rem] text-ink font-semibold text-center mb-2">本当に削除しますか？</p>
+              <div className="flex gap-2">
+                <button className="btn-secondary flex-1" onClick={() => setDeleteConfirm(false)} disabled={deleting}>
+                  キャンセル
+                </button>
+                <button className="btn-danger flex-1" onClick={handleDelete} disabled={deleting}>
+                  {deleting ? '削除中...' : 'OK'}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   )
 }
