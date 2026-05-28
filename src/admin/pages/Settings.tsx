@@ -16,6 +16,7 @@ type SettingsCore = {
 
 type SettingsResponse = SettingsCore & {
   nextChange: (SettingsCore & { effectiveFrom: string }) | null
+  scheduledChanges?: (SettingsCore & { effectiveFrom: string })[]
   lotteryTime: string
 }
 
@@ -39,6 +40,12 @@ function minEffectiveDate(): string {
   return d.toISOString().slice(0, 10)
 }
 
+function maxEmergencyDate(): string {
+  const d = new Date(Date.now() + 9 * 60 * 60 * 1000)
+  d.setUTCDate(d.getUTCDate() + 7)
+  return d.toISOString().slice(0, 10)
+}
+
 function emptySchedule(): PerDaySchedule {
   return { enabled: false, byWeekday: {}, byDate: {} }
 }
@@ -53,6 +60,7 @@ export default function Settings() {
   const [effectiveFrom, setEffectiveFrom] = useState<string>(minEffectiveDate())
   const [minDate, setMinDate]             = useState<string>(minEffectiveDate())
   const [editingScheduled, setEditingScheduled] = useState(false)
+  const [editingScheduledDate, setEditingScheduledDate] = useState<string | null>(null)
   const [saving, setSaving]               = useState(false)
   const [message, setMessage]             = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [step,         setStep]         = useState<'editing' | 'confirming' | 'saved'>('editing')
@@ -132,6 +140,10 @@ export default function Settings() {
     setEmergencyMessage(null)
     if (!emergencyDate) {
       setEmergencyMessage({ type: 'error', text: '日付を指定してください' })
+      return
+    }
+    if (emergencyDate < todayJST() || emergencyDate > maxEmergencyDate()) {
+      setEmergencyMessage({ type: 'error', text: `緊急対応は ${todayJST()} 〜 ${maxEmergencyDate()} の範囲で指定してください` })
       return
     }
     if (!emergencyReason.trim()) {
@@ -238,11 +250,13 @@ export default function Settings() {
     if (!editingScheduled) applyToForm(data)
   }
 
-  function loadScheduledForEdit() {
-    if (!current?.nextChange) return
-    applyToForm(current.nextChange)
-    setEffectiveFrom(current.nextChange.effectiveFrom)
+  const scheduledChanges = current?.scheduledChanges ?? (current?.nextChange ? [current.nextChange] : [])
+
+  function loadScheduledForEdit(change: SettingsCore & { effectiveFrom: string }) {
+    applyToForm(change)
+    setEffectiveFrom(change.effectiveFrom)
     setEditingScheduled(true)
+    setEditingScheduledDate(change.effectiveFrom)
     setMessage(null)
   }
 
@@ -251,6 +265,7 @@ export default function Settings() {
     applyToForm(current)
     setEffectiveFrom(minEffectiveDate())
     setEditingScheduled(false)
+    setEditingScheduledDate(null)
   }
 
   function toggleDay(d: number) {
@@ -373,6 +388,7 @@ export default function Settings() {
           : `${result.effectiveFrom} から適用予定`
       )
       setEditingScheduled(false)
+      setEditingScheduledDate(null)
       setStep('saved')
       load()
     } catch (err: any) {
@@ -383,12 +399,13 @@ export default function Settings() {
     }
   }
 
-  async function cancelScheduled() {
-    if (!confirm('予約済みの設定変更を取り消しますか？')) return
-    const res = await adminFetch('/api/admin/settings/scheduled', { method: 'DELETE' })
+  async function cancelScheduled(date: string) {
+    if (!confirm(`${date} の適用予定を取り消しますか？`)) return
+    const res = await adminFetch(`/api/admin/settings/scheduled?date=${encodeURIComponent(date)}`, { method: 'DELETE' })
     if (res.ok) {
-      setMessage({ type: 'success', text: '予約済みの変更を取り消しました' })
+      alert('予約済みの変更を取り消しました')
       setEditingScheduled(false)
+      setEditingScheduledDate(null)
       load()
     } else {
       setMessage({ type: 'error', text: '取り消しに失敗しました' })
@@ -480,34 +497,55 @@ export default function Settings() {
       {editingScheduled && (
         <div className="banner-warn">
           <span className="icon icon-sm align-middle">edit</span>
-          {' '}適用予定の変更を編集中（保存すると上書きされます）
+          {' '}{editingScheduledDate ? `${editingScheduledDate} の` : ''}適用予定の変更を編集中（保存すると上書きされます）
           <button className="btn-outline w-auto px-2.5 py-1 ml-3 text-[0.8rem]" onClick={cancelEditScheduled}>
             キャンセル
           </button>
         </div>
       )}
 
-      {current.nextChange && !editingScheduled && (
+      {scheduledChanges.length > 0 && !editingScheduled && (
         <div className="bg-warn-light border border-warn rounded-xl p-5 mb-4 shadow-[var(--shadow-card-sm)]">
-          <div className="flex justify-between items-center mb-2 gap-2 flex-wrap">
+          <div className="flex justify-between items-center mb-3 gap-2 flex-wrap">
             <strong className="text-warn">
               <span className="icon align-middle">schedule</span> 適用予定の変更
             </strong>
-            <div className="flex gap-2">
-              <button className="btn-outline w-auto px-3 py-1.5" onClick={loadScheduledForEdit}>
-                <span className="icon icon-sm">edit</span> 編集
-              </button>
-              <button className="btn-danger" onClick={cancelScheduled}>取り消し</button>
-            </div>
+            <span className="text-[0.85rem] text-warn">{scheduledChanges.length}件</span>
           </div>
-          <div className="text-[0.9rem] text-ink-sub">
-            適用日: <strong>{current.nextChange.effectiveFrom}</strong>
-            {' / '}
-            曜日: <strong>{current.nextChange.availableDays.map((d) => WEEK_DAYS[d]).join('・') || 'なし'}</strong>
-            {' / '}
-            追加日: <strong>{current.nextChange.extraDates?.length ?? 0}件</strong>
-            {' / '}
-            除外日: <strong>{current.nextChange.excludedDates?.length ?? 0}件</strong>
+          <div className="flex flex-col gap-2">
+            {scheduledChanges.map((change) => (
+              <div key={change.effectiveFrom} className="bg-surface/70 border border-warn/50 rounded-lg p-3">
+                <div className="flex items-start justify-between gap-3 flex-wrap">
+                  <div className="text-[0.9rem] text-ink-sub">
+                    適用日: <strong>{change.effectiveFrom}</strong>
+                    {' / '}
+                    曜日: <strong>{change.availableDays.map((d) => WEEK_DAYS[d]).join('・') || 'なし'}</strong>
+                    {' / '}
+                    追加日: <strong>{change.extraDates?.length ?? 0}件</strong>
+                    {' / '}
+                    除外日: <strong>{change.excludedDates?.length ?? 0}件</strong>
+                  </div>
+                  <div className="flex gap-2 shrink-0">
+                    <button
+                      className="btn-icon-nav"
+                      onClick={() => loadScheduledForEdit(change)}
+                      aria-label={`${change.effectiveFrom}の適用予定を編集`}
+                      title="編集"
+                    >
+                      <span className="icon">edit</span>
+                    </button>
+                    <button
+                      className="btn-icon-danger"
+                      onClick={() => cancelScheduled(change.effectiveFrom)}
+                      aria-label={`${change.effectiveFrom}の適用予定を取り消し`}
+                      title="取り消し"
+                    >
+                      <span className="icon">delete</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}
@@ -517,7 +555,7 @@ export default function Settings() {
           <div>
             <h2 className="text-base font-bold mb-1">緊急対応</h2>
             <p className="text-[0.85rem] text-ink-sub">
-              直近の日付だけ、新規予約受付の停止または臨時開放を即時反映します。既存予約は自動では削除されません。
+              通常設定では間に合わない日付（今日から7日後まで）だけ、新規予約受付の停止または臨時開放を即時反映します。既存予約は自動では削除されません。
             </p>
           </div>
           <span className="badge badge-warn">
@@ -540,9 +578,11 @@ export default function Settings() {
               className="text-input"
               value={emergencyDate}
               min={todayJST()}
+              max={maxEmergencyDate()}
               onChange={(e) => setEmergencyDate(e.target.value)}
             />
             <p className="text-[0.78rem] text-ink-sub mt-1">
+              対象範囲: {todayJST()} 〜 {maxEmergencyDate()} / {' '}
               既存予約: <strong>{emergencyCount ?? '-'}</strong> 件
             </p>
           </div>

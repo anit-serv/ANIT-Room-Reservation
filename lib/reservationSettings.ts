@@ -194,6 +194,14 @@ export async function getPendingReservationSettingsChange(
   db: Firestore,
   fromDate = addDaysJST(1),
 ): Promise<(ReservationSettingsVersion & { source: 'version' | 'legacy-next-change' }) | null> {
+  const candidates = await listPendingReservationSettingsChanges(db, fromDate)
+  return candidates[0] ?? null
+}
+
+export async function listPendingReservationSettingsChanges(
+  db: Firestore,
+  fromDate = addDaysJST(1),
+): Promise<(ReservationSettingsVersion & { source: 'version' | 'legacy-next-change' })[]> {
   const [doc, futureVersions] = await Promise.all([
     db.collection('settings').doc('reservation').get(),
     listReservationSettingsVersions(db, { minEffectiveFrom: fromDate }),
@@ -207,7 +215,7 @@ export async function getPendingReservationSettingsChange(
     candidates.push({ ...legacy, source: 'legacy-next-change' })
   }
 
-  return candidates.sort(compareEffectiveFrom)[0] ?? null
+  return candidates.sort(compareEffectiveFrom)
 }
 
 export async function resolveReservationSettingsForDate(

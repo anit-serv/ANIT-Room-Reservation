@@ -6,6 +6,7 @@ import { verifyAdmin } from '../lib/verifyAdmin'
 import {
   addDaysJST,
   getPendingReservationSettingsChange,
+  listPendingReservationSettingsChanges,
   listReservationDayOverrides,
   resolveReservationSettingsForDate,
   todayJST,
@@ -409,10 +410,11 @@ async function handleSettings(req: VercelRequest, res: VercelResponse) {
   const docRef = db.collection('settings').doc('reservation')
 
   if (req.method === 'GET') {
-    const [data, pendingChange] = await Promise.all([
+    const [data, scheduledChanges] = await Promise.all([
       resolveReservationSettingsForDate(db, todayJST()),
-      getPendingReservationSettingsChange(db),
+      listPendingReservationSettingsChanges(db),
     ])
+    const pendingChange = scheduledChanges[0] ?? null
     return res.status(200).json({
       availableDays:  data.availableDays,
       timeSlots:      data.timeSlots,
@@ -420,6 +422,7 @@ async function handleSettings(req: VercelRequest, res: VercelResponse) {
       excludedDates:  data.excludedDates,
       perDaySchedule: data.perDaySchedule,
       nextChange:     pendingChange,
+      scheduledChanges,
       lotteryTime:    data.lotteryTime,
     })
   }
@@ -468,6 +471,19 @@ async function handleSettingsScheduled(req: VercelRequest, res: VercelResponse) 
     return res.status(status).json({ error: err.message })
   }
   const docRef = db.collection('settings').doc('reservation')
+  const date = req.query.date as string | undefined
+  if (date && !isValidDate(date)) return res.status(400).json({ error: '日付の形式が不正です' })
+
+  if (date) {
+    await docRef.collection('versions').doc(date).delete()
+    const doc = await docRef.get()
+    if (doc.exists && doc.data()?.nextChange?.effectiveFrom === date) {
+      await docRef.set({ nextChange: admin.firestore.FieldValue.delete() }, { merge: true })
+    }
+    await audit(me, 'settings.scheduled.cancel', { targetType: 'settings', targetId: date, details: { effectiveFrom: date } })
+    return res.status(200).json({ success: true })
+  }
+
   const pendingChange = await getPendingReservationSettingsChange(db)
   if (pendingChange?.source === 'version') {
     await docRef.collection('versions').doc(pendingChange.effectiveFrom).delete()
@@ -543,6 +559,11 @@ async function handleSettingsDayOverrideByDate(req: VercelRequest, res: VercelRe
   }
 
   if (req.method !== 'PUT') return res.status(405).json({ error: 'Method Not Allowed' })
+  if (date >= addDaysJST(8)) {
+    return res.status(400).json({
+      error: `緊急対応の対象日は通常設定では間に合わない日付（${todayJST()}〜${addDaysJST(7)}）を指定してください`,
+    })
+  }
 
   const { type, reason, timeSlots } = (req.body ?? {}) as {
     type?: 'blocked' | 'opened'
