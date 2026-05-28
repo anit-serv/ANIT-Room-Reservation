@@ -126,9 +126,7 @@ export default function MyReservations({ profile, initialEdit, onEditHandled, on
   const [favOpen,         setFavOpen]         = useState(false)
   const [favEditModal,    setFavEditModal]    = useState<Favorite | null>(null)
   const [favDeleteConfirm,setFavDeleteConfirm]= useState<Favorite | null>(null)
-  const [addingFav,       setAddingFav]       = useState(false)
-  const [newFavName,      setNewFavName]      = useState('')
-  const [addingFavErr,    setAddingFavErr]    = useState<string | null>(null)
+  const [favAddModal,     setFavAddModal]     = useState(false)
 
   const fetchReservations = useCallback(async () => {
     setLoading(true)
@@ -197,22 +195,14 @@ export default function MyReservations({ profile, initialEdit, onEditHandled, on
     setFavorites(prev => prev.filter(f => f.id !== id))
   }
 
-  async function addFavorite() {
-    if (!newFavName.trim()) return
-    setAddingFavErr(null)
-    try {
-      const res = await fetch('/api/favorites', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${profile.getAccessToken()}` },
-        body: JSON.stringify({ name: newFavName.trim() }),
-      })
-      if (!res.ok) throw new Error((await res.json()).error ?? '追加に失敗しました')
-      setNewFavName('')
-      setAddingFav(false)
-      fetchFavorites()
-    } catch (err: any) {
-      setAddingFavErr(err.message)
-    }
+  async function addFavorite(name: string): Promise<void> {
+    const res = await fetch('/api/favorites', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${profile.getAccessToken()}` },
+      body: JSON.stringify({ name: name.trim() }),
+    })
+    if (!res.ok) throw new Error((await res.json()).error ?? '追加に失敗しました')
+    await fetchFavorites()
   }
 
   useEffect(() => {
@@ -320,28 +310,13 @@ export default function MyReservations({ profile, initialEdit, onEditHandled, on
             </div>
           ))}
 
-          {addingFav ? (
-            <div className="flex items-center gap-2 pt-1">
-              <input
-                className="text-input flex-1 py-1.5"
-                placeholder="バンド名"
-                value={newFavName}
-                onChange={e => setNewFavName(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && addFavorite()}
-                autoFocus
-              />
-              <button className="btn-primary py-1 px-3 text-[0.82rem]" onClick={addFavorite}>追加</button>
-              <button className="btn-secondary py-1 px-3 text-[0.82rem]" onClick={() => { setAddingFav(false); setNewFavName(''); setAddingFavErr(null) }}>取消</button>
-            </div>
-          ) : favorites.length < 5 ? (
-            <button className="flex items-center gap-1 text-[0.82rem] text-ink-sub py-1 mt-1" onClick={() => setAddingFav(true)}>
+          {favorites.length < 5 ? (
+            <button className="flex items-center gap-1 text-[0.82rem] text-ink-sub py-1 mt-1" onClick={() => setFavAddModal(true)}>
               <span className="icon" style={{ fontSize: 16 }}>add_circle</span>バンドを追加
             </button>
           ) : (
             <p className="text-[0.73rem] text-ink-pale mt-1">（最大5件）</p>
           )}
-
-          {addingFavErr && <p className="text-[0.78rem] text-warn">{addingFavErr}</p>}
         </div>
       )}
     </div>
@@ -363,6 +338,12 @@ export default function MyReservations({ profile, initialEdit, onEditHandled, on
             favorite={favDeleteConfirm}
             onClose={() => setFavDeleteConfirm(null)}
             onDelete={async () => { await deleteFavorite(favDeleteConfirm.id); setFavDeleteConfirm(null) }}
+          />
+        )}
+        {favAddModal && (
+          <FavoriteAddModal
+            onClose={() => setFavAddModal(false)}
+            onAdd={async (name) => { await addFavorite(name); setFavAddModal(false) }}
           />
         )}
         <div className="flex flex-col items-center gap-2 py-10 px-4 text-ink-pale text-center">
@@ -486,6 +467,14 @@ export default function MyReservations({ profile, initialEdit, onEditHandled, on
         />
       )}
 
+      {/* お気に入り追加モーダル */}
+      {favAddModal && (
+        <FavoriteAddModal
+          onClose={() => setFavAddModal(false)}
+          onAdd={async (name) => { await addFavorite(name); setFavAddModal(false) }}
+        />
+      )}
+
       {/* 削除確認モーダル */}
       {confirmTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -569,6 +558,61 @@ function FavoriteEditModal({
         <div className="px-5 pb-5">
           <button className="btn-primary" onClick={handleSave} disabled={!name.trim() || saving}>
             {saving ? '保存中...' : '保存'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function FavoriteAddModal({
+  onClose, onAdd,
+}: {
+  onClose: () => void
+  onAdd: (name: string) => Promise<void>
+}) {
+  const [name,  setName]  = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error,  setError]  = useState<string | null>(null)
+
+  async function handleAdd() {
+    if (!name.trim() || saving) return
+    setSaving(true)
+    setError(null)
+    try {
+      await onAdd(name)
+    } catch (err: any) {
+      setError(err.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/50" onClick={() => !saving && onClose()} />
+      <div className="relative bg-surface rounded-2xl shadow-[var(--shadow-modal)] w-full max-w-[320px] overflow-hidden">
+        <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-line">
+          <p className="text-base font-bold text-ink">バンドを追加</p>
+          <button className="btn-icon-close" onClick={onClose} disabled={saving}>
+            <span className="icon">close</span>
+          </button>
+        </div>
+        <div className="px-5 py-4">
+          <label className="block text-[0.8rem] text-ink-sub mb-1.5">バンド名</label>
+          <input
+            className="text-input"
+            placeholder="バンド名を入力"
+            value={name}
+            onChange={e => setName(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && handleAdd()}
+            autoFocus
+          />
+          {error && <div className="banner-error mt-2">{error}</div>}
+        </div>
+        <div className="px-5 pb-5">
+          <button className="btn-primary" onClick={handleAdd} disabled={!name.trim() || saving}>
+            {saving ? '追加中...' : '追加'}
           </button>
         </div>
       </div>
