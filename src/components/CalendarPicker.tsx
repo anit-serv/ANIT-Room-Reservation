@@ -72,7 +72,7 @@ export default function CalendarPicker({ value, selectedDates, selectedWeek, onC
   }
 
   return (
-    <div className="border border-line rounded-xl p-3 bg-surface w-fit select-none shadow-[var(--shadow-card-sm)]">
+    <div className="border border-line rounded-xl p-3 bg-surface w-[252px] select-none shadow-[var(--shadow-card-sm)]">
 
       {/* ── 月選択ビュー ── */}
       {view === 'months' && (
@@ -81,7 +81,7 @@ export default function CalendarPicker({ value, selectedDates, selectedWeek, onC
             <button type="button" className="btn-icon-nav" onClick={prevYear} aria-label="前の年">
               <span className="icon">chevron_left</span>
             </button>
-            <span className="font-semibold text-[0.9rem] text-ink">{displayYear}年</span>
+            <span className="font-semibold text-[0.9rem] text-ink flex-1 text-center">{displayYear}年</span>
             <button type="button" className="btn-icon-nav" onClick={nextYear} aria-label="次の年">
               <span className="icon">chevron_right</span>
             </button>

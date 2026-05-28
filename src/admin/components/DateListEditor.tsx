@@ -32,7 +32,7 @@ export default function DateListEditor({
   function handleSelect(date: string) {
     setErr(null)
     if (dates.includes(date)) {
-      setErr('既に追加されています')
+      onChange(dates.filter((d) => d !== date))
       return
     }
     if (conflictDates.includes(date)) {
