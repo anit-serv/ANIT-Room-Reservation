@@ -5,6 +5,8 @@ import TimeSlotsEditor, { findConflicts, type TimeSlot, type TimeSlotPreset } fr
 import DateListEditor from '../components/DateListEditor'
 import PerDayScheduleEditor, { findAllConflicts, type PerDaySchedule } from '../components/PerDayScheduleEditor'
 import Skeleton from '../../components/Skeleton'
+import ConfirmDialog from '../../components/ConfirmDialog'
+import Toast from '../../components/Toast'
 
 type KobuSettingsCore = {
   availableDays:  number[]
@@ -43,12 +45,13 @@ export default function KobuSettings() {
   const [editingScheduledDate, setEditingScheduledDate] = useState<string | null>(null)
   const [saving, setSaving]                 = useState(false)
   const [message, setMessage]               = useState<{ type: 'success' | 'error'; text: string } | null>(null)
-  const [step, setStep]                     = useState<'editing' | 'confirming' | 'saved'>('editing')
-  const [savedMessage, setSavedMessage]     = useState('')
+  const [step, setStep]                     = useState<'editing' | 'confirming'>('editing')
   const [presets, setPresets]               = useState<TimeSlotPreset[]>([])
   const [timePresets, setTimePresets]       = useState<TimePreset[]>([])
   const [presetSaving, setPresetSaving]     = useState(false)
   const [presetMessage, setPresetMessage]   = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [cancelTarget, setCancelTarget]     = useState<string | null>(null)
+  const [toast, setToast]                   = useState<string | null>(null)
 
   useEffect(() => { load(); loadPresets() }, [])
 
@@ -110,7 +113,7 @@ export default function KobuSettings() {
         return
       }
       setTimePresets(updated)
-      setPresetMessage({ type: 'success', text: 'プリセットを保存しました' })
+      setToast('プリセットを保存しました')
     } catch {
       setPresetMessage({ type: 'error', text: '保存に失敗しました' })
     } finally {
@@ -154,7 +157,7 @@ export default function KobuSettings() {
     )
   }, [current, availableDays, extraDates, excludedDates, timeSlots, perDaySchedule])
 
-  const effectiveDirty = isDirty && step !== 'saved'
+  const effectiveDirty = isDirty
 
   useEffect(() => {
     const handler = (e: BeforeUnloadEvent) => { if (effectiveDirty) e.preventDefault() }
@@ -210,14 +213,14 @@ export default function KobuSettings() {
       })
       if (!res.ok) throw new Error((await res.json()).error ?? '保存に失敗しました')
       const result = await res.json()
-      setSavedMessage(
+      setToast(
         effectiveFrom === todayJST()
-          ? '設定は本日から適用されます'
-          : `${result.effectiveFrom} から適用予定`
+          ? '設定を保存しました（本日から適用）'
+          : `設定を保存しました（${result.effectiveFrom} から適用予定）`
       )
       setEditingScheduled(false)
       setEditingScheduledDate(null)
-      setStep('saved')
+      setStep('editing')
       load()
     } catch (err: any) {
       setMessage({ type: 'error', text: err.message })
@@ -227,17 +230,15 @@ export default function KobuSettings() {
     }
   }
 
-  async function cancelScheduled(date: string) {
-    if (!confirm(`${date} の適用予定を取り消しますか？`)) return
-    const res = await adminFetch(`/api/admin/kobu-settings/scheduled?date=${encodeURIComponent(date)}`, { method: 'DELETE' })
-    if (res.ok) {
-      setMessage({ type: 'success', text: '予約済みの変更を取り消しました' })
-      setEditingScheduled(false)
-      setEditingScheduledDate(null)
-      load()
-    } else {
-      setMessage({ type: 'error', text: '取り消しに失敗しました' })
-    }
+  async function execCancelScheduled() {
+    if (!cancelTarget) return
+    const res = await adminFetch(`/api/admin/kobu-settings/scheduled?date=${encodeURIComponent(cancelTarget)}`, { method: 'DELETE' })
+    if (!res.ok) throw new Error('取り消しに失敗しました')
+    setCancelTarget(null)
+    setToast('予約済みの変更を取り消しました')
+    setEditingScheduled(false)
+    setEditingScheduledDate(null)
+    load()
   }
 
   if (!current) return (
@@ -295,31 +296,11 @@ export default function KobuSettings() {
     </div>
   )
 
-  if (step === 'saved') return (
-    <div>
-      <h1 className="text-2xl font-bold mb-6">設定 - 工部室</h1>
-      <div className="admin-card flex flex-col items-center text-center py-10">
-        <div className="w-20 h-20 rounded-full bg-brand-light flex items-center justify-center mb-5">
-          <span className="icon text-brand" style={{ fontSize: 44 }}>check_circle</span>
-        </div>
-        <h2 className="text-xl font-bold text-ink mb-2">保存が完了しました</h2>
-        <p className="text-[0.9rem] text-ink-sub mb-8">{savedMessage}</p>
-        <button className="btn-outline max-w-[240px]" onClick={() => { setStep('editing'); setMessage(null) }}>
-          引き続き編集
-        </button>
-      </div>
-    </div>
-  )
-
   return (
     <div>
       <h1 className="text-2xl font-bold mb-6">設定 - 工部室</h1>
 
-      {message && (
-        <div className={message.type === 'success' ? 'banner-success' : 'banner-error'}>
-          {message.text}
-        </div>
-      )}
+      {message && <div className="banner-error">{message.text}</div>}
 
       {editingScheduled && (
         <div className="banner-warn">
@@ -363,7 +344,7 @@ export default function KobuSettings() {
                     </button>
                     <button
                       className="btn-icon-danger"
-                      onClick={() => cancelScheduled(change.effectiveFrom)}
+                      onClick={() => setCancelTarget(change.effectiveFrom)}
                       aria-label={`${change.effectiveFrom}の適用予定を取り消し`}
                       title="取り消し"
                     >
@@ -556,10 +537,8 @@ export default function KobuSettings() {
           <span className="icon icon-sm">add</span> プリセットを追加
         </button>
 
-        {presetMessage && (
-          <div className={`mt-3 ${presetMessage.type === 'success' ? 'banner-success' : 'banner-error'} mb-0`}>
-            {presetMessage.text}
-          </div>
+        {presetMessage?.type === 'error' && (
+          <div className="mt-3 banner-error mb-0">{presetMessage.text}</div>
         )}
 
         <div className="mt-4">
@@ -585,6 +564,18 @@ export default function KobuSettings() {
           </div>
         </div>
       )}
+
+      {cancelTarget && (
+        <ConfirmDialog
+          title="適用予定の取り消し"
+          message={`${cancelTarget} の適用予定を取り消しますか？`}
+          confirmLabel="取り消す"
+          onClose={() => setCancelTarget(null)}
+          onConfirm={execCancelScheduled}
+        />
+      )}
+
+      {toast && <Toast message={toast} onClose={() => setToast(null)} />}
     </div>
   )
 }

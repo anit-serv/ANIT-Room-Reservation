@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import CalendarPicker from '../../components/CalendarPicker'
 
 const WEEK_DAYS = ['日', '月', '火', '水', '木', '金', '土']
 
@@ -26,25 +27,28 @@ export default function DateListEditor({
   conflictDates = [], conflictLabel, onMoveConflict,
 }: Props) {
   const [picker, setPicker] = useState('')
+  const [open, setOpen] = useState(false)
   const [err, setErr] = useState<string | null>(null)
 
-  function add(date: string) {
+  function handleSelect(date: string) {
+    setPicker(date)
     setErr(null)
-    if (!date) return
-    if (dates.includes(date)) {
+    setOpen(false)
+  }
+
+  function add() {
+    setErr(null)
+    if (!picker) return
+    if (dates.includes(picker)) {
       setErr('既に追加されています')
-      setPicker('')
       return
     }
-    if (conflictDates.includes(date)) {
-      const shouldMove = confirm(`${formatDate(date)} は${conflictLabel ?? '別の設定'}に登録されています。こちらに変更しますか？`)
-      if (!shouldMove) {
-        setPicker('')
-        return
-      }
-      onMoveConflict?.(date)
+    if (conflictDates.includes(picker)) {
+      const shouldMove = confirm(`${formatDate(picker)} は${conflictLabel ?? '別の設定'}に登録されています。こちらに変更しますか？`)
+      if (!shouldMove) return
+      onMoveConflict?.(picker)
     }
-    onChange([...dates, date].sort())
+    onChange([...dates, picker].sort())
     setPicker('')
   }
 
@@ -54,20 +58,42 @@ export default function DateListEditor({
 
   return (
     <div>
-      <input
-        type="date"
-        aria-label={label}
-        className="text-input w-auto mb-2"
-        value={picker}
-        min={min}
-        onChange={(e) => {
-          const value = e.target.value
-          setPicker(value)
-          add(value)
-        }}
-      />
-      <p className="text-[0.78rem] text-ink-pale mb-2">日付を選択すると追加されます</p>
+      <div className="flex items-center gap-2 mb-2">
+        {/* カレンダートリガー */}
+        <div className="relative">
+          <button
+            type="button"
+            aria-label={label}
+            onClick={() => setOpen((o) => !o)}
+            className="text-input w-auto flex items-center gap-2 cursor-pointer min-w-[200px]"
+          >
+            <span className="icon text-ink-pale" style={{ fontSize: 18 }}>calendar_today</span>
+            <span className={picker ? 'text-ink' : 'text-ink-pale'}>
+              {picker ? formatDate(picker) : '日付を選択'}
+            </span>
+          </button>
+
+          {open && (
+            <>
+              <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+              <div className="absolute top-full left-0 mt-1 z-20">
+                <CalendarPicker value={picker} onChange={handleSelect} min={min} />
+              </div>
+            </>
+          )}
+        </div>
+
+        <button
+          className="btn-outline w-auto px-3 py-[0.6rem]"
+          onClick={add}
+          disabled={!picker}
+        >
+          追加
+        </button>
+      </div>
+
       {err && <div className="text-danger text-[0.85rem] mb-2">{err}</div>}
+
       {dates.length === 0
         ? <div className="text-ink-pale text-[0.85rem]">{emptyText ?? '登録なし'}</div>
         : (

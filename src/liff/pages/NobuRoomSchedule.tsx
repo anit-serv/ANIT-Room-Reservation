@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import type { LiffProfile } from '../LiffApp'
 import Skeleton from '../../components/Skeleton'
+import CalendarPicker from '../../components/CalendarPicker'
 import FavoritePicker, { type Favorite } from '../../components/FavoritePicker'
 
 type NobuRoomEditTarget = { id: string; date: string; bandName: string; startTime: string; endTime: string }
@@ -133,27 +134,6 @@ function buildStartOptions(date: string, dayMap: DayMap, slots: TimeSlot[]): str
   return opts.sort()
 }
 
-function prevMonth(ym: string): string {
-  const [y, m] = ym.split('-').map(Number)
-  return m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, '0')}`
-}
-
-function nextMonth(ym: string): string {
-  const [y, m] = ym.split('-').map(Number)
-  return m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`
-}
-
-function getCalendarDays(ym: string): (string | null)[] {
-  const [y, m] = ym.split('-').map(Number)
-  const firstDay    = new Date(Date.UTC(y, m - 1, 1))
-  const daysInMonth = new Date(Date.UTC(y, m, 0)).getUTCDate()
-  const pad = firstDay.getUTCDay()
-  const days: (string | null)[] = Array(pad).fill(null)
-  for (let d = 1; d <= daysInMonth; d++)
-    days.push(`${ym}-${String(d).padStart(2, '0')}`)
-  while (days.length % 7 !== 0) days.push(null)
-  return days
-}
 
 function buildEndOptions(startMinutes: number, date: string, dayMap: DayMap, slots: TimeSlot[]): string[] {
   const blocks = dayMap[date] ?? []
@@ -190,7 +170,6 @@ export default function NobuRoomSchedule({ profile, initialEdit, onEditHandled, 
   const [submitting,   setSubmitting]   = useState(false)
   const [submitError,  setSubmitError]  = useState<string | null>(null)
   const [calendarOpen, setCalendarOpen] = useState(false)
-  const [calMonth,     setCalMonth]     = useState('')
   const [detailModal,  setDetailModal]  = useState<DetailModal | null>(null)
   const [cancelling,    setCancelling]    = useState(false)
   const [cancelError,   setCancelError]   = useState<string | null>(null)
@@ -585,10 +564,7 @@ export default function NobuRoomSchedule({ profile, initialEdit, onEditHandled, 
     <div className="flex flex-col flex-1 min-h-0">
       {/* 週ナビゲーション */}
       <div className="flex items-center gap-1.5 mb-2 flex-wrap relative">
-        <button className="btn-icon-nav" onClick={() => {
-          setCalMonth(weekStart.slice(0, 7))
-          setCalendarOpen(v => !v)
-        }}>
+        <button className="btn-icon-nav" onClick={() => setCalendarOpen(v => !v)}>
           <span className="icon">calendar_month</span>
         </button>
         <button className="btn-icon-nav" onClick={() => navigateTo(addDays(weekStart, -7), 'right')}>
@@ -609,64 +585,21 @@ export default function NobuRoomSchedule({ profile, initialEdit, onEditHandled, 
         {calendarOpen && (
           <>
             <div className="fixed inset-0 z-20" onClick={() => setCalendarOpen(false)} />
-            <div className="absolute top-full left-0 mt-1.5 bg-surface border border-line rounded-xl shadow-lg z-30 p-3 select-none"
-              style={{ width: 252 }}>
-              {/* 月ナビ */}
-              <div className="flex items-center justify-between mb-2">
-                <button className="btn-icon-nav" onClick={() => setCalMonth(prevMonth(calMonth))}>
-                  <span className="icon">chevron_left</span>
-                </button>
-                <span className="text-[0.84rem] font-semibold text-ink">
-                  {(() => { const [y, mo] = calMonth.split('-').map(Number); return `${y}年${mo}月` })()}
-                </span>
-                <button className="btn-icon-nav" onClick={() => setCalMonth(nextMonth(calMonth))}
-                  disabled={nextMonth(calMonth) > maxDate.slice(0, 7)}>
-                  <span className="icon">chevron_right</span>
-                </button>
-              </div>
-              {/* 曜日ヘッダー */}
-              <div className="grid grid-cols-7 mb-0.5">
-                {['日','月','火','水','木','金','土'].map(d => (
-                  <div key={d} className="text-center text-[0.63rem] text-ink-pale font-semibold py-0.5">{d}</div>
-                ))}
-              </div>
-              {/* 日付グリッド */}
-              <div className="grid grid-cols-7 gap-y-0.5">
-                {getCalendarDays(calMonth).map((date, i) => {
-                  if (!date) return <div key={i} />
-                  const inSelected  = getSundayOfWeek(date) === weekStart
-                  const isToday     = date === today
-                  const isFuture    = date > maxDate
-                  const isAvailable = isDateAvailable(date, settings, today, maxDate)
-                  return (
-                    <button
-                      key={date}
-                      className={
-                        'text-center text-[0.75rem] py-1.5 rounded leading-none transition-colors ' +
-                        (inSelected
-                          ? 'bg-brand text-white font-semibold'
-                          : isToday
-                            ? 'bg-brand-light text-brand-dark font-semibold'
-                            : isFuture
-                              ? 'text-[#c8c8c8] cursor-default'
-                              : date < today
-                                ? 'text-ink-pale hover:bg-[#f0f0f0]'
-                                : isAvailable
-                                  ? 'text-ink hover:bg-[#f0f0f0]'
-                                  : 'text-[#c8c8c8] cursor-default')
-                      }
-                      onClick={() => {
-                        if (isFuture) return
-                        const target = getSundayOfWeek(date)
-                        navigateTo(target, target > weekStart ? 'left' : 'right')
-                        setCalendarOpen(false)
-                      }}
-                    >
-                      {parseInt(date.slice(8))}
-                    </button>
-                  )
-                })}
-              </div>
+            <div className="absolute top-full left-0 mt-1.5 z-30">
+              <CalendarPicker
+                selectedWeek={weekStart}
+                maxDate={maxDate}
+                onChange={(date) => {
+                  const target = getSundayOfWeek(date)
+                  navigateTo(target, target > weekStart ? 'left' : 'right')
+                  setCalendarOpen(false)
+                }}
+                getDayClass={(date) => {
+                  if (date < today) return 'text-ink-pale hover:bg-[#f0f0f0] cursor-pointer'
+                  if (isDateAvailable(date, settings, today, maxDate)) return 'text-ink hover:bg-[#f0f0f0] cursor-pointer'
+                  return 'text-[#c8c8c8] cursor-default'
+                }}
+              />
             </div>
           </>
         )}
