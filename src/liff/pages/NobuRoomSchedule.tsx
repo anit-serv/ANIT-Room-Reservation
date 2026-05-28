@@ -898,15 +898,16 @@ export default function NobuRoomSchedule({ profile, initialEdit, onEditHandled, 
         const effectiveSlots = getEffectiveSlots(modal.date, settings)
         return (
           <div className={`fixed inset-0 z-50 flex flex-col justify-end ${modalClosing ? 'animate-fade-out' : 'animate-fade-in'}`}>
-            <div
-              className={`absolute inset-0 transition-opacity duration-[280ms] ${sheetPeeking ? 'bg-black/10' : 'bg-black/40'}`}
-              onClick={() => {
-                if (sheetPeeking) { setSheetPeeking(false); return }
-                if (submitting || modalClosing) return
-                if (isDirty) setCloseConfirm(true)
-                else setSheetPeeking(true)
-              }}
-            />
+            {!sheetPeeking && (
+              <div
+                className="absolute inset-0 bg-black/40"
+                onClick={() => {
+                  if (submitting || modalClosing) return
+                  if (isDirty) setCloseConfirm(true)
+                  else setSheetPeeking(true)
+                }}
+              />
+            )}
             <div
               className={`relative bg-surface rounded-t-2xl px-5 pt-4 pb-8 shadow-xl ${modalClosing ? 'animate-sheet-down' : 'animate-sheet-up'}`}
               style={!modalClosing ? {
