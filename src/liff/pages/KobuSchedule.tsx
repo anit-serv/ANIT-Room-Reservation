@@ -915,7 +915,7 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled, onBo
           : dayMap
         const effectiveSlots = getEffectiveSlots(modal.date, settings)
         return (
-          <div className={`fixed inset-0 z-50 flex flex-col justify-end ${modalClosing ? 'animate-fade-out' : 'animate-fade-in'}`}>
+          <div className={`fixed inset-0 z-50 flex flex-col justify-end ${modalClosing ? 'animate-fade-out' : 'animate-fade-in'} ${sheetPeeking ? 'pointer-events-none' : ''}`}>
             {!sheetPeeking && (
               <div
                 className="absolute inset-0 bg-black/40"
@@ -926,7 +926,7 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled, onBo
               />
             )}
             <div
-              className={`relative bg-surface rounded-t-2xl px-5 pt-4 pb-8 shadow-xl ${modalClosing ? 'animate-sheet-down' : 'animate-sheet-up'}`}
+              className={`relative bg-surface rounded-t-2xl px-5 pt-4 pb-8 shadow-xl pointer-events-auto ${modalClosing ? 'animate-sheet-down' : 'animate-sheet-up'}`}
               style={!modalClosing ? {
                 transform: sheetPeeking ? 'translateY(calc(100% - 160px))' : 'translateY(0)',
                 transition: 'transform 0.28s cubic-bezier(0.4, 0, 0.2, 1)',
@@ -974,7 +974,6 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled, onBo
 
               {(settings.timePresets ?? []).length > 0 && (
                 <div className="mb-3">
-                  <label className="block text-[0.8rem] text-ink-sub mb-1.5">時間プリセット</label>
                   <div className="flex gap-1.5 overflow-x-auto no-scrollbar pb-1" style={{ WebkitOverflowScrolling: 'touch' }}>
                     {(settings.timePresets ?? []).map((p, i) => {
                       const active = p.startTime === modalStart && p.endTime === modalEnd
