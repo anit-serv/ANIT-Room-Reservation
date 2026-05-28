@@ -122,12 +122,13 @@ export default function MyReservations({ profile, initialEdit, onEditHandled, on
   const [deleteError,   setDeleteError]   = useState<string | null>(null)
 
   // お気に入り
-  const [favorites,    setFavorites]    = useState<Favorite[]>([])
-  const [favOpen,      setFavOpen]      = useState(false)
-  const [favEditModal, setFavEditModal] = useState<Favorite | null>(null)
-  const [addingFav,    setAddingFav]    = useState(false)
-  const [newFavName,   setNewFavName]   = useState('')
-  const [addingFavErr, setAddingFavErr] = useState<string | null>(null)
+  const [favorites,       setFavorites]       = useState<Favorite[]>([])
+  const [favOpen,         setFavOpen]         = useState(false)
+  const [favEditModal,    setFavEditModal]    = useState<Favorite | null>(null)
+  const [favDeleteConfirm,setFavDeleteConfirm]= useState<Favorite | null>(null)
+  const [addingFav,       setAddingFav]       = useState(false)
+  const [newFavName,      setNewFavName]      = useState('')
+  const [addingFavErr,    setAddingFavErr]    = useState<string | null>(null)
 
   const fetchReservations = useCallback(async () => {
     setLoading(true)
@@ -313,6 +314,9 @@ export default function MyReservations({ profile, initialEdit, onEditHandled, on
               <button className="btn-icon" title="編集" onClick={() => setFavEditModal(f)}>
                 <span className="icon" style={{ fontSize: 18 }}>edit</span>
               </button>
+              <button className="btn-icon-danger" title="削除" onClick={() => setFavDeleteConfirm(f)}>
+                <span className="icon" style={{ fontSize: 18 }}>delete</span>
+              </button>
             </div>
           ))}
 
@@ -352,7 +356,13 @@ export default function MyReservations({ profile, initialEdit, onEditHandled, on
             favorite={favEditModal}
             onClose={() => setFavEditModal(null)}
             onSave={async (name) => { await saveFavorite(favEditModal.id, name); setFavEditModal(null) }}
-            onDelete={async () => { await deleteFavorite(favEditModal.id); setFavEditModal(null) }}
+          />
+        )}
+        {favDeleteConfirm && (
+          <FavoriteDeleteDialog
+            favorite={favDeleteConfirm}
+            onClose={() => setFavDeleteConfirm(null)}
+            onDelete={async () => { await deleteFavorite(favDeleteConfirm.id); setFavDeleteConfirm(null) }}
           />
         )}
         <div className="flex flex-col items-center gap-2 py-10 px-4 text-ink-pale text-center">
@@ -464,7 +474,15 @@ export default function MyReservations({ profile, initialEdit, onEditHandled, on
           favorite={favEditModal}
           onClose={() => setFavEditModal(null)}
           onSave={async (name) => { await saveFavorite(favEditModal.id, name); setFavEditModal(null) }}
-          onDelete={async () => { await deleteFavorite(favEditModal.id); setFavEditModal(null) }}
+        />
+      )}
+
+      {/* お気に入り削除確認ダイアログ */}
+      {favDeleteConfirm && (
+        <FavoriteDeleteDialog
+          favorite={favDeleteConfirm}
+          onClose={() => setFavDeleteConfirm(null)}
+          onDelete={async () => { await deleteFavorite(favDeleteConfirm.id); setFavDeleteConfirm(null) }}
         />
       )}
 
@@ -497,18 +515,15 @@ export default function MyReservations({ profile, initialEdit, onEditHandled, on
 
 // ─── お気に入り編集モーダル ───────────────────────────
 function FavoriteEditModal({
-  favorite, onClose, onSave, onDelete,
+  favorite, onClose, onSave,
 }: {
   favorite: Favorite
   onClose: () => void
   onSave: (name: string) => Promise<void>
-  onDelete: () => Promise<void>
 }) {
-  const [name,          setName]          = useState(favorite.name)
-  const [saving,        setSaving]        = useState(false)
-  const [deleting,      setDeleting]      = useState(false)
-  const [error,         setError]         = useState<string | null>(null)
-  const [deleteConfirm, setDeleteConfirm] = useState(false)
+  const [name,  setName]  = useState(favorite.name)
+  const [saving, setSaving] = useState(false)
+  const [error,  setError]  = useState<string | null>(null)
 
   async function handleSave() {
     if (!name.trim() || saving) return
@@ -523,24 +538,13 @@ function FavoriteEditModal({
     }
   }
 
-  async function handleDelete() {
-    setDeleting(true)
-    setError(null)
-    try {
-      await onDelete()
-    } catch (err: any) {
-      setError(err.message)
-      setDeleting(false)
-    }
-  }
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/50" onClick={() => !saving && !deleting && onClose()} />
+      <div className="absolute inset-0 bg-black/50" onClick={() => !saving && onClose()} />
       <div className="relative bg-surface rounded-2xl shadow-[var(--shadow-modal)] w-full max-w-[320px] overflow-hidden">
         <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-line">
           <p className="text-base font-bold text-ink">お気に入りを編集</p>
-          <button className="btn-icon-close" onClick={onClose} disabled={saving || deleting}>
+          <button className="btn-icon-close" onClick={onClose} disabled={saving}>
             <span className="icon">close</span>
           </button>
         </div>
@@ -562,28 +566,51 @@ function FavoriteEditModal({
           {error && <div className="banner-error mt-2">{error}</div>}
         </div>
 
-        <div className="px-5 pb-5 flex flex-col gap-2">
-          <button className="btn-primary" onClick={handleSave} disabled={!name.trim() || saving || deleting}>
+        <div className="px-5 pb-5">
+          <button className="btn-primary" onClick={handleSave} disabled={!name.trim() || saving}>
             {saving ? '保存中...' : '保存'}
           </button>
+        </div>
+      </div>
+    </div>
+  )
+}
 
-          {!deleteConfirm ? (
-            <button className="btn-danger" onClick={() => setDeleteConfirm(true)} disabled={saving || deleting}>
-              削除
-            </button>
-          ) : (
-            <div className="border border-warn/30 rounded-xl p-3 bg-warn-light">
-              <p className="text-[0.82rem] text-ink font-semibold text-center mb-2">本当に削除しますか？</p>
-              <div className="flex gap-2">
-                <button className="btn-secondary flex-1" onClick={() => setDeleteConfirm(false)} disabled={deleting}>
-                  キャンセル
-                </button>
-                <button className="btn-danger flex-1" onClick={handleDelete} disabled={deleting}>
-                  {deleting ? '削除中...' : 'OK'}
-                </button>
-              </div>
-            </div>
-          )}
+function FavoriteDeleteDialog({
+  favorite, onClose, onDelete,
+}: {
+  favorite: Favorite
+  onClose: () => void
+  onDelete: () => Promise<void>
+}) {
+  const [deleting, setDeleting] = useState(false)
+  const [error,    setError]    = useState<string | null>(null)
+
+  async function handleDelete() {
+    setDeleting(true)
+    setError(null)
+    try {
+      await onDelete()
+    } catch (err: any) {
+      setError(err.message)
+      setDeleting(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/50" onClick={() => !deleting && onClose()} />
+      <div className="relative bg-surface rounded-2xl shadow-[var(--shadow-modal)] w-full max-w-[320px] p-6">
+        <p className="text-base font-bold text-ink mb-1.5">お気に入りを削除しますか？</p>
+        <p className="text-[0.85rem] text-ink-sub mb-4">「{favorite.name}」を削除します。</p>
+        {error && <div className="banner-error mb-3">{error}</div>}
+        <div className="flex gap-2">
+          <button className="btn-secondary flex-1" onClick={onClose} disabled={deleting}>
+            キャンセル
+          </button>
+          <button className="btn-danger flex-1" onClick={handleDelete} disabled={deleting}>
+            {deleting ? '削除中...' : '削除'}
+          </button>
         </div>
       </div>
     </div>
