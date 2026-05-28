@@ -199,11 +199,32 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled, onBo
   const [favorites,        setFavorites]        = useState<Favorite[]>([])
   const [selectedFavId,    setSelectedFavId]    = useState<string | null>(null)
   const [saveAsFavChecked, setSaveAsFavChecked] = useState(false)
+  const [scheduleHeight,   setScheduleHeight]   = useState(460)
 
   useEffect(() => {
     const id = setInterval(() => setNowMinutes(nowJSTMinutes()), 60_000)
     return () => clearInterval(id)
   }, [])
+
+  useEffect(() => {
+    function update() {
+      if (!scrollRef.current) return
+      const top = scrollRef.current.getBoundingClientRect().top
+      setScheduleHeight(Math.max(200, (window.visualViewport?.height ?? window.innerHeight) - top - 16))
+    }
+    window.addEventListener('resize', update)
+    window.visualViewport?.addEventListener('resize', update)
+    return () => {
+      window.removeEventListener('resize', update)
+      window.visualViewport?.removeEventListener('resize', update)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!scrollRef.current) return
+    const top = scrollRef.current.getBoundingClientRect().top
+    setScheduleHeight(Math.max(200, (window.visualViewport?.height ?? window.innerHeight) - top - 16))
+  }, [dayMap])
 
   useEffect(() => {
     fetch('/api/favorites', { headers: { Authorization: `Bearer ${profile.getAccessToken()}` } })
@@ -685,7 +706,7 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled, onBo
             <div
               ref={scrollRef}
               className="overflow-y-auto"
-              style={{ maxHeight: '460px', scrollbarGutter: 'stable' }}
+              style={{ height: scheduleHeight, scrollbarGutter: 'stable' }}
               onTouchStart={handleTouchStart}
               onTouchEnd={handleTouchEnd}
             >
