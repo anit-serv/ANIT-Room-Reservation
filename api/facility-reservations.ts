@@ -376,11 +376,11 @@ async function handleFavorites(req: VercelRequest, res: VercelResponse) {
     if (req.method === 'GET') {
       const snap = await db.collection('favorites')
         .where('userId', '==', userId)
-        .orderBy('createdAt', 'asc')
         .get()
-      return res.status(200).json({
-        favorites: snap.docs.map(d => ({ id: d.id, ...d.data() })),
-      })
+      const favorites = snap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .sort((a: any, b: any) => (a.createdAt?.seconds ?? 0) - (b.createdAt?.seconds ?? 0))
+      return res.status(200).json({ favorites })
     }
 
     if (req.method === 'POST') {
