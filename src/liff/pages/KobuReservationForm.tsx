@@ -4,13 +4,13 @@ import Skeleton from '../../components/Skeleton'
 
 type Props = { profile: LiffProfile }
 
+type TimeSlot = { label: string; value: string }
+
 type KobuSettings = {
   availableDays:  number[]
   extraDates:     string[]
   excludedDates:  string[]
-  openTime:       string
-  closeTime:      string
-  maxAdvanceDays: number
+  timeSlots:      TimeSlot[]
 }
 
 const WEEK_DAYS_SHORT = ['日', '月', '火', '水', '木', '金', '土']
@@ -25,19 +25,30 @@ function nowJSTMinutes(): number {
   return d.getUTCHours() * 60 + d.getUTCMinutes()
 }
 
-function buildTimeOptions(open: string, close: string): string[] {
-  const options: string[] = []
-  const [oh, om] = open.split(':').map(Number)
-  const [ch, cm] = close.split(':').map(Number)
-  let cur = oh * 60 + om
-  const end = ch * 60 + cm
-  while (cur <= end) {
-    const h = String(Math.floor(cur / 60)).padStart(2, '0')
-    const m = String(cur % 60).padStart(2, '0')
-    options.push(`${h}:${m}`)
-    cur += 15
+function minutesToTime(m: number): string {
+  return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
+}
+
+function buildStartOptions(slots: TimeSlot[]): string[] {
+  const opts: string[] = []
+  for (const s of slots) {
+    const [a, b] = s.value.split('-').map(toMinutes)
+    for (let m = a; m < b; m += 15) opts.push(minutesToTime(m))
   }
-  return options
+  return opts
+}
+
+function buildEndOptions(startTime: string, slots: TimeSlot[]): string[] {
+  const startMin = toMinutes(startTime)
+  const slot = slots.find(s => {
+    const [a, b] = s.value.split('-').map(toMinutes)
+    return startMin >= a && startMin < b
+  })
+  if (!slot) return []
+  const slotEnd = toMinutes(slot.value.split('-')[1])
+  const opts: string[] = []
+  for (let m = startMin + 15; m <= slotEnd; m += 15) opts.push(minutesToTime(m))
+  return opts
 }
 
 function buildAvailableDates(settings: KobuSettings): { value: string; label: string }[] {
@@ -96,8 +107,8 @@ export default function KobuReservationForm({ profile }: Props) {
   }, [])
 
   const availableDates = settings ? buildAvailableDates(settings) : []
-  const timeOptions    = settings ? buildTimeOptions(settings.openTime, settings.closeTime) : []
-  const endOptions     = timeOptions.filter((t) => !startTime || t > startTime)
+  const startOptions   = settings ? buildStartOptions(settings.timeSlots) : []
+  const endOptions     = startTime && settings ? buildEndOptions(startTime, settings.timeSlots) : []
 
   const canSubmit = !!bandName.trim() && !!selectedDate && !!startTime && !!endTime && !submitting
 
@@ -188,7 +199,7 @@ export default function KobuReservationForm({ profile }: Props) {
 
       <SectionCard step={3} label="開始時刻" complete={!!startTime}>
         <div className="grid grid-cols-4 gap-1.5">
-          {timeOptions.slice(0, -1).map((t) => {
+          {startOptions.map((t) => {
             const isPast = selectedDate === today && toMinutes(t) < (Math.floor(nowMinutes / 15) + 1) * 15
             return (
               <SelectButton key={t} active={startTime === t} disabled={isPast}
