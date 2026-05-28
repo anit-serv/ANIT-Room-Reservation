@@ -903,21 +903,20 @@ export default function NobuRoomSchedule({ profile, initialEdit, onEditHandled, 
                 className="absolute inset-0 bg-black/40"
                 onClick={() => {
                   if (submitting || modalClosing) return
-                  if (isDirty) setCloseConfirm(true)
-                  else setSheetPeeking(true)
+                  setSheetPeeking(true)
                 }}
               />
             )}
             <div
               className={`relative bg-surface rounded-t-2xl px-5 pt-4 pb-8 shadow-xl ${modalClosing ? 'animate-sheet-down' : 'animate-sheet-up'}`}
               style={!modalClosing ? {
-                transform: sheetPeeking ? 'translateY(calc(100% - 52px))' : 'translateY(0)',
+                transform: sheetPeeking ? 'translateY(calc(100% - 160px))' : 'translateY(0)',
                 transition: 'transform 0.28s cubic-bezier(0.4, 0, 0.2, 1)',
               } : undefined}
             >
               <div className="w-10 h-1 bg-line rounded-full mx-auto mb-4" />
               {sheetPeeking && (
-                <div className="absolute inset-x-0 top-0 h-[52px] z-10 cursor-pointer" onClick={() => setSheetPeeking(false)} />
+                <div className="absolute inset-x-0 top-0 h-[160px] z-10 cursor-pointer" onClick={() => setSheetPeeking(false)} />
               )}
 
               <div className="flex items-center justify-between mb-4">
