@@ -184,6 +184,13 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled, onBo
   const [pendingRepeat, setPendingRepeat] = useState<{ date: string; bandName: string; startTime: string; endTime: string } | null>(null)
   const [repeatBlocked, setRepeatBlocked] = useState<{ reason: string; nextNextDate: string; nextNextAvail: boolean } | null>(null)
   const [sheetPeeking, setSheetPeeking] = useState(false)
+  const [peekToast, setPeekToast] = useState(false)
+
+  useEffect(() => {
+    if (!peekToast) return
+    const t = setTimeout(() => setPeekToast(false), 2500)
+    return () => clearTimeout(t)
+  }, [peekToast])
 
   useEffect(() => {
     const id = setInterval(() => setNowMinutes(nowJSTMinutes()), 60_000)
@@ -330,7 +337,11 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled, onBo
 
   // ─── タップ処理 ───────────────────────────────────────
   function handleDayTap(e: React.MouseEvent<HTMLDivElement>, date: string) {
-    if (sheetPeeking) return
+    if (sheetPeeking) {
+      e.stopPropagation()
+      setPeekToast(true)
+      return
+    }
     if (!dayMap || !settings) return
     const today   = todayJST()
     const maxDate = maxBookingDate()
@@ -740,7 +751,8 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled, onBo
                     <div key={label} className="absolute right-1 text-[0.58rem] text-ink-pale leading-none" style={{ top: top - 4 }}>{label}</div>
                   ))}
                 </div>
-                <div className="flex-1 relative" style={{ overflow: 'clip' }}>
+                <div className="flex-1 relative" style={{ overflow: 'clip' }}
+                  onClick={sheetPeeking ? () => setCloseConfirm(true) : undefined}>
                   {outgoingWeek && weekCache[outgoingWeek] && (
                     <div className="absolute inset-0 flex pointer-events-none" style={{
                       animation: `${slideDir === 'left' ? 'week-slide-out-left' : 'week-slide-out-right'} 0.32s ease-in-out forwards`,
@@ -881,6 +893,12 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled, onBo
         )
       })()}
 
+      {peekToast && (
+        <div className="fixed bottom-44 left-1/2 -translate-x-1/2 z-[60] bg-ink/90 text-white text-[0.82rem] px-4 py-2 rounded-full shadow-lg whitespace-nowrap pointer-events-none">
+          先に予約を完了してください
+        </div>
+      )}
+
       {/* 予約モーダル（ボトムシート） */}
       {(modal || modalClosing) && dayMap && (() => {
         const isDirty = editingId
@@ -888,7 +906,7 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled, onBo
           : !!bandName.trim()
         const closeFn = () => {
           if (!submitting && !modalClosing) {
-            if (isDirty) setCloseConfirm(true)
+            if (sheetPeeking || isDirty) setCloseConfirm(true)
             else closeModal()
           }
         }
@@ -926,7 +944,7 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled, onBo
                     {formatDate(modal.date).md}（{formatDate(modal.date).wd}）
                   </p>
                 </div>
-                <button className="btn-icon-close" onClick={closeFn} disabled={submitting}>
+                <button className="btn-icon-close relative z-[20]" onClick={closeFn} disabled={submitting}>
                   <span className="icon">close</span>
                 </button>
               </div>
@@ -934,7 +952,6 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled, onBo
               {submitError && <div className="banner-error">{submitError}</div>}
 
               <div className="mb-3">
-                <label className="block text-[0.8rem] text-ink-sub mb-1.5">バンド名</label>
                 {!editingId && (
                   <FavoritePicker favorites={favorites} onSelect={(favId, name) => {
                     setBandName(name); setSelectedFavId(favId); setSaveAsFavChecked(false)
