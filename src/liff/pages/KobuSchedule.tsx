@@ -785,19 +785,19 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled, onBo
                       disabled={cancelling}
                     >
                       <span className="icon" style={{ fontSize: 16 }}>delete</span>
-                      取り消し
+                      削除
                     </button>
                   </>
                 ) : (
                   <>
-                    <p className="text-[0.88rem] text-ink text-center py-1 font-semibold">本当に取り消しますか？</p>
+                    <p className="text-[0.88rem] text-ink text-center py-1 font-semibold">本当に削除しますか？</p>
                     {cancelError && <div className="banner-error">{cancelError}</div>}
                     <div className="flex gap-2">
                       <button className="btn-secondary flex-1" onClick={() => setCancelConfirm(false)} disabled={cancelling}>
                         キャンセル
                       </button>
                       <button className="btn-danger flex-1" onClick={handleCancel} disabled={cancelling}>
-                        {cancelling ? '取り消し中...' : 'OK'}
+                        {cancelling ? '削除中...' : 'OK'}
                       </button>
                     </div>
                   </>
