@@ -2,9 +2,13 @@ import { VercelRequest, VercelResponse } from '@vercel/node'
 import * as admin from 'firebase-admin'
 import { verifyLineToken } from '../lib/verifyLineToken'
 import {
+  isDateAvailableBySettings,
   isTimeSlotAvailableBySettings,
   pickTimeSlotsForDate,
+  resolveReservationSettingsForDates,
   resolveReservationSettingsForDate,
+  type ReservationSettings,
+  type TimeSlot,
 } from '../lib/reservationSettings'
 import 'dotenv/config'
 
@@ -19,6 +23,47 @@ if (!admin.apps.length) {
   })
 }
 const db = admin.firestore()
+
+type ReservationAvailabilityStatus = 'normal' | 'emergency_blocked' | 'slot_mismatch' | 'temporary_open'
+
+function getReservationAvailability(dateTime: string, settings: ReservationSettings): {
+  availabilityStatus: ReservationAvailabilityStatus
+  availabilityMessage?: string
+  availabilityLabel?: string
+  availableTimeSlots: TimeSlot[]
+} {
+  const [dateOnly, timeSlot] = dateTime.split('T')
+  const availableTimeSlots = pickTimeSlotsForDate(dateOnly, settings)
+
+  if (!isDateAvailableBySettings(dateOnly, settings)) {
+    return {
+      availabilityStatus: 'emergency_blocked',
+      availabilityLabel: '受付停止中',
+      availabilityMessage: 'この日は現在、予約受付が停止されています。予約自体は保持されています。管理者からの案内をお待ちください。',
+      availableTimeSlots: [],
+    }
+  }
+
+  if (!availableTimeSlots.some((slot) => slot.value === timeSlot)) {
+    return {
+      availabilityStatus: 'slot_mismatch',
+      availabilityLabel: '時間枠確認',
+      availabilityMessage: 'この予約の時間枠は現在の受付設定と一致していません。予約自体は保持されています。管理者からの案内をお待ちください。',
+      availableTimeSlots,
+    }
+  }
+
+  const weekday = new Date(dateOnly + 'T00:00:00Z').getUTCDay()
+  if (!settings.availableDays.includes(weekday) && settings.extraDates.includes(dateOnly)) {
+    return {
+      availabilityStatus: 'temporary_open',
+      availabilityLabel: '臨時開放日',
+      availableTimeSlots,
+    }
+  }
+
+  return { availabilityStatus: 'normal', availableTimeSlots }
+}
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*')
@@ -156,11 +201,19 @@ async function handleMy(req: VercelRequest, res: VercelResponse) {
     const nowJST = new Date(Date.now() + 9 * 60 * 60 * 1000)
     const todayStr = nowJST.toISOString().slice(0, 10)
     const snapshot = await db.collection('reservations').where('userId', '==', userId).get()
-    const reservations = snapshot.docs
+    const rows = snapshot.docs
       .map((d) => ({ id: d.id, ...d.data() } as any))
       .filter((r) => (r.date ?? '').split('T')[0] >= todayStr)
       .sort((a, b) => (a.date ?? '').localeCompare(b.date ?? ''))
-      .map((r) => ({ id: r.id, bandName: r.bandName, date: r.date, status: r.status }))
+    const dates = Array.from(new Set(rows.map((r) => (r.date ?? '').split('T')[0]).filter(Boolean)))
+    const settingsByDate = await resolveReservationSettingsForDates(db, dates)
+    const reservations = rows.map((r) => ({
+      id: r.id,
+      bandName: r.bandName,
+      date: r.date,
+      status: r.status,
+      ...getReservationAvailability(r.date, settingsByDate[r.date.split('T')[0]]),
+    }))
     return res.status(200).json({ reservations })
   } catch (err: any) {
     const status = err.message === 'Unauthorized' ? 401 : 500
@@ -282,6 +335,15 @@ async function handleModify(req: VercelRequest, res: VercelResponse, docId: stri
         return res.status(400).json({ error: '抽選確定済みの予約は時間枠を変更できません' })
       }
       const newDate = `${dateOnly}T${newTimeSlot}`
+      const settings = await resolveReservationSettingsForDate(db, dateOnly)
+      if (!isTimeSlotAvailableBySettings(newDate, settings)) {
+        const slotStr = pickTimeSlotsForDate(dateOnly, settings).map((s) => s.value.replace('-', '〜')).join(' / ')
+        return res.status(400).json({
+          error: slotStr
+            ? `選択された日時は現在の設定では予約できません。利用可能な時間枠: ${slotStr}`
+            : '選択された日付は現在の設定では予約できません',
+        })
+      }
       if (newDate !== data.date) updates.date = newDate
     }
 

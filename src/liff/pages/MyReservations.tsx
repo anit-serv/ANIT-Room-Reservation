@@ -17,6 +17,10 @@ type NobuReservation = {
   date: string       // "YYYY-MM-DDTHH:MM-HH:MM"
   status: 'pending' | 'confirmed'
   facility: 'nobu'
+  availabilityStatus?: 'normal' | 'emergency_blocked' | 'slot_mismatch' | 'temporary_open'
+  availabilityLabel?: string
+  availabilityMessage?: string
+  availableTimeSlots?: NobuTimeSlot[]
 }
 
 type KobuReservation = {
@@ -74,6 +78,35 @@ function displayDateStr(r: Reservation): string {
 function displayTime(r: Reservation): string {
   if (r.facility === 'nobu') return r.date.split('T')[1]
   return `${r.startTime}〜${r.endTime}`
+}
+
+function availabilityNotice(r: Reservation): {
+  kind: 'info' | 'warning'
+  icon: string
+  label: string
+  message?: string
+} | null {
+  if (r.facility !== 'nobu') return null
+  if (r.availabilityStatus === 'temporary_open') {
+    return { kind: 'info', icon: 'event_available', label: r.availabilityLabel ?? '臨時開放日' }
+  }
+  if (r.availabilityStatus === 'emergency_blocked') {
+    return {
+      kind: 'warning',
+      icon: 'warning',
+      label: r.availabilityLabel ?? '受付停止中',
+      message: r.availabilityMessage,
+    }
+  }
+  if (r.availabilityStatus === 'slot_mismatch') {
+    return {
+      kind: 'warning',
+      icon: 'warning',
+      label: r.availabilityLabel ?? '時間枠確認',
+      message: r.availabilityMessage,
+    }
+  }
+  return null
 }
 
 
@@ -227,6 +260,7 @@ export default function MyReservations({ profile, initialEdit, onEditHandled, on
         const statusBadge = r.facility === 'nobu' && !isConfirmed ? 'badge-pending' : 'badge-confirmed'
         const statusIcon  = r.facility === 'nobu' && !isConfirmed ? 'hourglass_empty' : 'check_circle'
         const statusLabel = r.facility === 'nobu' ? (isConfirmed ? '抽選確定' : '抽選待ち') : '確定'
+        const notice      = availabilityNotice(r)
 
         function handleEdit() {
           if (isPast(r)) return
@@ -258,6 +292,22 @@ export default function MyReservations({ profile, initialEdit, onEditHandled, on
                 <span className="icon icon-sm text-ink-pale ml-0.5">schedule</span>
                 <span>{displayTime(r)}</span>
               </div>
+              {notice && (
+                <div
+                  className={
+                    'mt-2 rounded-lg px-3 py-2 text-[0.78rem] border ' +
+                    (notice.kind === 'warning'
+                      ? 'bg-warn-light text-warn border-warn'
+                      : 'bg-brand-light text-brand-dark border-brand/30')
+                  }
+                >
+                  <div className="flex items-center gap-1.5 font-semibold">
+                    <span className="icon icon-sm">{notice.icon}</span>
+                    <span>{notice.label}</span>
+                  </div>
+                  {notice.message && <p className="mt-1 leading-relaxed">{notice.message}</p>}
+                </div>
+              )}
             </div>
 
             {!past && (
@@ -324,13 +374,15 @@ function NobuModifyModal({
 
   useEffect(() => {
     const dateOnly = reservation.date.split('T')[0]
+    if (reservation.availableTimeSlots) {
+      setSlots(reservation.availableTimeSlots)
+      return
+    }
     fetch('/api/settings')
       .then((r) => r.json())
       .then((data) => {
         const dateEntry = (data.availableDatesWithToday ?? []).find((d: any) => d.value === dateOnly)
-        const raw: NobuTimeSlot[] = (dateEntry?.timeSlots?.length ? dateEntry.timeSlots : null)
-          ?? (data.timeSlots?.length ? data.timeSlots : null)
-          ?? []
+        const raw: NobuTimeSlot[] = dateEntry?.timeSlots?.length ? dateEntry.timeSlots : []
         setSlots(raw)
       })
       .catch(() => setSlots([]))
