@@ -1,20 +1,26 @@
 import { useState, useEffect } from 'react'
 import type { LiffProfile } from '../LiffApp'
 import Skeleton from '../../components/Skeleton'
+import FavoritePicker, { type Favorite } from '../../components/FavoritePicker'
 
 type Props = { profile: LiffProfile; onBookingActive?: (active: boolean) => void }
 type TimeSlot  = { label: string; value: string }
 type DateEntry = { label: string; value: string; timeSlots: TimeSlot[] }
 
 export default function ReservationForm({ profile, onBookingActive }: Props) {
-  const [bandName,     setBandName]     = useState('')
-  const [dates,        setDates]        = useState<DateEntry[]>([])
-  const [selectedDate, setSelectedDate] = useState('')
-  const [selectedTime, setSelectedTime] = useState('')
-  const [submitting,   setSubmitting]   = useState(false)
-  const [done,         setDone]         = useState(false)
-  const [loadingSettings, setLoadingSettings] = useState(true)
-  const [error,        setError]        = useState<string | null>(null)
+  const [bandName,          setBandName]          = useState('')
+  const [dates,             setDates]             = useState<DateEntry[]>([])
+  const [selectedDate,      setSelectedDate]      = useState('')
+  const [selectedTime,      setSelectedTime]      = useState('')
+  const [submitting,        setSubmitting]        = useState(false)
+  const [done,              setDone]              = useState(false)
+  const [loadingSettings,   setLoadingSettings]   = useState(true)
+  const [error,             setError]             = useState<string | null>(null)
+  const [favorites,         setFavorites]         = useState<Favorite[]>([])
+  const [selectedFavId,     setSelectedFavId]     = useState<string | null>(null)
+  const [preferredTimeSlot, setPreferredTimeSlot] = useState<string | null>(null)
+  const [favSaved,          setFavSaved]          = useState(false)
+  const [savingFav,         setSavingFav]         = useState(false)
 
   const isDirty = !done && !!bandName.trim()
   useEffect(() => { onBookingActive?.(isDirty) }, [isDirty])
@@ -27,14 +33,50 @@ export default function ReservationForm({ profile, onBookingActive }: Props) {
       .finally(() => setLoadingSettings(false))
   }, [])
 
+  useEffect(() => {
+    fetch('/api/favorites', { headers: { Authorization: `Bearer ${profile.getAccessToken()}` } })
+      .then(r => r.json()).then(d => setFavorites(d.favorites ?? [])).catch(() => {})
+  }, [])
+
   const selectedDateEntry = dates.find((d) => d.value === selectedDate)
   const timeSlots = selectedDateEntry?.timeSlots ?? []
 
   function handleSelectDate(value: string) {
     setSelectedDate(value)
     const newEntry = dates.find((d) => d.value === value)
-    if (newEntry && !newEntry.timeSlots.some((t) => t.value === selectedTime)) {
+    if (!newEntry) return
+    if (newEntry.timeSlots.some((t) => t.value === selectedTime)) return
+    // お気に入りの優先時間枠を適用
+    if (preferredTimeSlot && newEntry.timeSlots.some((t) => t.value === preferredTimeSlot)) {
+      setSelectedTime(preferredTimeSlot)
+    } else {
       setSelectedTime('')
+    }
+  }
+
+  function handleFavoriteSelect(favId: string, name: string, nobuTimeSlot: string | null) {
+    setBandName(name)
+    setSelectedFavId(favId)
+    setPreferredTimeSlot(nobuTimeSlot)
+    if (nobuTimeSlot && selectedDate) {
+      const entry = dates.find(d => d.value === selectedDate)
+      if (entry?.timeSlots.some(t => t.value === nobuTimeSlot)) setSelectedTime(nobuTimeSlot)
+    }
+  }
+
+  async function saveAsFavorite() {
+    if (!bandName.trim()) return
+    setSavingFav(true)
+    try {
+      const res = await fetch('/api/favorites', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${profile.getAccessToken()}` },
+        body: JSON.stringify({ name: bandName.trim(), nobuTimeSlot: selectedTime || null }),
+      })
+      if (!res.ok) throw new Error()
+      setFavSaved(true)
+    } catch {} finally {
+      setSavingFav(false)
     }
   }
 
@@ -54,6 +96,7 @@ export default function ReservationForm({ profile, onBookingActive }: Props) {
         body: JSON.stringify({
           bandName: bandName.trim(),
           date: `${selectedDate}T${selectedTime}`,
+          ...(selectedFavId ? { favoriteId: selectedFavId } : {}),
         }),
       })
       if (!res.ok) throw new Error((await res.json()).error ?? '登録に失敗しました')
@@ -67,6 +110,7 @@ export default function ReservationForm({ profile, onBookingActive }: Props) {
 
   function reset() {
     setBandName(''); setSelectedDate(''); setSelectedTime(''); setDone(false); setError(null)
+    setSelectedFavId(null); setPreferredTimeSlot(null); setFavSaved(false)
   }
 
   const dateLabel = dates.find((d) => d.value === selectedDate)?.label ?? ''
@@ -87,10 +131,27 @@ export default function ReservationForm({ profile, onBookingActive }: Props) {
   }
 
   if (done) {
+    const isAlreadyFav = !!selectedFavId || favorites.some(f => f.name === bandName.trim())
     return (
       <div>
         <div className="banner-success">✅ 予約を受け付けました。抽選結果をお待ちください。</div>
         <Summary bandName={bandName} dateLabel={dateLabel} timeLabel={timeLabel} />
+        {!isAlreadyFav && !favSaved && (
+          <button
+            className="flex items-center gap-1.5 text-[0.85rem] text-ink-sub border border-line rounded-xl px-4 py-2.5 mb-3 w-full hover:bg-[#f8f8f8] transition"
+            onClick={saveAsFavorite}
+            disabled={savingFav}
+          >
+            <span className="icon text-brand" style={{ fontSize: 18 }}>star_border</span>
+            {savingFav ? '登録中...' : 'このバンドをお気に入りに登録する'}
+          </button>
+        )}
+        {(isAlreadyFav || favSaved) && (
+          <div className="flex items-center gap-1.5 text-[0.82rem] text-brand mb-3 px-1">
+            <span className="icon" style={{ fontSize: 16 }}>star</span>
+            お気に入り登録済み
+          </div>
+        )}
         <button className="btn-outline mt-2" onClick={reset}>続けて登録</button>
       </div>
     )
@@ -103,12 +164,19 @@ export default function ReservationForm({ profile, onBookingActive }: Props) {
       {error && <div className="banner-error">{error}</div>}
 
       <SectionCard step={1} label="バンド名" complete={!!bandName.trim()}>
+        <FavoritePicker favorites={favorites} onSelect={handleFavoriteSelect} />
         <input
           className="text-input"
           type="text"
           placeholder="バンド名を入力"
           value={bandName}
-          onChange={(e) => setBandName(e.target.value)}
+          onChange={(e) => {
+            setBandName(e.target.value)
+            if (selectedFavId) {
+              const fav = favorites.find(f => f.id === selectedFavId)
+              if (fav && fav.name !== e.target.value) setSelectedFavId(null)
+            }
+          }}
         />
       </SectionCard>
 

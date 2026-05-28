@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import type { LiffProfile } from '../LiffApp'
 import Skeleton from '../../components/Skeleton'
+import FavoritePicker, { type Favorite } from '../../components/FavoritePicker'
 
 type Props = { profile: LiffProfile }
 
@@ -91,11 +92,20 @@ export default function KobuReservationForm({ profile }: Props) {
   const [done,          setDone]          = useState(false)
   const [error,         setError]         = useState<string | null>(null)
   const [nowMinutes,    setNowMinutes]    = useState(() => nowJSTMinutes())
+  const [favorites,     setFavorites]     = useState<Favorite[]>([])
+  const [selectedFavId, setSelectedFavId] = useState<string | null>(null)
+  const [favSaved,      setFavSaved]      = useState(false)
+  const [savingFav,     setSavingFav]     = useState(false)
   const today = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10)
 
   useEffect(() => {
     const id = setInterval(() => setNowMinutes(nowJSTMinutes()), 60_000)
     return () => clearInterval(id)
+  }, [])
+
+  useEffect(() => {
+    fetch('/api/favorites', { headers: { Authorization: `Bearer ${profile.getAccessToken()}` } })
+      .then(r => r.json()).then(d => setFavorites(d.favorites ?? [])).catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -120,7 +130,7 @@ export default function KobuReservationForm({ profile }: Props) {
       const res = await fetch('/api/kobu-reservations', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${profile.getAccessToken()}` },
-        body: JSON.stringify({ bandName: bandName.trim(), date: selectedDate, startTime, endTime }),
+        body: JSON.stringify({ bandName: bandName.trim(), date: selectedDate, startTime, endTime, ...(selectedFavId ? { favoriteId: selectedFavId } : {}) }),
       })
       if (!res.ok) throw new Error((await res.json()).error ?? '登録に失敗しました')
       setDone(true)
@@ -133,7 +143,23 @@ export default function KobuReservationForm({ profile }: Props) {
 
   function reset() {
     setBandName(''); setSelectedDate(''); setStartTime(''); setEndTime('')
-    setDone(false); setError(null)
+    setDone(false); setError(null); setSelectedFavId(null); setFavSaved(false)
+  }
+
+  async function saveAsFavorite() {
+    if (!bandName.trim()) return
+    setSavingFav(true)
+    try {
+      const res = await fetch('/api/favorites', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${profile.getAccessToken()}` },
+        body: JSON.stringify({ name: bandName.trim() }),
+      })
+      if (!res.ok) throw new Error()
+      setFavSaved(true)
+    } catch {} finally {
+      setSavingFav(false)
+    }
   }
 
   if (loadingSettings) {
@@ -152,6 +178,7 @@ export default function KobuReservationForm({ profile }: Props) {
 
   if (done) {
     const dateLabel = availableDates.find((d) => d.value === selectedDate)?.label ?? selectedDate
+    const isAlreadyFav = !!selectedFavId || favorites.some(f => f.name === bandName.trim())
     return (
       <div>
         <div className="banner-success">✅ 予約を確定しました。</div>
@@ -160,6 +187,21 @@ export default function KobuReservationForm({ profile }: Props) {
           <SummaryRow label="日付"     value={dateLabel} />
           <SummaryRow label="時間帯"   value={`${startTime}〜${endTime}`} />
         </div>
+        {!isAlreadyFav && !favSaved && (
+          <button
+            className="flex items-center gap-1.5 text-[0.85rem] text-ink-sub border border-line rounded-xl px-4 py-2.5 mb-3 w-full hover:bg-[#f8f8f8] transition"
+            onClick={saveAsFavorite}
+            disabled={savingFav}
+          >
+            <span className="icon text-brand" style={{ fontSize: 18 }}>star_border</span>
+            {savingFav ? '登録中...' : 'このバンドをお気に入りに登録する'}
+          </button>
+        )}
+        {(isAlreadyFav || favSaved) && (
+          <div className="flex items-center gap-1.5 text-[0.82rem] text-brand mb-3 px-1">
+            <span className="icon" style={{ fontSize: 16 }}>star</span>お気に入り登録済み
+          </div>
+        )}
         <button className="btn-outline mt-2" onClick={reset}>続けて登録</button>
       </div>
     )
@@ -172,12 +214,21 @@ export default function KobuReservationForm({ profile }: Props) {
       {error && <div className="banner-error">{error}</div>}
 
       <SectionCard step={1} label="バンド名" complete={!!bandName.trim()}>
+        <FavoritePicker favorites={favorites} onSelect={(favId, name) => {
+          setBandName(name); setSelectedFavId(favId)
+        }} />
         <input
           className="text-input"
           type="text"
           placeholder="バンド名を入力"
           value={bandName}
-          onChange={(e) => setBandName(e.target.value)}
+          onChange={(e) => {
+            setBandName(e.target.value)
+            if (selectedFavId) {
+              const fav = favorites.find(f => f.id === selectedFavId)
+              if (fav && fav.name !== e.target.value) setSelectedFavId(null)
+            }
+          }}
         />
       </SectionCard>
 

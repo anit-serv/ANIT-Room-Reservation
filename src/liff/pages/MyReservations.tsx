@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback } from 'react'
 import type { LiffProfile } from '../LiffApp'
 import Skeleton from '../../components/Skeleton'
 
+type Favorite = { id: string; name: string; nobuTimeSlot: string | null }
+
 
 type Props = {
   profile: LiffProfile
@@ -119,6 +121,17 @@ export default function MyReservations({ profile, initialEdit, onEditHandled, on
   const [confirmTarget, setConfirmTarget] = useState<Reservation | null>(null)
   const [deleteError,   setDeleteError]   = useState<string | null>(null)
 
+  // お気に入り
+  const [favorites,    setFavorites]    = useState<Favorite[]>([])
+  const [favOpen,      setFavOpen]      = useState(false)
+  const [editingFavId, setEditingFavId] = useState<string | null>(null)
+  const [editingName,  setEditingName]  = useState('')
+  const [savingFav,    setSavingFav]    = useState(false)
+  const [favError,     setFavError]     = useState<string | null>(null)
+  const [addingFav,    setAddingFav]    = useState(false)
+  const [newFavName,   setNewFavName]   = useState('')
+  const [addingFavErr, setAddingFavErr] = useState<string | null>(null)
+
   const fetchReservations = useCallback(async () => {
     setLoading(true)
     setError(null)
@@ -157,6 +170,64 @@ export default function MyReservations({ profile, initialEdit, onEditHandled, on
   }, [profile])
 
   useEffect(() => { fetchReservations() }, [fetchReservations])
+
+  const fetchFavorites = useCallback(async () => {
+    try {
+      const r = await fetch('/api/favorites', { headers: { Authorization: `Bearer ${profile.getAccessToken()}` } })
+      if (r.ok) setFavorites((await r.json()).favorites ?? [])
+    } catch {}
+  }, [profile])
+
+  useEffect(() => { fetchFavorites() }, [fetchFavorites])
+
+  async function saveFavorite(id: string) {
+    if (!editingName.trim()) return
+    setSavingFav(true)
+    setFavError(null)
+    try {
+      const res = await fetch(`/api/favorites/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${profile.getAccessToken()}` },
+        body: JSON.stringify({ name: editingName.trim() }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error ?? '更新に失敗しました')
+      setEditingFavId(null)
+      await Promise.all([fetchFavorites(), fetchReservations()])
+    } catch (err: any) {
+      setFavError(err.message)
+    } finally {
+      setSavingFav(false)
+    }
+  }
+
+  async function deleteFavorite(id: string) {
+    try {
+      await fetch(`/api/favorites/${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${profile.getAccessToken()}` },
+      })
+      setFavorites(prev => prev.filter(f => f.id !== id))
+      if (editingFavId === id) setEditingFavId(null)
+    } catch {}
+  }
+
+  async function addFavorite() {
+    if (!newFavName.trim()) return
+    setAddingFavErr(null)
+    try {
+      const res = await fetch('/api/favorites', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${profile.getAccessToken()}` },
+        body: JSON.stringify({ name: newFavName.trim() }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error ?? '追加に失敗しました')
+      setNewFavName('')
+      setAddingFav(false)
+      fetchFavorites()
+    } catch (err: any) {
+      setAddingFavErr(err.message)
+    }
+  }
 
   useEffect(() => {
     if (!initialEdit || loading) return
@@ -224,17 +295,109 @@ export default function MyReservations({ profile, initialEdit, onEditHandled, on
 
   if (error) return <div className="banner-error mt-4">{error}</div>
 
+  const favSection = (
+    <div className="mb-4 bg-surface border border-line rounded-xl overflow-hidden shadow-[var(--shadow-card-sm)]">
+      <button
+        className="w-full flex items-center justify-between px-4 py-3 hover:bg-[#f8f8f8] transition text-left"
+        onClick={() => setFavOpen(v => !v)}
+      >
+        <div className="flex items-center gap-2">
+          <span className="icon text-brand" style={{ fontSize: 18 }}>star</span>
+          <span className="text-[0.9rem] font-semibold text-ink">お気に入りバンド</span>
+          {favorites.length > 0 && (
+            <span className="text-[0.73rem] text-ink-pale">（{favorites.length}件）</span>
+          )}
+        </div>
+        <span className="icon text-ink-pale">{favOpen ? 'expand_less' : 'expand_more'}</span>
+      </button>
+
+      {favOpen && (
+        <div className="border-t border-line px-4 py-3 space-y-2">
+          {favorites.length === 0 && !addingFav && (
+            <p className="text-[0.82rem] text-ink-pale py-1">まだ登録されていません</p>
+          )}
+
+          {favorites.map(f => (
+            editingFavId === f.id ? (
+              <div key={f.id} className="flex items-center gap-2">
+                <input
+                  className="text-input flex-1 py-1.5"
+                  value={editingName}
+                  onChange={e => setEditingName(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && saveFavorite(f.id)}
+                  autoFocus
+                />
+                <button className="btn-primary py-1 px-3 text-[0.82rem]" onClick={() => saveFavorite(f.id)} disabled={savingFav}>
+                  {savingFav ? '...' : '保存'}
+                </button>
+                <button className="btn-secondary py-1 px-3 text-[0.82rem]" onClick={() => { setEditingFavId(null); setFavError(null) }}>
+                  取消
+                </button>
+              </div>
+            ) : (
+              <div key={f.id} className="flex items-center gap-2">
+                <span className="flex-1 text-[0.9rem] text-ink truncate">{f.name}</span>
+                {f.nobuTimeSlot && (
+                  <span className="text-[0.7rem] text-ink-pale whitespace-nowrap">
+                    農部: {f.nobuTimeSlot.replace('-', '〜')}
+                  </span>
+                )}
+                <button className="btn-icon" title="名前を変更"
+                  onClick={() => { setEditingFavId(f.id); setEditingName(f.name); setFavError(null) }}>
+                  <span className="icon" style={{ fontSize: 18 }}>edit</span>
+                </button>
+                <button className="btn-icon-danger" title="削除" onClick={() => deleteFavorite(f.id)}>
+                  <span className="icon" style={{ fontSize: 18 }}>delete</span>
+                </button>
+              </div>
+            )
+          ))}
+
+          {favError && <p className="text-[0.78rem] text-warn">{favError}</p>}
+
+          {addingFav ? (
+            <div className="flex items-center gap-2 pt-1">
+              <input
+                className="text-input flex-1 py-1.5"
+                placeholder="バンド名"
+                value={newFavName}
+                onChange={e => setNewFavName(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && addFavorite()}
+                autoFocus
+              />
+              <button className="btn-primary py-1 px-3 text-[0.82rem]" onClick={addFavorite}>追加</button>
+              <button className="btn-secondary py-1 px-3 text-[0.82rem]" onClick={() => { setAddingFav(false); setNewFavName(''); setAddingFavErr(null) }}>取消</button>
+            </div>
+          ) : favorites.length < 5 ? (
+            <button className="flex items-center gap-1 text-[0.82rem] text-ink-sub py-1 mt-1" onClick={() => setAddingFav(true)}>
+              <span className="icon" style={{ fontSize: 16 }}>add_circle</span>バンドを追加
+            </button>
+          ) : (
+            <p className="text-[0.73rem] text-ink-pale mt-1">（最大5件）</p>
+          )}
+
+          {addingFavErr && <p className="text-[0.78rem] text-warn">{addingFavErr}</p>}
+        </div>
+      )}
+    </div>
+  )
+
   if (reservations.length === 0) {
     return (
-      <div className="flex flex-col items-center gap-2 py-12 px-4 text-ink-pale text-center">
-        <span className="icon icon-xl text-ink-pale">event_busy</span>
-        <span className="text-[0.9rem]">予約はまだありません</span>
+      <div>
+        {favSection}
+        <div className="flex flex-col items-center gap-2 py-10 px-4 text-ink-pale text-center">
+          <span className="icon icon-xl text-ink-pale">event_busy</span>
+          <span className="text-[0.9rem]">予約はまだありません</span>
+        </div>
       </div>
     )
   }
 
   return (
     <div>
+      {favSection}
+
       <div className="flex items-center justify-between mb-4">
         <p className="text-[1.05rem] font-bold m-0 text-ink">自分の予約</p>
         <span className="text-[0.8rem] text-ink-sub bg-bg px-2.5 py-1 rounded-full">

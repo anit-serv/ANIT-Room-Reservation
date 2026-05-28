@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import type { LiffProfile } from '../LiffApp'
 import Skeleton from '../../components/Skeleton'
+import FavoritePicker, { type Favorite } from '../../components/FavoritePicker'
 
 type NobuRoomEditTarget = { id: string; date: string; bandName: string; startTime: string; endTime: string }
 type Props = {
@@ -195,11 +196,19 @@ export default function NobuRoomSchedule({ profile, initialEdit, onEditHandled, 
   const [editOriginal,  setEditOriginal]  = useState<{ bandName: string; startTime: string; endTime: string } | null>(null)
   const [modalClosing,  setModalClosing]  = useState(false)
   const [pendingEdit,   setPendingEdit]   = useState<NobuRoomEditTarget | null>(null)
-  const [nowMinutes,    setNowMinutes]    = useState(() => nowJSTMinutes())
+  const [nowMinutes,       setNowMinutes]       = useState(() => nowJSTMinutes())
+  const [favorites,        setFavorites]        = useState<Favorite[]>([])
+  const [selectedFavId,    setSelectedFavId]    = useState<string | null>(null)
+  const [saveAsFavChecked, setSaveAsFavChecked] = useState(false)
 
   useEffect(() => {
     const id = setInterval(() => setNowMinutes(nowJSTMinutes()), 60_000)
     return () => clearInterval(id)
+  }, [])
+
+  useEffect(() => {
+    fetch('/api/favorites', { headers: { Authorization: `Bearer ${profile.getAccessToken()}` } })
+      .then(r => r.json()).then(d => setFavorites(d.favorites ?? [])).catch(() => {})
   }, [])
 
   function closeModal() {
@@ -207,6 +216,8 @@ export default function NobuRoomSchedule({ profile, initialEdit, onEditHandled, 
     setTimeout(() => {
       setModal(null)
       setEditingId(null)
+      setSelectedFavId(null)
+      setSaveAsFavChecked(false)
       setModalClosing(false)
     }, 220)
   }
@@ -346,6 +357,8 @@ export default function NobuRoomSchedule({ profile, initialEdit, onEditHandled, 
     setModalEnd(minutesToTime(defaultEnd))
     setBandName('')
     setEditingId(null)
+    setSelectedFavId(null)
+    setSaveAsFavChecked(false)
     setSubmitError(null)
     setCloseConfirm(false)
     setEditOriginal(null)
@@ -377,13 +390,31 @@ export default function NobuRoomSchedule({ profile, initialEdit, onEditHandled, 
           body: JSON.stringify({ bandName: bandName.trim(), newStart: modalStart, newEnd: modalEnd }),
         })
       } else {
+        const savedName = bandName.trim()
+        const shouldSaveFav = saveAsFavChecked && !selectedFavId
         res = await fetch('/api/nobu-room-reservations', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${profile.getAccessToken()}` },
-          body: JSON.stringify({ bandName: bandName.trim(), date: modal.date, startTime: modalStart, endTime: modalEnd }),
+          body: JSON.stringify({ bandName: savedName, date: modal.date, startTime: modalStart, endTime: modalEnd, ...(selectedFavId ? { favoriteId: selectedFavId } : {}) }),
         })
+        if (!res.ok) throw new Error((await res.json()).error ?? '登録に失敗しました')
+        if (shouldSaveFav) {
+          fetch('/api/favorites', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${profile.getAccessToken()}` },
+            body: JSON.stringify({ name: savedName }),
+          }).then(r => r.ok ? r.json() : null)
+            .then(d => { if (d?.id) setFavorites(prev => [...prev, { id: d.id, name: savedName, nobuTimeSlot: null }]) })
+            .catch(() => {})
+        }
+        setModal(null)
+        setEditingId(null)
+        setSaveAsFavChecked(false)
+        setSelectedFavId(null)
+        refreshWeek(weekStart)
+        return
       }
-      if (!res.ok) throw new Error((await res.json()).error ?? (editingId ? '変更に失敗しました' : '登録に失敗しました'))
+      if (!res.ok) throw new Error((await res.json()).error ?? '変更に失敗しました')
       setModal(null)
       setEditingId(null)
       refreshWeek(weekStart)
@@ -812,14 +843,25 @@ export default function NobuRoomSchedule({ profile, initialEdit, onEditHandled, 
 
               {submitError && <div className="banner-error">{submitError}</div>}
 
-              <div className="form-row mb-3">
-                <label>バンド名</label>
+              <div className="mb-3">
+                <label className="block text-[0.8rem] text-ink-sub mb-1.5">バンド名</label>
+                {!editingId && (
+                  <FavoritePicker favorites={favorites} onSelect={(favId, name) => {
+                    setBandName(name); setSelectedFavId(favId); setSaveAsFavChecked(false)
+                  }} />
+                )}
                 <input
                   className="text-input"
                   type="text"
                   placeholder="バンド名を入力"
                   value={bandName}
-                  onChange={(e) => setBandName(e.target.value)}
+                  onChange={(e) => {
+                    setBandName(e.target.value)
+                    if (selectedFavId) {
+                      const fav = favorites.find(f => f.id === selectedFavId)
+                      if (fav && fav.name !== e.target.value) setSelectedFavId(null)
+                    }
+                  }}
                 />
               </div>
 
@@ -867,6 +909,25 @@ export default function NobuRoomSchedule({ profile, initialEdit, onEditHandled, 
                   </div>
                 </div>
               </div>
+
+              {!editingId && !selectedFavId && (
+                <label className="flex items-center gap-2 text-[0.82rem] text-ink-sub mb-3 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={saveAsFavChecked}
+                    onChange={(e) => setSaveAsFavChecked(e.target.checked)}
+                    className="w-4 h-4 accent-brand"
+                  />
+                  <span className="icon text-brand" style={{ fontSize: 14 }}>star_border</span>
+                  お気に入りとして保存
+                </label>
+              )}
+              {!editingId && !!selectedFavId && (
+                <div className="flex items-center gap-1.5 text-[0.82rem] text-brand mb-3 px-0.5">
+                  <span className="icon" style={{ fontSize: 14 }}>star</span>
+                  お気に入りから選択中
+                </div>
+              )}
 
               <button className="btn-primary" onClick={handleSubmit}
                 disabled={submitting || !bandName.trim() || !modalEnd}>

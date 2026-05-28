@@ -52,6 +52,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === 'OPTIONS') return res.status(204).end()
 
   const path = (req.query._path as string) ?? ''
+  if (path === 'favorites')             return handleFavorites(req, res)
+  if (path.startsWith('favorites/'))    return handleFavoriteById(req, res, path.slice('favorites/'.length))
   if (path === 'my')  return handleMy(req, res)
   if (path === 'all') return handleAll(req, res)
   if (path)           return handleById(req, res, path)
@@ -64,8 +66,8 @@ async function handleCreate(req: VercelRequest, res: VercelResponse) {
   try {
     const cfg = getConfig(req)
     const { userId, name, picture } = await verifyLineToken(req.headers.authorization)
-    const { bandName, date, startTime, endTime } = req.body as {
-      bandName: string; date: string; startTime: string; endTime: string
+    const { bandName, date, startTime, endTime, favoriteId } = req.body as {
+      bandName: string; date: string; startTime: string; endTime: string; favoriteId?: string
     }
 
     if (!bandName?.trim() || !date || !startTime || !endTime)
@@ -156,6 +158,7 @@ async function handleCreate(req: VercelRequest, res: VercelResponse) {
       bandName: bandName.trim(),
       date, startTime, endTime,
       status: 'confirmed',
+      favoriteId: favoriteId ?? null,
       createdAt: new Date(),
     })
     return res.status(201).json({ success: true })
@@ -363,4 +366,95 @@ async function handleModify(req: VercelRequest, res: VercelResponse, docId: stri
     const status = err.message === 'Unauthorized' ? 401 : (err.status ?? 500)
     return res.status(status).json({ error: err.message })
   }
+}
+
+// ─── お気に入り一覧・作成 ────────────────────────────────
+async function handleFavorites(req: VercelRequest, res: VercelResponse) {
+  try {
+    const { userId } = await verifyLineToken(req.headers.authorization)
+
+    if (req.method === 'GET') {
+      const snap = await db.collection('favorites')
+        .where('userId', '==', userId)
+        .orderBy('createdAt', 'asc')
+        .get()
+      return res.status(200).json({
+        favorites: snap.docs.map(d => ({ id: d.id, ...d.data() })),
+      })
+    }
+
+    if (req.method === 'POST') {
+      const { name, nobuTimeSlot } = (req.body ?? {}) as { name?: string; nobuTimeSlot?: string }
+      if (!name?.trim()) return res.status(400).json({ error: 'name は必須です' })
+
+      const existing = await db.collection('favorites').where('userId', '==', userId).get()
+      if (existing.size >= 5) return res.status(400).json({ error: 'お気に入りは5件まで登録できます' })
+
+      const doc = await db.collection('favorites').add({
+        userId,
+        name: name.trim(),
+        nobuTimeSlot: nobuTimeSlot ?? null,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      })
+      return res.status(201).json({ id: doc.id })
+    }
+
+    return res.status(405).json({ error: 'Method Not Allowed' })
+  } catch (err: any) {
+    const status = err.message === 'Unauthorized' ? 401 : 500
+    return res.status(status).json({ error: err.message })
+  }
+}
+
+// ─── お気に入り更新・削除 ────────────────────────────────
+async function handleFavoriteById(req: VercelRequest, res: VercelResponse, id: string) {
+  try {
+    const { userId } = await verifyLineToken(req.headers.authorization)
+
+    const ref = db.collection('favorites').doc(id)
+    const doc = await ref.get()
+    if (!doc.exists || doc.data()!.userId !== userId) {
+      return res.status(404).json({ error: 'Not found' })
+    }
+
+    if (req.method === 'PATCH') {
+      const { name, nobuTimeSlot } = (req.body ?? {}) as { name?: string; nobuTimeSlot?: string | null }
+      const oldName = doc.data()!.name as string
+      const updates: Record<string, any> = {}
+      if (name !== undefined) updates.name = name.trim()
+      if (nobuTimeSlot !== undefined) updates.nobuTimeSlot = nobuTimeSlot
+
+      await ref.update(updates)
+
+      // バンド名が変わった場合、全予約コレクションのbandNameを一括更新
+      if (name !== undefined && name.trim() !== oldName) {
+        const newName = name.trim()
+        await Promise.all([
+          cascadeFavoriteNameUpdate('reservations',           id, newName),
+          cascadeFavoriteNameUpdate('kobu_reservations',      id, newName),
+          cascadeFavoriteNameUpdate('nobu_room_reservations', id, newName),
+        ])
+      }
+
+      return res.status(200).json({ ok: true })
+    }
+
+    if (req.method === 'DELETE') {
+      await ref.delete()
+      return res.status(200).json({ ok: true })
+    }
+
+    return res.status(405).json({ error: 'Method Not Allowed' })
+  } catch (err: any) {
+    const status = err.message === 'Unauthorized' ? 401 : 500
+    return res.status(status).json({ error: err.message })
+  }
+}
+
+async function cascadeFavoriteNameUpdate(collection: string, favoriteId: string, newName: string) {
+  const snap = await db.collection(collection).where('favoriteId', '==', favoriteId).get()
+  if (snap.empty) return
+  const batch = db.batch()
+  snap.docs.forEach(d => batch.update(d.ref, { bandName: newName }))
+  await batch.commit()
 }

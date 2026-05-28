@@ -114,7 +114,7 @@ async function handleCreate(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method Not Allowed' })
   try {
     const { userId, name, picture } = await verifyLineToken(req.headers.authorization)
-    const { bandName, date } = req.body as { bandName: string; date: string }
+    const { bandName, date, favoriteId } = req.body as { bandName: string; date: string; favoriteId?: string }
     if (!bandName || !date) return res.status(400).json({ error: 'bandName と date は必須です' })
     const [datePart, timePart] = date.split('T')
     const startTime = timePart?.split('-')[0] ?? '00:00'
@@ -187,8 +187,17 @@ async function handleCreate(req: VercelRequest, res: VercelResponse) {
       bandName,
       date,
       status: 'pending',
+      favoriteId: favoriteId ?? null,
       createdAt: new Date(),
     })
+
+    // お気に入りの最終使用時間枠を自動更新
+    if (favoriteId) {
+      const timeSlot = date.split('T')[1] // "08:00-09:00"
+      await db.collection('favorites').doc(favoriteId).update({ nobuTimeSlot: timeSlot })
+        .catch(() => {}) // お気に入りが削除済みでもエラーにしない
+    }
+
     return res.status(201).json({ success: true })
   } catch (err: any) {
     const status = err.message === 'Unauthorized' ? 401 : 500
