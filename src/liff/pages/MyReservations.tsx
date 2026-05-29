@@ -403,11 +403,12 @@ export default function MyReservations({ profile, initialEdit, onEditHandled, on
       )}
 
       {reservationGroups.map((group) => (
-        <section key={group.date} className="mb-4 last:mb-0">
-          <div className="sticky top-0 z-10 bg-bg/95 backdrop-blur px-1 py-2 text-[0.82rem] font-bold text-ink-sub">
-            {formatDateHeading(group.date)}
+        <section key={group.date} className="mb-4 last:mb-0 bg-surface border border-line rounded-xl overflow-hidden shadow-[var(--shadow-card-sm)]">
+          <div className="flex items-center justify-between bg-bg px-4 py-2.5 text-[0.82rem] font-bold text-ink-sub border-b border-line">
+            <span>{formatDateHeading(group.date)}</span>
+            <span className="text-[0.75rem] font-semibold">{group.items.length}件</span>
           </div>
-          <div className="flex flex-col gap-2">
+          <div>
       {group.items.map((r) => {
         const isDeleting  = deleting === r.id
         const past        = isPast(r)
@@ -427,7 +428,7 @@ export default function MyReservations({ profile, initialEdit, onEditHandled, on
         }
 
         return (
-          <div key={r.id} className="reservation-card">
+          <div key={r.id} className="flex items-center gap-3 px-4 py-[0.9rem] border-b border-line last:border-b-0">
             <div className="flex flex-col items-center gap-1 shrink-0">
               <div className={`w-11 h-11 rounded-xl flex items-center justify-center ${fc.iconBg}`}>
                 <span className={`icon ${fc.iconColor}`} style={{ fontSize: 22 }}>{fc.icon}</span>
