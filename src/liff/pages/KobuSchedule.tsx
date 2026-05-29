@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useLayoutEffect, useRef } from 'react'
 import type { LiffProfile } from '../LiffApp'
 import Skeleton from '../../components/Skeleton'
 import CalendarPicker from '../../components/CalendarPicker'
@@ -165,6 +165,7 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled, onBo
   const presetScrollRef = useRef<HTMLDivElement>(null)
   const startScrollRef = useRef<HTMLDivElement>(null)
   const endScrollRef = useRef<HTMLDivElement>(null)
+  const didInitialOptionScroll = useRef(false)
   const [loading,      setLoading]      = useState(false)
   const [error,        setError]        = useState<string | null>(null)
   const [modal,        setModal]        = useState<ModalState | null>(null)
@@ -434,7 +435,7 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled, onBo
     if (!container) return
     const selected = container.querySelector<HTMLElement>(selector)
     if (!selected) return
-    container.scrollTo({ left: Math.max(0, selected.offsetLeft - 1), behavior: 'smooth' })
+    container.scrollLeft = Math.max(0, selected.offsetLeft - 24)
   }
 
   function applyFavoriteTimeSlot(timeSlot: string | null) {
@@ -632,14 +633,17 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled, onBo
     })
   }, [sheetPeeking, modal, modalStart, dispStart])
 
-  useEffect(() => {
-    if (!modal || sheetPeeking) return
-    requestAnimationFrame(() => {
-      scrollSelectedOptionLeft(startScrollRef.current, '[data-time-option="start"][data-active="true"]')
-      scrollSelectedOptionLeft(endScrollRef.current, '[data-time-option="end"][data-active="true"]')
-      scrollSelectedOptionLeft(presetScrollRef.current, '[data-time-option="preset"][data-active="true"]')
-    })
-  }, [modal, sheetPeeking, modalStart, modalEnd])
+  useLayoutEffect(() => {
+    if (!modal) {
+      didInitialOptionScroll.current = false
+      return
+    }
+    if (sheetPeeking || didInitialOptionScroll.current) return
+    scrollSelectedOptionLeft(startScrollRef.current, '[data-time-option="start"][data-active="true"]')
+    scrollSelectedOptionLeft(endScrollRef.current, '[data-time-option="end"][data-active="true"]')
+    scrollSelectedOptionLeft(presetScrollRef.current, '[data-time-option="preset"][data-active="true"]')
+    didInitialOptionScroll.current = true
+  }, [modal, sheetPeeking])
 
   // ─── ローディング ─────────────────────────────────────
   if (!settings) return (
