@@ -732,7 +732,7 @@ export default function NobuRoomSchedule({ profile, initialEdit, onEditHandled, 
             onClick={sheetPeeking ? () => setCloseConfirm(true) : undefined}>
             <div
               ref={scrollRef}
-              className="overflow-y-auto flex-1 min-h-0 pb-[160px]"
+              className="overflow-y-auto flex-1 min-h-0"
               style={{ scrollbarGutter: 'stable' }}
               onTouchStart={handleTouchStart}
               onTouchEnd={handleTouchEnd}
