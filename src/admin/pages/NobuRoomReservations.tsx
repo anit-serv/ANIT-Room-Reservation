@@ -71,29 +71,53 @@ export default function NobuRoomReservations() {
 
   useEffect(() => {
     if (reservations.length === 0) return
+    let retryTimer: ReturnType<typeof setTimeout> | null = null
+    let clearTimer: ReturnType<typeof setTimeout> | null = null
+
+    function scrollElementToCenter(el: HTMLElement) {
+      const rect = el.getBoundingClientRect()
+      const top = window.scrollY + rect.top - (window.innerHeight / 2) + (rect.height / 2)
+      window.scrollTo({ top: Math.max(0, top), behavior: 'smooth' })
+    }
+
     if (focusId) {
-      const isDesktop = window.matchMedia('(min-width: 768px)').matches
-      const row = (isDesktop ? desktopRowRefs.current : mobileRowRefs.current)[focusId]
-      if (!row) {
+      let attempts = 0
+      const tryScroll = () => {
+        const isDesktop = window.matchMedia('(min-width: 1024px)').matches
+        const row = (isDesktop ? desktopRowRefs.current : mobileRowRefs.current)[focusId]
+        if (row) {
+          scrollElementToCenter(row)
+          setHighlightedId(focusId)
+          clearTimer = setTimeout(() => {
+            setHighlightedId(null)
+            setSearchParams({}, { replace: true })
+          }, 3000)
+          return
+        }
+
+        attempts += 1
+        if (attempts < 10) {
+          retryTimer = setTimeout(tryScroll, 80)
+          return
+        }
+
         if (dateFocus) {
           const heading = (isDesktop ? desktopDateRefs.current : mobileDateRefs.current)[dateFocus]
-          heading?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+          if (heading) scrollElementToCenter(heading)
         }
-        return
-      }
-      row.scrollIntoView({ behavior: 'smooth', block: 'center' })
-      setHighlightedId(focusId)
-      const t = setTimeout(() => {
-        setHighlightedId(null)
         setSearchParams({}, { replace: true })
-      }, 3000)
-      return () => clearTimeout(t)
+      }
+      requestAnimationFrame(tryScroll)
+      return () => {
+        if (retryTimer) clearTimeout(retryTimer)
+        if (clearTimer) clearTimeout(clearTimer)
+      }
     }
     if (dateFocus) {
-      const isDesktop = window.matchMedia('(min-width: 768px)').matches
+      const isDesktop = window.matchMedia('(min-width: 1024px)').matches
       const heading = (isDesktop ? desktopDateRefs.current : mobileDateRefs.current)[dateFocus]
       if (!heading) return
-      heading.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      scrollElementToCenter(heading)
       setSearchParams({}, { replace: true })
     }
   }, [focusId, dateFocus, reservations, setSearchParams])
@@ -152,7 +176,7 @@ export default function NobuRoomReservations() {
       ) : (
         <>
           {/* Desktop */}
-          <div className="hidden md:flex flex-col gap-4">
+          <div className="hidden lg:flex flex-col gap-4">
             {reservationGroups.map((group) => (
               <section key={group.date} className="bg-surface border border-line rounded-xl overflow-hidden shadow-[var(--shadow-card-sm)]">
                 <div ref={(el) => { desktopDateRefs.current[group.date] = el }} className="flex items-center justify-between px-5 py-3 bg-bg border-b border-line">
@@ -214,7 +238,7 @@ export default function NobuRoomReservations() {
           </div>
 
           {/* Mobile */}
-          <div className="md:hidden bg-surface border border-line rounded-xl overflow-hidden shadow-[var(--shadow-card-sm)]">
+          <div className="lg:hidden bg-surface border border-line rounded-xl overflow-hidden shadow-[var(--shadow-card-sm)]">
             {reservationGroups.map((group) => (
               <div key={group.date}>
                 <div ref={(el) => { mobileDateRefs.current[group.date] = el }} className="bg-bg px-4 py-2 text-[0.82rem] font-bold text-ink-sub border-b border-line">

@@ -3,6 +3,7 @@ import { adminFetch } from '../auth'
 import TimeSlotsEditor, { findConflicts, type TimeSlot } from '../components/TimeSlotsEditor'
 import Skeleton from '../../components/Skeleton'
 import DatePicker from '../../components/DatePicker'
+import ConfirmDialog from '../../components/ConfirmDialog'
 
 type DayOverride = {
   date: string
@@ -38,6 +39,12 @@ export default function NobuEmergencySettings() {
   const [emergencyCount, setEmergencyCount] = useState<number | null>(null)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [confirmAction, setConfirmAction] = useState<{
+    title: string
+    message: string
+    confirmLabel?: string
+    onConfirm: () => Promise<void>
+  } | null>(null)
 
   useEffect(() => {
     loadInitial()
@@ -121,12 +128,24 @@ export default function NobuEmergencySettings() {
     }
     if (
       emergencyType === 'blocked' &&
-      (emergencyCount ?? 0) > 0 &&
-      !confirm(`${emergencyDate} には予約が ${emergencyCount} 件あります。新規予約受付だけを停止し、既存予約は残します。続行しますか？`)
+      (emergencyCount ?? 0) > 0
     ) {
+      setConfirmAction({
+        title: '既存予約があります',
+        message: `${emergencyDate} には予約が ${emergencyCount} 件あります。新規予約受付だけを停止し、既存予約は残します。続行しますか？`,
+        confirmLabel: '続行',
+        onConfirm: async () => {
+          await executeSaveDayOverride()
+          setConfirmAction(null)
+        },
+      })
       return
     }
 
+    await executeSaveDayOverride()
+  }
+
+  async function executeSaveDayOverride() {
     setSaving(true)
     try {
       const body = {
@@ -157,19 +176,24 @@ export default function NobuEmergencySettings() {
   }
 
   async function deleteDayOverride(date: string) {
-    if (!confirm(`${date} の緊急対応を解除しますか？`)) return
-    setSaving(true)
-    try {
-      const res = await adminFetch(`/api/admin/settings/day-overrides/${encodeURIComponent(date)}`, { method: 'DELETE' })
-      if (!res.ok) throw new Error((await res.json()).error ?? '解除に失敗しました')
-      setMessage({ type: 'success', text: `${date} の緊急対応を解除しました` })
-      await loadDayOverrides()
-      if (date === emergencyDate) await loadEmergencyDateInfo(date)
-    } catch (err: any) {
-      setMessage({ type: 'error', text: err.message })
-    } finally {
-      setSaving(false)
-    }
+    setConfirmAction({
+      title: '緊急対応を解除しますか？',
+      message: `${date} の緊急対応を解除します。`,
+      confirmLabel: '解除',
+      onConfirm: async () => {
+        setSaving(true)
+        try {
+          const res = await adminFetch(`/api/admin/settings/day-overrides/${encodeURIComponent(date)}`, { method: 'DELETE' })
+          if (!res.ok) throw new Error((await res.json()).error ?? '解除に失敗しました')
+          setMessage({ type: 'success', text: `${date} の緊急対応を解除しました` })
+          setConfirmAction(null)
+          await loadDayOverrides()
+          if (date === emergencyDate) await loadEmergencyDateInfo(date)
+        } finally {
+          setSaving(false)
+        }
+      },
+    })
   }
 
   if (loading) return (
@@ -343,6 +367,16 @@ export default function NobuEmergencySettings() {
           )}
         </div>
       </div>
+
+      {confirmAction && (
+        <ConfirmDialog
+          title={confirmAction.title}
+          message={confirmAction.message}
+          confirmLabel={confirmAction.confirmLabel}
+          onClose={() => setConfirmAction(null)}
+          onConfirm={confirmAction.onConfirm}
+        />
+      )}
     </div>
   )
 }

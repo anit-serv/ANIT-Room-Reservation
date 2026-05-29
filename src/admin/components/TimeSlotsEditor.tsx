@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import TimeRangeInput from './TimeRangeInput'
+import ConfirmDialog from '../../components/ConfirmDialog'
 
 export type TimeSlot = { label: string; value: string }
 
@@ -60,6 +61,7 @@ export default function TimeSlotsEditor({
   const conflicts = conflictSet ?? findConflicts(slots)
   const [menuOpen, setMenuOpen] = useState(false)
   const [saveDialog, setSaveDialog] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<TimeSlotPreset | null>(null)
   const [presetName, setPresetName] = useState('')
   const menuRef = useRef<HTMLDivElement>(null)
 
@@ -93,11 +95,10 @@ export default function TimeSlotsEditor({
     setMenuOpen(false)
   }
 
-  async function handleDelete(p: TimeSlotPreset, e: React.MouseEvent) {
+  function handleDelete(p: TimeSlotPreset, e: React.MouseEvent) {
     e.stopPropagation()
     if (!onDeletePreset) return
-    if (!confirm(`プリセット「${p.name}」を削除しますか？`)) return
-    await onDeletePreset(p.id)
+    setDeleteTarget(p)
   }
 
   const canSavePreset = slots.length > 0 && slots.every((s) => s.label && s.value) && conflicts.size === 0
@@ -204,6 +205,18 @@ export default function TimeSlotsEditor({
             </div>
           </div>
         </div>
+      )}
+
+      {deleteTarget && (
+        <ConfirmDialog
+          title="プリセットを削除しますか？"
+          message={`プリセット「${deleteTarget.name}」を削除します。`}
+          onClose={() => setDeleteTarget(null)}
+          onConfirm={async () => {
+            await onDeletePreset?.(deleteTarget.id)
+            setDeleteTarget(null)
+          }}
+        />
       )}
     </>
   )

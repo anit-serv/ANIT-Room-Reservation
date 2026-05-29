@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { adminFetch } from '../auth'
 import Skeleton from '../../components/Skeleton'
+import ConfirmDialog from '../../components/ConfirmDialog'
 
 type Admin = {
   userId: string
@@ -28,6 +29,13 @@ export default function Admins() {
   const [generated, setGenerated]     = useState<{ url: string; expiresAt: string } | null>(null)
   const [generating, setGenerating]   = useState(false)
   const [openId,     setOpenId]       = useState<string | null>(null)
+  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [confirmAction, setConfirmAction] = useState<{
+    title: string
+    message: string
+    confirmLabel?: string
+    onConfirm: () => Promise<void>
+  } | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -46,27 +54,31 @@ export default function Admins() {
   useEffect(() => { load() }, [load])
 
   async function removeAdmin(a: Admin) {
-    if (!confirm(`「${a.displayName || a.userId}」を管理者から削除しますか？`)) return
-    const res = await adminFetch(`/api/admin/admins/${a.userId}`, { method: 'DELETE' })
-    if (res.ok) {
-      setAdmins((prev) => prev.filter((x) => x.userId !== a.userId))
-    } else {
-      alert((await res.json()).error ?? '削除に失敗しました')
-    }
+    setConfirmAction({
+      title: '管理者を削除しますか？',
+      message: `「${a.displayName || a.userId}」を管理者から削除します。`,
+      onConfirm: async () => {
+        const res = await adminFetch(`/api/admin/admins/${a.userId}`, { method: 'DELETE' })
+        if (!res.ok) throw new Error((await res.json()).error ?? '削除に失敗しました')
+        setAdmins((prev) => prev.filter((x) => x.userId !== a.userId))
+        setConfirmAction(null)
+      },
+    })
   }
 
   async function transferSuper(a: Admin) {
-    if (!confirm(
-      `スーパー管理者を「${a.displayName || a.userId}」に移譲しますか？\n\n` +
-      `この操作は取り消せません。あなたは通常の管理者になります。`
-    )) return
-    const res = await adminFetch(`/api/admin/admins/${a.userId}/transfer-super`, { method: 'POST' })
-    if (res.ok) {
-      alert(`「${a.displayName}」にスーパー管理者を移譲しました`)
-      load()
-    } else {
-      alert((await res.json()).error ?? '移譲に失敗しました')
-    }
+    setConfirmAction({
+      title: 'スーパー管理者を移譲しますか？',
+      message: `スーパー管理者を「${a.displayName || a.userId}」に移譲します。この操作は取り消せません。あなたは通常の管理者になります。`,
+      confirmLabel: '移譲',
+      onConfirm: async () => {
+        const res = await adminFetch(`/api/admin/admins/${a.userId}/transfer-super`, { method: 'POST' })
+        if (!res.ok) throw new Error((await res.json()).error ?? '移譲に失敗しました')
+        setMessage({ type: 'success', text: `「${a.displayName || a.userId}」にスーパー管理者を移譲しました` })
+        setConfirmAction(null)
+        await load()
+      },
+    })
   }
 
   async function generateInvite() {
@@ -79,24 +91,30 @@ export default function Admins() {
       setGenerated({ url: data.url, expiresAt: data.expiresAt })
       load()
     } catch {
-      alert('招待リンクの生成に失敗しました')
+      setMessage({ type: 'error', text: '招待リンクの生成に失敗しました' })
     } finally {
       setGenerating(false)
     }
   }
 
   async function revokeInvitation(token: string) {
-    if (!confirm('この招待リンクを取り消しますか？')) return
-    const res = await adminFetch(`/api/admin/invitations/${token}`, { method: 'DELETE' })
-    if (res.ok) {
-      setInvitations((prev) => prev.filter((x) => x.token !== token))
-    }
+    setConfirmAction({
+      title: '招待リンクを取り消しますか？',
+      message: 'この招待リンクを取り消します。',
+      confirmLabel: '取り消す',
+      onConfirm: async () => {
+        const res = await adminFetch(`/api/admin/invitations/${token}`, { method: 'DELETE' })
+        if (!res.ok) throw new Error((await res.json()).error ?? '取り消しに失敗しました')
+        setInvitations((prev) => prev.filter((x) => x.token !== token))
+        setConfirmAction(null)
+      },
+    })
   }
 
   function copyUrl(url: string) {
     navigator.clipboard.writeText(url).then(
-      () => alert('URLをコピーしました'),
-      () => alert('コピーに失敗しました')
+      () => setMessage({ type: 'success', text: 'URLをコピーしました' }),
+      () => setMessage({ type: 'error', text: 'コピーに失敗しました' })
     )
   }
 
@@ -126,6 +144,12 @@ export default function Admins() {
   return (
     <div>
       <h1 className="text-2xl font-bold mb-6">管理者管理</h1>
+
+      {message && (
+        <div className={message.type === 'success' ? 'banner-success' : 'banner-error'}>
+          {message.text}
+        </div>
+      )}
 
       {/* 招待リンク発行 */}
       <div className="admin-card">
@@ -287,6 +311,16 @@ export default function Admins() {
             ))}
           </div>
         </div>
+      )}
+
+      {confirmAction && (
+        <ConfirmDialog
+          title={confirmAction.title}
+          message={confirmAction.message}
+          confirmLabel={confirmAction.confirmLabel}
+          onClose={() => setConfirmAction(null)}
+          onConfirm={confirmAction.onConfirm}
+        />
       )}
     </div>
   )

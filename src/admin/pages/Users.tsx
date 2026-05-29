@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { adminFetch } from '../auth'
 import Skeleton from '../../components/Skeleton'
+import ConfirmDialog from '../../components/ConfirmDialog'
 
 type User = {
   userId: string
@@ -226,6 +227,8 @@ function UserDetail({
   const navigate = useNavigate()
   const [data, setData] = useState<{ user: User; reservations: Reservation[] } | null>(null)
   const [working, setWorking] = useState(false)
+  const [banConfirm, setBanConfirm] = useState(false)
+  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   function jumpToReservation(r: Reservation) {
     onClose()
@@ -244,9 +247,12 @@ function UserDetail({
   }, [userId])
 
   async function toggleBan() {
+    setBanConfirm(true)
+  }
+
+  async function execToggleBan() {
     if (!data) return
     const next = !data.user.banned
-    if (!confirm(next ? 'このユーザーをBANしますか？' : 'BANを解除しますか？')) return
     setWorking(true)
     try {
       const res = await adminFetch(`/api/admin/users/${userId}`, {
@@ -256,9 +262,11 @@ function UserDetail({
       })
       if (!res.ok) throw new Error()
       setData({ ...data, user: { ...data.user, banned: next } })
+      setMessage({ type: 'success', text: next ? 'BANしました' : 'BANを解除しました' })
+      setBanConfirm(false)
       onUpdated()
     } catch {
-      alert('更新に失敗しました')
+      throw new Error('更新に失敗しました')
     } finally {
       setWorking(false)
     }
@@ -299,6 +307,12 @@ function UserDetail({
                 <span className="icon icon-sm">{data.user.banned ? 'lock_open' : 'block'}</span>
                 {data.user.banned ? 'BAN 解除' : 'BAN'}
               </button>
+            )}
+
+            {message && (
+              <div className={message.type === 'success' ? 'banner-success' : 'banner-error'}>
+                {message.text}
+              </div>
             )}
 
             <h3 className="text-[0.9rem] font-semibold mb-2">予約履歴 ({data.reservations.length}件)</h3>
@@ -350,6 +364,16 @@ function UserDetail({
           </>
         )}
       </div>
+
+      {data && banConfirm && (
+        <ConfirmDialog
+          title={data.user.banned ? 'BANを解除しますか？' : 'このユーザーをBANしますか？'}
+          message={data.user.banned ? 'このユーザーのBANを解除します。' : 'このユーザーをBANします。'}
+          confirmLabel={data.user.banned ? '解除' : 'BAN'}
+          onClose={() => setBanConfirm(false)}
+          onConfirm={execToggleBan}
+        />
+      )}
     </div>
   )
 }

@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import CalendarPicker from '../../components/CalendarPicker'
+import ConfirmDialog from '../../components/ConfirmDialog'
 
 const WEEK_DAYS = ['日', '月', '火', '水', '木', '金', '土']
 
@@ -28,6 +29,7 @@ export default function DateListEditor({
 }: Props) {
   const [open, setOpen] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  const [pendingConflictDate, setPendingConflictDate] = useState<string | null>(null)
 
   function handleSelect(date: string) {
     setErr(null)
@@ -36,11 +38,16 @@ export default function DateListEditor({
       return
     }
     if (conflictDates.includes(date)) {
-      const shouldMove = confirm(`${formatDate(date)} は${conflictLabel ?? '別の設定'}に登録されています。こちらに変更しますか？`)
-      if (!shouldMove) return
-      onMoveConflict?.(date)
+      setPendingConflictDate(date)
+      return
     }
     onChange([...dates, date].sort())
+  }
+
+  async function moveConflictDate(date: string) {
+    onMoveConflict?.(date)
+    onChange([...dates, date].sort())
+    setPendingConflictDate(null)
   }
 
   function remove(d: string) {
@@ -94,6 +101,16 @@ export default function DateListEditor({
             ))}
           </div>
         )}
+
+      {pendingConflictDate && (
+        <ConfirmDialog
+          title="日付の設定を移動しますか？"
+          message={`${formatDate(pendingConflictDate)} は${conflictLabel ?? '別の設定'}に登録されています。こちらに変更しますか？`}
+          confirmLabel="変更"
+          onClose={() => setPendingConflictDate(null)}
+          onConfirm={() => moveConflictDate(pendingConflictDate)}
+        />
+      )}
     </div>
   )
 }
