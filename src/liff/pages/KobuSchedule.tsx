@@ -160,6 +160,8 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled, onBo
   const scrollRef   = useRef<HTMLDivElement>(null)
   const touchStartX = useRef(0)
   const touchStartY = useRef(0)
+  const sheetDragStartY = useRef(0)
+  const sheetDidDrag = useRef(false)
   const [loading,      setLoading]      = useState(false)
   const [error,        setError]        = useState<string | null>(null)
   const [modal,        setModal]        = useState<ModalState | null>(null)
@@ -333,6 +335,19 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled, onBo
     if (Math.abs(dx) < 50 || Math.abs(dx) < Math.abs(dy)) return
     if (dx < 0) navigateTo(addDays(weekStart, 7), 'left')
     else        navigateTo(addDays(weekStart, -7), 'right')
+  }
+
+  function handleSheetDragStart(e: React.TouchEvent) {
+    sheetDragStartY.current = e.touches[0].clientY
+    sheetDidDrag.current = false
+  }
+
+  function handleSheetDragEnd(e: React.TouchEvent) {
+    if (submitting || modalClosing) return
+    const dy = e.changedTouches[0].clientY - sheetDragStartY.current
+    if (Math.abs(dy) < 40) return
+    sheetDidDrag.current = true
+    setSheetPeeking(dy > 0)
   }
 
   // ─── タップ処理 ───────────────────────────────────────
@@ -580,6 +595,20 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled, onBo
   const { md: startMd } = formatDate(weekStart)
   const { md: endMd }   = formatDate(weekDates[6])
 
+  useEffect(() => {
+    if (!sheetPeeking || !modal || !modalStart) return
+    const scrollEl = scrollRef.current
+    if (!scrollEl) return
+
+    const headerHeight = scrollEl.firstElementChild?.getBoundingClientRect().height ?? 0
+    const slotTop = headerHeight + toMinutes(modalStart) - dispStart
+    const targetTop = Math.max(0, slotTop - scrollEl.clientHeight * 0.45)
+
+    requestAnimationFrame(() => {
+      scrollEl.scrollTo({ top: targetTop, behavior: 'smooth' })
+    })
+  }, [sheetPeeking, modal, modalStart, dispStart])
+
   // ─── ローディング ─────────────────────────────────────
   if (!settings) return (
     <div>
@@ -819,26 +848,16 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled, onBo
               {/* 自分の予約のみ：アクション */}
               {isOwn && (
                 <div className={`px-5 pb-5 flex flex-col gap-2 ${sheetPeeking ? 'opacity-40 pointer-events-none' : ''}`}>
-                  {/* 編集・削除（開始前のみ） */}
+                  {/* 編集（開始前のみ） */}
                   {isBeforeStart && !cancelConfirm && (
-                    <>
-                      <button
-                        className="btn-outline w-full flex items-center justify-center gap-1.5 py-2.5"
-                        onClick={handleEditFromDetail}
-                        disabled={cancelling}
-                      >
-                        <span className="icon" style={{ fontSize: 16 }}>edit</span>
-                        編集
-                      </button>
-                      <button
-                        className="btn-danger w-full"
-                        onClick={() => setCancelConfirm(true)}
-                        disabled={cancelling}
-                      >
-                        <span className="icon" style={{ fontSize: 16 }}>delete</span>
-                        削除
-                      </button>
-                    </>
+                    <button
+                      className="btn-outline w-full flex items-center justify-center gap-1.5 py-2.5"
+                      onClick={handleEditFromDetail}
+                      disabled={cancelling}
+                    >
+                      <span className="icon" style={{ fontSize: 16 }}>edit</span>
+                      編集
+                    </button>
                   )}
                   {isBeforeStart && cancelConfirm && (
                     <>
@@ -894,6 +913,16 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled, onBo
                       )}
                     </>
                   )}
+                  {isBeforeStart && !cancelConfirm && (
+                    <button
+                      className="btn-danger w-full"
+                      onClick={() => setCancelConfirm(true)}
+                      disabled={cancelling}
+                    >
+                      <span className="icon" style={{ fontSize: 16 }}>delete</span>
+                      削除
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -943,9 +972,24 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled, onBo
                     : undefined
               }
             >
-              <div className="w-10 h-1 bg-line rounded-full mx-auto mb-4" />
+              <div
+                className="w-10 h-1 bg-line rounded-full mx-auto mb-4 cursor-ns-resize touch-none"
+                onTouchStart={handleSheetDragStart}
+                onTouchEnd={handleSheetDragEnd}
+              />
               {sheetPeeking && (
-                <div className="absolute inset-x-0 top-0 h-[160px] z-10 cursor-pointer" onClick={() => setSheetPeeking(false)} />
+                <div
+                  className="absolute inset-x-0 top-0 h-[160px] z-10 cursor-ns-resize"
+                  onClick={() => {
+                    if (sheetDidDrag.current) {
+                      sheetDidDrag.current = false
+                      return
+                    }
+                    setSheetPeeking(false)
+                  }}
+                  onTouchStart={handleSheetDragStart}
+                  onTouchEnd={handleSheetDragEnd}
+                />
               )}
 
               <div className="flex items-center justify-between mb-4">
