@@ -232,7 +232,8 @@ function UserDetail({
     const base = r.facility === 'kobu' ? '/admin/reservations/kobu'
       : r.facility === 'nobu-room'    ? '/admin/reservations/nobu-room'
       :                                 '/admin/reservations/nobu'
-    navigate(`${base}?focus=${r.id}`)
+    const date = r.facility === 'nobu' ? r.date.split('T')[0] : r.date
+    navigate(`${base}?focus=${encodeURIComponent(r.id)}&dateFocus=${encodeURIComponent(date)}`)
   }
 
   useEffect(() => {

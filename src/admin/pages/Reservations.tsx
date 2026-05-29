@@ -30,7 +30,8 @@ export default function Reservations() {
   const [searchParams, setSearchParams] = useSearchParams()
   const focusId = searchParams.get('focus')
   const dateFocus = searchParams.get('dateFocus')
-  const rowRefs = useRef<Record<string, HTMLElement | null>>({})
+  const desktopRowRefs = useRef<Record<string, HTMLElement | null>>({})
+  const mobileRowRefs = useRef<Record<string, HTMLElement | null>>({})
   const desktopDateRefs = useRef<Record<string, HTMLElement | null>>({})
   const mobileDateRefs = useRef<Record<string, HTMLElement | null>>({})
 
@@ -69,8 +70,15 @@ export default function Reservations() {
   useEffect(() => {
     if (reservations.length === 0) return
     if (focusId) {
-      const row = rowRefs.current[focusId]
-      if (!row) return
+      const isDesktop = window.matchMedia('(min-width: 768px)').matches
+      const row = (isDesktop ? desktopRowRefs.current : mobileRowRefs.current)[focusId]
+      if (!row) {
+        if (dateFocus) {
+          const heading = (isDesktop ? desktopDateRefs.current : mobileDateRefs.current)[dateFocus]
+          heading?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        }
+        return
+      }
       row.scrollIntoView({ behavior: 'smooth', block: 'center' })
       setHighlightedId(focusId)
       const t = setTimeout(() => {
@@ -183,7 +191,7 @@ export default function Reservations() {
                 return (
                   <tr
                     key={r.id}
-                    ref={(el) => { rowRefs.current[r.id] = el }}
+                    ref={(el) => { desktopRowRefs.current[r.id] = el }}
                     className={highlightedId === r.id ? 'row-highlight' : ''}
                   >
                     <td data-label="時間">
@@ -240,7 +248,7 @@ export default function Reservations() {
                   key={r.id}
                   r={r}
                   highlighted={highlightedId === r.id}
-                  rowRef={(el) => { rowRefs.current[r.id] = el }}
+                  rowRef={(el) => { mobileRowRefs.current[r.id] = el }}
                   open={openId === r.id}
                   onToggle={() => setOpenId(openId === r.id ? null : r.id)}
                   onEdit={() => setEditing(r)}
