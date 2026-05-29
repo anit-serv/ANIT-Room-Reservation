@@ -285,41 +285,43 @@ export default function MyReservations({ profile, initialEdit, onEditHandled, on
             <span className="text-[0.73rem] text-ink-pale">（{favorites.length}件）</span>
           )}
         </div>
-        <span className="icon text-ink-pale">{favOpen ? 'expand_less' : 'expand_more'}</span>
+        <span className={`icon text-ink-pale transition-transform duration-200 ${favOpen ? 'rotate-180' : ''}`}>expand_more</span>
       </button>
 
-      {favOpen && (
-        <div className="border-t border-line px-4 py-3 space-y-2">
-          {favorites.length === 0 && !addingFav && (
-            <p className="text-[0.82rem] text-ink-pale py-1">まだ登録されていません</p>
-          )}
+      <div className={`grid transition-[grid-template-rows] duration-200 ease-out ${favOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
+        <div className="min-h-0 overflow-hidden">
+          <div className="border-t border-line px-4 py-3 space-y-2">
+            {favorites.length === 0 && !addingFav && (
+              <p className="text-[0.82rem] text-ink-pale py-1">まだ登録されていません</p>
+            )}
 
-          {favorites.map(f => (
-            <div key={f.id} className="flex items-center gap-2">
-              <span className="flex-1 text-[0.9rem] text-ink truncate">{f.name}</span>
-              {f.nobuTimeSlot && (
-                <span className="text-[0.7rem] text-ink-pale whitespace-nowrap">
-                  農部: {f.nobuTimeSlot.replace('-', '〜')}
-                </span>
-              )}
-              <button className="btn-icon" title="編集" onClick={() => setFavEditModal(f)}>
-                <span className="icon" style={{ fontSize: 18 }}>edit</span>
-              </button>
-              <button className="btn-icon-danger" title="削除" onClick={() => setFavDeleteConfirm(f)}>
-                <span className="icon" style={{ fontSize: 18 }}>delete</span>
-              </button>
-            </div>
-          ))}
+            {favorites.map(f => (
+              <div key={f.id} className="flex items-center gap-2">
+                <span className="flex-1 text-[0.9rem] text-ink truncate">{f.name}</span>
+                {f.nobuTimeSlot && (
+                  <span className="text-[0.7rem] text-ink-pale whitespace-nowrap">
+                    農部: {f.nobuTimeSlot.replace('-', '〜')}
+                  </span>
+                )}
+                <button className="btn-icon" title="編集" onClick={() => setFavEditModal(f)}>
+                  <span className="icon" style={{ fontSize: 18 }}>edit</span>
+                </button>
+                <button className="btn-icon-danger" title="削除" onClick={() => setFavDeleteConfirm(f)}>
+                  <span className="icon" style={{ fontSize: 18 }}>delete</span>
+                </button>
+              </div>
+            ))}
 
-          {favorites.length < 5 ? (
-            <button className="flex items-center gap-1 text-[0.82rem] text-ink-sub py-1 mt-1" onClick={() => setFavAddModal(true)}>
-              <span className="icon" style={{ fontSize: 16 }}>add_circle</span>バンドを追加
-            </button>
-          ) : (
-            <p className="text-[0.73rem] text-ink-pale mt-1">（最大5件）</p>
-          )}
+            {favorites.length < 5 ? (
+              <button className="flex items-center gap-1 text-[0.82rem] text-ink-sub py-1 mt-1" onClick={() => setFavAddModal(true)}>
+                <span className="icon" style={{ fontSize: 16 }}>add_circle</span>バンドを追加
+              </button>
+            ) : (
+              <p className="text-[0.73rem] text-ink-pale mt-1">（最大5件）</p>
+            )}
+          </div>
         </div>
-      )}
+      </div>
     </div>
   )
 
@@ -462,10 +464,11 @@ export default function MyReservations({ profile, initialEdit, onEditHandled, on
 
       {/* お気に入り削除確認ダイアログ */}
       {favDeleteConfirm && (
-        <FavoriteDeleteDialog
-          favorite={favDeleteConfirm}
+        <ConfirmDialog
+          title="お気に入りを削除しますか？"
+          message={`「${favDeleteConfirm.name}」を削除します。`}
           onClose={() => setFavDeleteConfirm(null)}
-          onDelete={async () => { await deleteFavorite(favDeleteConfirm.id); setFavDeleteConfirm(null) }}
+          onConfirm={async () => { await deleteFavorite(favDeleteConfirm.id); setFavDeleteConfirm(null) }}
         />
       )}
 
