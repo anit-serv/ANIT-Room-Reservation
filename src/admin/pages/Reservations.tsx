@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { Fragment, useEffect, useState, useCallback, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { adminFetch } from '../auth'
 import TimeRangeInput from '../components/TimeRangeInput'
@@ -18,10 +18,19 @@ type Reservation = {
   createdAt: number | null
 }
 
+function formatDateHeading(date: string): string {
+  const [year, month, day] = date.split('-').map(Number)
+  const weekdays = ['日', '月', '火', '水', '木', '金', '土']
+  return `${date} (${weekdays[new Date(year, month - 1, day).getDay()]})`
+}
+
 export default function Reservations() {
   const [searchParams, setSearchParams] = useSearchParams()
   const focusId = searchParams.get('focus')
+  const dateFocus = searchParams.get('dateFocus')
   const rowRefs = useRef<Record<string, HTMLElement | null>>({})
+  const desktopDateRefs = useRef<Record<string, HTMLElement | null>>({})
+  const mobileDateRefs = useRef<Record<string, HTMLElement | null>>({})
 
   const [reservations, setReservations] = useState<Reservation[]>([])
   const [loading, setLoading]           = useState(true)
@@ -56,9 +65,10 @@ export default function Reservations() {
   useEffect(() => { load() }, [load])
 
   useEffect(() => {
-    if (!focusId || reservations.length === 0) return
-    const row = rowRefs.current[focusId]
-    if (row) {
+    if (reservations.length === 0) return
+    if (focusId) {
+      const row = rowRefs.current[focusId]
+      if (!row) return
       row.scrollIntoView({ behavior: 'smooth', block: 'center' })
       setHighlightedId(focusId)
       const t = setTimeout(() => {
@@ -67,7 +77,14 @@ export default function Reservations() {
       }, 3000)
       return () => clearTimeout(t)
     }
-  }, [focusId, reservations, setSearchParams])
+    if (dateFocus) {
+      const isDesktop = window.matchMedia('(min-width: 768px)').matches
+      const heading = (isDesktop ? desktopDateRefs.current : mobileDateRefs.current)[dateFocus]
+      if (!heading) return
+      heading.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      setSearchParams({}, { replace: true })
+    }
+  }, [focusId, dateFocus, reservations, setSearchParams])
 
   async function execDelete(r: Reservation) {
     const res = await adminFetch(`/api/admin/reservations/${r.id}`, { method: 'DELETE' })
@@ -75,6 +92,14 @@ export default function Reservations() {
     setReservations((prev) => prev.filter((x) => x.id !== r.id))
     setDeleteTarget(null)
   }
+
+  const reservationGroups = reservations.reduce<{ date: string; items: Reservation[] }[]>((groups, reservation) => {
+    const date = reservation.date.split('T')[0]
+    const last = groups[groups.length - 1]
+    if (last?.date === date) last.items.push(reservation)
+    else groups.push({ date, items: [reservation] })
+    return groups
+  }, [])
 
   return (
     <div>
@@ -125,7 +150,7 @@ export default function Reservations() {
           <table className="admin-table">
             <thead>
               <tr>
-                <th>日時</th>
+                <th>時間</th>
                 <th>バンド名</th>
                 <th>登録者</th>
                 <th className="text-right">ステータス</th>
@@ -134,17 +159,21 @@ export default function Reservations() {
               </tr>
             </thead>
             <tbody>
-              {reservations.map((r) => {
-                const [datePart, timePart] = r.date.split('T')
+              {reservationGroups.map((group) => (
+                <Fragment key={group.date}>
+                  <tr className="bg-bg" ref={(el) => { desktopDateRefs.current[group.date] = el }}>
+                    <td colSpan={6} className="text-[0.82rem] font-bold text-ink-sub">{formatDateHeading(group.date)}</td>
+                  </tr>
+                  {group.items.map((r) => {
+                const [, timePart] = r.date.split('T')
                 return (
                   <tr
                     key={r.id}
                     ref={(el) => { rowRefs.current[r.id] = el }}
                     className={highlightedId === r.id ? 'row-highlight' : ''}
                   >
-                    <td data-label="日時">
+                    <td data-label="時間">
                       <div>
-                        <div>{datePart}</div>
                         <div className="text-[0.8rem] text-ink-sub">{timePart}</div>
                       </div>
                     </td>
@@ -179,23 +208,32 @@ export default function Reservations() {
                   </tr>
                 )
               })}
+                </Fragment>
+              ))}
             </tbody>
           </table>
         </div>
 
         {/* Mobile accordion */}
         <div className="md:hidden bg-surface border border-line rounded-xl overflow-hidden shadow-[var(--shadow-card-sm)]">
-          {reservations.map((r) => (
-            <ReservationMobileCard
-              key={r.id}
-              r={r}
-              highlighted={highlightedId === r.id}
-              rowRef={(el) => { rowRefs.current[r.id] = el }}
-              open={openId === r.id}
-              onToggle={() => setOpenId(openId === r.id ? null : r.id)}
-              onEdit={() => setEditing(r)}
-              onDelete={() => setDeleteTarget(r)}
-            />
+          {reservationGroups.map((group) => (
+            <div key={group.date}>
+              <div ref={(el) => { mobileDateRefs.current[group.date] = el }} className="bg-bg px-4 py-2 text-[0.82rem] font-bold text-ink-sub border-b border-line">
+                {formatDateHeading(group.date)}
+              </div>
+              {group.items.map((r) => (
+                <ReservationMobileCard
+                  key={r.id}
+                  r={r}
+                  highlighted={highlightedId === r.id}
+                  rowRef={(el) => { rowRefs.current[r.id] = el }}
+                  open={openId === r.id}
+                  onToggle={() => setOpenId(openId === r.id ? null : r.id)}
+                  onEdit={() => setEditing(r)}
+                  onDelete={() => setDeleteTarget(r)}
+                />
+              ))}
+            </div>
           ))}
         </div>
         </>

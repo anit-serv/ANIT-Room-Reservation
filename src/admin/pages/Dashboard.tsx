@@ -77,7 +77,13 @@ function formatRelative(ts: number | null): string {
   return new Date(ts).toLocaleDateString('ja-JP')
 }
 
+function todayDateKey(): string {
+  return new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10)
+}
+
 const DASH_GRID  = 'grid grid-cols-2 gap-4 max-md:grid-cols-1'
+const STATS_GRID3 = 'grid grid-cols-3 gap-3 mb-3 max-md:grid-cols-3 lg:grid-cols-4'
+const STATS_GRID2 = 'grid grid-cols-2 gap-3 mb-3 max-md:grid-cols-2 lg:grid-cols-4'
 const SECTION_HEADER = 'flex justify-between items-center px-4 py-3 border-b border-line'
 
 export default function Dashboard() {
@@ -102,6 +108,7 @@ export default function Dashboard() {
   if (!data) return <DashboardSkeleton />
 
   const { stats, upcoming, pendingChange, recentLogs } = data
+  const today = todayDateKey()
 
   return (
     <div>
@@ -143,28 +150,28 @@ export default function Dashboard() {
 
       {/* 農部生協 統計 */}
       <FacilityLabel icon="grass" label="農部生協" />
-      <div className="grid grid-cols-3 gap-3 mb-3 max-md:grid-cols-3">
+      <div className={STATS_GRID3}>
         <StatCard icon="hourglass_empty" iconColor="var(--color-warn)"  label="抽選待ち"  value={stats.nobu.pending}   onClick={() => navigate('/admin/reservations')} />
         <StatCard icon="check_circle"    iconColor="var(--color-brand)" label="確定済み"  value={stats.nobu.confirmed} onClick={() => navigate('/admin/reservations')} />
-        <StatCard icon="today"           iconColor="var(--color-link)"  label="本日の予約" value={stats.nobu.today}     onClick={() => navigate('/admin/reservations/nobu')} />
+        <StatCard icon="today"           iconColor="var(--color-link)"  label="本日の予約" value={stats.nobu.today}     onClick={() => navigate(`/admin/reservations/nobu?dateFocus=${today}`)} />
       </div>
 
       {/* 工部室・農部室 統計 */}
       <FacilityLabel icon="meeting_room" label="工部室" />
-      <div className="grid grid-cols-2 gap-3 mb-3 max-md:grid-cols-2">
-        <StatCard icon="today"      iconColor="var(--color-link)"    label="本日の予約" value={stats.kobu.today} onClick={() => navigate('/admin/reservations/kobu')} />
+      <div className={STATS_GRID2}>
+        <StatCard icon="today"      iconColor="var(--color-link)"    label="本日の予約" value={stats.kobu.today} onClick={() => navigate(`/admin/reservations/kobu?dateFocus=${today}`)} />
         <StatCard icon="date_range" iconColor="var(--color-ink-sub)" label="今後7日"   value={stats.kobu.week}  onClick={() => navigate('/admin/reservations/kobu')} />
       </div>
 
-      <FacilityLabel icon="door_open" label="農部室" />
-      <div className="grid grid-cols-2 gap-3 mb-3 max-md:grid-cols-2">
-        <StatCard icon="today"      iconColor="var(--color-link)"    label="本日の予約" value={stats.nobuRoom.today} onClick={() => navigate('/admin/reservations/nobu-room')} />
+      <FacilityLabel icon="door_sliding" label="農部室" />
+      <div className={STATS_GRID2}>
+        <StatCard icon="today"      iconColor="var(--color-link)"    label="本日の予約" value={stats.nobuRoom.today} onClick={() => navigate(`/admin/reservations/nobu-room?dateFocus=${today}`)} />
         <StatCard icon="date_range" iconColor="var(--color-ink-sub)" label="今後7日"   value={stats.nobuRoom.week}  onClick={() => navigate('/admin/reservations/nobu-room')} />
       </div>
 
       {/* ユーザー管理 */}
       <FacilityLabel icon="group" label="ユーザー管理" />
-      <div className="grid grid-cols-2 gap-3 mb-5 max-md:grid-cols-2">
+      <div className={STATS_GRID2 + ' mb-5'}>
         <StatCard icon="group"           iconColor="var(--color-ink-sub)" label="ユーザー"
           value={stats.users.total}
           sub={stats.users.banned > 0 ? `BAN ${stats.users.banned}名` : undefined}
@@ -285,7 +292,7 @@ function EmptyState({ icon, text }: { icon: string; text: string }) {
 
 function DashboardSkeleton() {
   const STATS_GRID4 = 'grid grid-cols-4 gap-3 mb-3 max-md:grid-cols-2'
-  const STATS_GRID2 = 'grid grid-cols-2 gap-3 mb-3 max-md:grid-cols-2'
+  const STATS_GRID2 = 'grid grid-cols-2 gap-3 mb-3 max-md:grid-cols-2 lg:grid-cols-4'
   const StatSkel = () => (
     <div className="flex items-center gap-3 p-4 bg-surface border border-line rounded-xl shadow-[var(--shadow-card-sm)]">
       <Skeleton width={32} height={32} circle />

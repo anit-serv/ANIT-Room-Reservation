@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { Fragment, useEffect, useState, useCallback, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { adminFetch } from '../auth'
 import Skeleton from '../../components/Skeleton'
@@ -18,10 +18,19 @@ type NobuRoomReservation = {
   createdAt: number | null
 }
 
+function formatDateHeading(date: string): string {
+  const [year, month, day] = date.split('-').map(Number)
+  const weekdays = ['日', '月', '火', '水', '木', '金', '土']
+  return `${date} (${weekdays[new Date(year, month - 1, day).getDay()]})`
+}
+
 export default function NobuRoomReservations() {
   const [searchParams, setSearchParams] = useSearchParams()
   const focusId = searchParams.get('focus')
+  const dateFocus = searchParams.get('dateFocus')
   const rowRefs = useRef<Record<string, HTMLElement | null>>({})
+  const desktopDateRefs = useRef<Record<string, HTMLElement | null>>({})
+  const mobileDateRefs = useRef<Record<string, HTMLElement | null>>({})
 
   const [reservations, setReservations] = useState<NobuRoomReservation[]>([])
   const [loading, setLoading]           = useState(true)
@@ -57,9 +66,10 @@ export default function NobuRoomReservations() {
   useEffect(() => { load() }, [load])
 
   useEffect(() => {
-    if (!focusId || reservations.length === 0) return
-    const row = rowRefs.current[focusId]
-    if (row) {
+    if (reservations.length === 0) return
+    if (focusId) {
+      const row = rowRefs.current[focusId]
+      if (!row) return
       row.scrollIntoView({ behavior: 'smooth', block: 'center' })
       setHighlightedId(focusId)
       const t = setTimeout(() => {
@@ -68,7 +78,14 @@ export default function NobuRoomReservations() {
       }, 3000)
       return () => clearTimeout(t)
     }
-  }, [focusId, reservations, setSearchParams])
+    if (dateFocus) {
+      const isDesktop = window.matchMedia('(min-width: 768px)').matches
+      const heading = (isDesktop ? desktopDateRefs.current : mobileDateRefs.current)[dateFocus]
+      if (!heading) return
+      heading.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      setSearchParams({}, { replace: true })
+    }
+  }, [focusId, dateFocus, reservations, setSearchParams])
 
   async function execDelete(r: NobuRoomReservation) {
     const res = await adminFetch(`/api/admin/nobu-room-reservations/${r.id}`, { method: 'DELETE' })
@@ -76,6 +93,13 @@ export default function NobuRoomReservations() {
     setReservations((prev) => prev.filter((x) => x.id !== r.id))
     setDeleteTarget(null)
   }
+
+  const reservationGroups = reservations.reduce<{ date: string; items: NobuRoomReservation[] }[]>((groups, reservation) => {
+    const last = groups[groups.length - 1]
+    if (last?.date === reservation.date) last.items.push(reservation)
+    else groups.push({ date: reservation.date, items: [reservation] })
+    return groups
+  }, [])
 
   return (
     <div>
@@ -129,35 +153,42 @@ export default function NobuRoomReservations() {
                 </tr>
               </thead>
               <tbody>
-                {reservations.map((r) => (
-                  <tr key={r.id}
-                    ref={(el) => { rowRefs.current[r.id] = el }}
-                    className={highlightedId === r.id ? 'row-highlight' : ''}
-                  >
-                    <td data-label="日付">{r.date}</td>
-                    <td data-label="時間帯">
-                      <span className="text-[0.85rem] font-mono">{r.startTime}〜{r.endTime}</span>
-                    </td>
-                    <td data-label="バンド名">{r.bandName}</td>
-                    <td data-label="登録者">
-                      <div className="flex items-center gap-2">
-                        {r.userPictureUrl
-                          ? <img src={r.userPictureUrl} alt="" className="avatar avatar-sm" />
-                          : <span className="avatar-fallback avatar-sm"><span className="icon icon-sm">account_circle</span></span>}
-                        <span className="text-[0.85rem]">{r.userDisplayName || '(不明)'}</span>
-                      </div>
-                    </td>
-                    <td className="cell-actions">
-                      <div className="flex gap-1.5">
-                        <button className="btn-icon" onClick={() => setEditing(r)}>
-                          <span className="icon">edit</span>
-                        </button>
-                        <button className="btn-icon-danger" onClick={() => setDeleteTarget(r)}>
-                          <span className="icon">delete</span>
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
+                {reservationGroups.map((group) => (
+                  <Fragment key={group.date}>
+                    <tr className="bg-bg" ref={(el) => { desktopDateRefs.current[group.date] = el }}>
+                      <td colSpan={5} className="text-[0.82rem] font-bold text-ink-sub">{formatDateHeading(group.date)}</td>
+                    </tr>
+                    {group.items.map((r) => (
+                      <tr key={r.id}
+                        ref={(el) => { rowRefs.current[r.id] = el }}
+                        className={highlightedId === r.id ? 'row-highlight' : ''}
+                      >
+                        <td data-label="日付">{r.date}</td>
+                        <td data-label="時間帯">
+                          <span className="text-[0.85rem] font-mono">{r.startTime}〜{r.endTime}</span>
+                        </td>
+                        <td data-label="バンド名">{r.bandName}</td>
+                        <td data-label="登録者">
+                          <div className="flex items-center gap-2">
+                            {r.userPictureUrl
+                              ? <img src={r.userPictureUrl} alt="" className="avatar avatar-sm" />
+                              : <span className="avatar-fallback avatar-sm"><span className="icon icon-sm">account_circle</span></span>}
+                            <span className="text-[0.85rem]">{r.userDisplayName || '(不明)'}</span>
+                          </div>
+                        </td>
+                        <td className="cell-actions">
+                          <div className="flex gap-1.5">
+                            <button className="btn-icon" onClick={() => setEditing(r)}>
+                              <span className="icon">edit</span>
+                            </button>
+                            <button className="btn-icon-danger" onClick={() => setDeleteTarget(r)}>
+                              <span className="icon">delete</span>
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </Fragment>
                 ))}
               </tbody>
             </table>
@@ -165,13 +196,20 @@ export default function NobuRoomReservations() {
 
           {/* Mobile */}
           <div className="md:hidden bg-surface border border-line rounded-xl overflow-hidden shadow-[var(--shadow-card-sm)]">
-            {reservations.map((r) => (
-              <NobuRoomMobileCard key={r.id} r={r}
-                highlighted={highlightedId === r.id}
-                rowRef={(el) => { rowRefs.current[r.id] = el }}
-                open={openId === r.id}
-                onToggle={() => setOpenId(openId === r.id ? null : r.id)}
-                onEdit={() => setEditing(r)} onDelete={() => setDeleteTarget(r)} />
+            {reservationGroups.map((group) => (
+              <div key={group.date}>
+                <div ref={(el) => { mobileDateRefs.current[group.date] = el }} className="bg-bg px-4 py-2 text-[0.82rem] font-bold text-ink-sub border-b border-line">
+                  {formatDateHeading(group.date)}
+                </div>
+                {group.items.map((r) => (
+                  <NobuRoomMobileCard key={r.id} r={r}
+                    highlighted={highlightedId === r.id}
+                    rowRef={(el) => { rowRefs.current[r.id] = el }}
+                    open={openId === r.id}
+                    onToggle={() => setOpenId(openId === r.id ? null : r.id)}
+                    onEdit={() => setEditing(r)} onDelete={() => setDeleteTarget(r)} />
+                ))}
+              </div>
             ))}
           </div>
         </>
@@ -352,4 +390,3 @@ function buildTimeOptions(open: string, close: string): string[] {
   }
   return options
 }
-

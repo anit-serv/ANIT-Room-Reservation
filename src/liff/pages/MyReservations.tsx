@@ -84,6 +84,16 @@ function displayDateStr(r: Reservation): string {
   return r.date.slice(5).replace('-', '/')
 }
 
+function reservationDateKey(r: Reservation): string {
+  return r.facility === 'nobu' ? r.date.split('T')[0] : r.date
+}
+
+function formatDateHeading(date: string): string {
+  const [year, month, day] = date.split('-').map(Number)
+  const weekdays = ['日', '月', '火', '水', '木', '金', '土']
+  return `${month}/${day} (${weekdays[new Date(year, month - 1, day).getDay()]})`
+}
+
 function displayTime(r: Reservation): string {
   if (r.facility === 'nobu') return r.date.split('T')[1]
   return `${r.startTime}〜${r.endTime}`
@@ -364,6 +374,14 @@ export default function MyReservations({ profile, initialEdit, onEditHandled, on
     )
   }
 
+  const reservationGroups = reservations.reduce<{ date: string; items: Reservation[] }[]>((groups, reservation) => {
+    const date = reservationDateKey(reservation)
+    const last = groups[groups.length - 1]
+    if (last?.date === date) last.items.push(reservation)
+    else groups.push({ date, items: [reservation] })
+    return groups
+  }, [])
+
   return (
     <div>
       {favSection}
@@ -384,7 +402,13 @@ export default function MyReservations({ profile, initialEdit, onEditHandled, on
         />
       )}
 
-      {reservations.map((r) => {
+      {reservationGroups.map((group) => (
+        <section key={group.date} className="mb-4 last:mb-0">
+          <div className="sticky top-0 z-10 bg-bg/95 backdrop-blur px-1 py-2 text-[0.82rem] font-bold text-ink-sub">
+            {formatDateHeading(group.date)}
+          </div>
+          <div className="flex flex-col gap-2">
+      {group.items.map((r) => {
         const isDeleting  = deleting === r.id
         const past        = isPast(r)
         const fc          = facilityConfig(r)
@@ -420,9 +444,7 @@ export default function MyReservations({ profile, initialEdit, onEditHandled, on
                 </span>
               </div>
               <div className="text-[0.8rem] text-ink-sub flex items-center gap-1.5">
-                <span className="icon icon-sm text-ink-pale">calendar_month</span>
-                <span>{displayDateStr(r)}</span>
-                <span className="icon icon-sm text-ink-pale ml-0.5">schedule</span>
+                <span className="icon icon-sm text-ink-pale">schedule</span>
                 <span>{displayTime(r)}</span>
               </div>
               {notice && (
@@ -458,6 +480,9 @@ export default function MyReservations({ profile, initialEdit, onEditHandled, on
           </div>
         )
       })}
+          </div>
+        </section>
+      ))}
 
       {/* お気に入り編集モーダル */}
       {favEditModal && (
