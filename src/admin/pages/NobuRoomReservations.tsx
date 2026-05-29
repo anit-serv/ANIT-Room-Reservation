@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { adminFetch } from '../auth'
 import Skeleton from '../../components/Skeleton'
@@ -141,29 +141,31 @@ export default function NobuRoomReservations() {
       ) : (
         <>
           {/* Desktop */}
-          <div className="hidden md:block bg-surface border border-line rounded-xl overflow-hidden shadow-[var(--shadow-card-sm)]">
-            <table className="admin-table">
-              <thead>
-                <tr>
-                  <th>日付</th>
-                  <th>時間帯</th>
-                  <th>バンド名</th>
-                  <th>登録者</th>
-                  <th style={{ width: '100px' }}>操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                {reservationGroups.map((group) => (
-                  <Fragment key={group.date}>
-                    <tr className="bg-bg" ref={(el) => { desktopDateRefs.current[group.date] = el }}>
-                      <td colSpan={5} className="text-[0.82rem] font-bold text-ink-sub">{formatDateHeading(group.date)}</td>
+          <div className="hidden md:flex flex-col gap-4">
+            {reservationGroups.map((group) => (
+              <section key={group.date} className="bg-surface border border-line rounded-xl overflow-hidden shadow-[var(--shadow-card-sm)]">
+                <div ref={(el) => { desktopDateRefs.current[group.date] = el }} className="flex items-center justify-between px-5 py-3 bg-bg border-b border-line">
+                  <div className="flex items-center gap-2 font-bold text-ink">
+                    <span className="icon icon-sm text-ink-pale">event</span>
+                    {formatDateHeading(group.date)}
+                  </div>
+                  <span className="text-[0.78rem] font-semibold text-ink-sub">{group.items.length}件</span>
+                </div>
+                <table className="admin-table">
+                  <thead>
+                    <tr>
+                      <th>時間帯</th>
+                      <th>バンド名</th>
+                      <th>登録者</th>
+                      <th style={{ width: '100px' }}>操作</th>
                     </tr>
+                  </thead>
+                  <tbody>
                     {group.items.map((r) => (
                       <tr key={r.id}
                         ref={(el) => { rowRefs.current[r.id] = el }}
                         className={highlightedId === r.id ? 'row-highlight' : ''}
                       >
-                        <td data-label="日付">{r.date}</td>
                         <td data-label="時間帯">
                           <span className="text-[0.85rem] font-mono">{r.startTime}〜{r.endTime}</span>
                         </td>
@@ -188,10 +190,10 @@ export default function NobuRoomReservations() {
                         </td>
                       </tr>
                     ))}
-                  </Fragment>
-                ))}
-              </tbody>
-            </table>
+                  </tbody>
+                </table>
+              </section>
+            ))}
           </div>
 
           {/* Mobile */}

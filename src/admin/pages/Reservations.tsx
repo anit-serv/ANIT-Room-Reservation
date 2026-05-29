@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { adminFetch } from '../auth'
 import TimeRangeInput from '../components/TimeRangeInput'
@@ -146,24 +146,28 @@ export default function Reservations() {
       ) : (
         <>
         {/* Desktop */}
-        <div className="hidden md:block bg-surface border border-line rounded-xl overflow-hidden shadow-[var(--shadow-card-sm)]">
-          <table className="admin-table">
-            <thead>
-              <tr>
-                <th>時間</th>
-                <th>バンド名</th>
-                <th>登録者</th>
-                <th className="text-right">ステータス</th>
-                <th className="text-right">順位</th>
-                <th style={{ width: '120px' }}>操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              {reservationGroups.map((group) => (
-                <Fragment key={group.date}>
-                  <tr className="bg-bg" ref={(el) => { desktopDateRefs.current[group.date] = el }}>
-                    <td colSpan={6} className="text-[0.82rem] font-bold text-ink-sub">{formatDateHeading(group.date)}</td>
+        <div className="hidden md:flex flex-col gap-4">
+          {reservationGroups.map((group) => (
+            <section key={group.date} className="bg-surface border border-line rounded-xl overflow-hidden shadow-[var(--shadow-card-sm)]">
+              <div ref={(el) => { desktopDateRefs.current[group.date] = el }} className="flex items-center justify-between px-5 py-3 bg-bg border-b border-line">
+                <div className="flex items-center gap-2 font-bold text-ink">
+                  <span className="icon icon-sm text-ink-pale">event</span>
+                  {formatDateHeading(group.date)}
+                </div>
+                <span className="text-[0.78rem] font-semibold text-ink-sub">{group.items.length}件</span>
+              </div>
+              <table className="admin-table">
+                <thead>
+                  <tr>
+                    <th>時間</th>
+                    <th>バンド名</th>
+                    <th>登録者</th>
+                    <th className="text-right">ステータス</th>
+                    <th className="text-right">順位</th>
+                    <th style={{ width: '120px' }}>操作</th>
                   </tr>
+                </thead>
+                <tbody>
                   {group.items.map((r) => {
                 const [, timePart] = r.date.split('T')
                 return (
@@ -208,10 +212,10 @@ export default function Reservations() {
                   </tr>
                 )
               })}
-                </Fragment>
-              ))}
-            </tbody>
-          </table>
+                </tbody>
+              </table>
+            </section>
+          ))}
         </div>
 
         {/* Mobile accordion */}

@@ -81,9 +81,9 @@ function todayDateKey(): string {
   return new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10)
 }
 
-const DASH_GRID  = 'grid grid-cols-2 gap-4 max-md:grid-cols-1'
-const STATS_GRID3 = 'grid grid-cols-3 gap-3 mb-3 max-md:grid-cols-3 lg:grid-cols-4'
-const STATS_GRID2 = 'grid grid-cols-2 gap-3 mb-3 max-md:grid-cols-2 lg:grid-cols-4'
+const DASHBOARD_GRID = 'grid grid-cols-[minmax(0,1fr)_minmax(340px,0.58fr)] gap-5 items-start max-lg:block'
+const STATS_GRID3 = 'grid grid-cols-3 gap-3 mb-3 max-md:grid-cols-3'
+const STATS_GRID2 = 'grid grid-cols-2 gap-3 mb-3 max-md:grid-cols-2'
 const SECTION_HEADER = 'flex justify-between items-center px-4 py-3 border-b border-line'
 
 export default function Dashboard() {
@@ -148,40 +148,43 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* 農部生協 統計 */}
-      <FacilityLabel icon="grass" label="農部生協" />
-      <div className={STATS_GRID3}>
-        <StatCard icon="hourglass_empty" iconColor="var(--color-warn)"  label="抽選待ち"  value={stats.nobu.pending}   onClick={() => navigate('/admin/reservations')} />
-        <StatCard icon="check_circle"    iconColor="var(--color-brand)" label="確定済み"  value={stats.nobu.confirmed} onClick={() => navigate('/admin/reservations')} />
-        <StatCard icon="today"           iconColor="var(--color-link)"  label="本日の予約" value={stats.nobu.today}     onClick={() => navigate(`/admin/reservations/nobu?dateFocus=${today}`)} />
-      </div>
+      <div className={DASHBOARD_GRID}>
+        <div>
+          {/* 農部生協 統計 */}
+          <FacilityLabel icon="grass" label="農部生協" />
+          <div className={STATS_GRID3}>
+            <StatCard icon="hourglass_empty" iconColor="var(--color-warn)"  label="抽選待ち"  value={stats.nobu.pending}   onClick={() => navigate('/admin/reservations')} />
+            <StatCard icon="check_circle"    iconColor="var(--color-brand)" label="確定済み"  value={stats.nobu.confirmed} onClick={() => navigate('/admin/reservations')} />
+            <StatCard icon="today"           iconColor="var(--color-link)"  label="本日の予約" value={stats.nobu.today}     onClick={() => navigate(`/admin/reservations/nobu?dateFocus=${today}`)} />
+          </div>
 
-      {/* 工部室・農部室 統計 */}
-      <FacilityLabel icon="meeting_room" label="工部室" />
-      <div className={STATS_GRID2}>
-        <StatCard icon="today"      iconColor="var(--color-link)"    label="本日の予約" value={stats.kobu.today} onClick={() => navigate(`/admin/reservations/kobu?dateFocus=${today}`)} />
-        <StatCard icon="date_range" iconColor="var(--color-ink-sub)" label="今後7日"   value={stats.kobu.week}  onClick={() => navigate('/admin/reservations/kobu')} />
-      </div>
+          {/* 工部室・農部室 統計 */}
+          <FacilityLabel icon="meeting_room" label="工部室" />
+          <div className={STATS_GRID2}>
+            <StatCard icon="today"      iconColor="var(--color-link)"    label="本日の予約" value={stats.kobu.today} onClick={() => navigate(`/admin/reservations/kobu?dateFocus=${today}`)} />
+            <StatCard icon="date_range" iconColor="var(--color-ink-sub)" label="今後7日"   value={stats.kobu.week}  onClick={() => navigate('/admin/reservations/kobu')} />
+          </div>
 
-      <FacilityLabel icon="door_sliding" label="農部室" />
-      <div className={STATS_GRID2}>
-        <StatCard icon="today"      iconColor="var(--color-link)"    label="本日の予約" value={stats.nobuRoom.today} onClick={() => navigate(`/admin/reservations/nobu-room?dateFocus=${today}`)} />
-        <StatCard icon="date_range" iconColor="var(--color-ink-sub)" label="今後7日"   value={stats.nobuRoom.week}  onClick={() => navigate('/admin/reservations/nobu-room')} />
-      </div>
+          <FacilityLabel icon="door_sliding" label="農部室" />
+          <div className={STATS_GRID2}>
+            <StatCard icon="today"      iconColor="var(--color-link)"    label="本日の予約" value={stats.nobuRoom.today} onClick={() => navigate(`/admin/reservations/nobu-room?dateFocus=${today}`)} />
+            <StatCard icon="date_range" iconColor="var(--color-ink-sub)" label="今後7日"   value={stats.nobuRoom.week}  onClick={() => navigate('/admin/reservations/nobu-room')} />
+          </div>
 
-      {/* ユーザー管理 */}
-      <FacilityLabel icon="group" label="ユーザー管理" />
-      <div className={STATS_GRID2 + ' mb-5'}>
-        <StatCard icon="group"           iconColor="var(--color-ink-sub)" label="ユーザー"
-          value={stats.users.total}
-          sub={stats.users.banned > 0 ? `BAN ${stats.users.banned}名` : undefined}
-          onClick={() => navigate('/admin/users')} />
-        <StatCard icon="admin_panel_settings" iconColor="var(--color-ink-sub)" label="管理者"
-          value={stats.adminCount}
-          onClick={() => navigate('/admin/admins')} />
-      </div>
+          {/* ユーザー管理 */}
+          <FacilityLabel icon="group" label="ユーザー管理" />
+          <div className={STATS_GRID2 + ' mb-5'}>
+            <StatCard icon="group"           iconColor="var(--color-ink-sub)" label="ユーザー"
+              value={stats.users.total}
+              sub={stats.users.banned > 0 ? `BAN ${stats.users.banned}名` : undefined}
+              onClick={() => navigate('/admin/users')} />
+            <StatCard icon="admin_panel_settings" iconColor="var(--color-ink-sub)" label="管理者"
+              value={stats.adminCount}
+              onClick={() => navigate('/admin/admins')} />
+          </div>
+        </div>
 
-      <div className={DASH_GRID}>
+        <div className="grid gap-4 max-lg:grid-cols-2 max-md:grid-cols-1">
         {/* 直近の予約（全施設） */}
         <div className="bg-surface border border-line rounded-xl overflow-hidden shadow-[var(--shadow-card-sm)]">
           <div className={SECTION_HEADER}>
@@ -267,6 +270,7 @@ export default function Dashboard() {
             </div>
           )}
         </div>
+      </div>
       </div>
     </div>
   )
