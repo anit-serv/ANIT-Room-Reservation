@@ -728,7 +728,7 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled, onBo
         }
 
         return (
-          <div className="border border-line rounded-xl shadow-[var(--shadow-card-sm)] overflow-hidden flex flex-col flex-1 min-h-0"
+          <div className={`border border-line rounded-xl shadow-[var(--shadow-card-sm)] overflow-hidden flex flex-col flex-1 min-h-0 transition-[margin] duration-200 ${sheetPeeking ? 'mb-[168px]' : ''}`}
             onClick={sheetPeeking ? () => setCloseConfirm(true) : undefined}>
             <div
               ref={scrollRef}
