@@ -297,7 +297,7 @@ export default function MyReservations({ profile, initialEdit, onEditHandled, on
       <div className={`grid transition-[grid-template-rows] duration-200 ease-out ${favOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
         <div className="min-h-0 overflow-hidden">
           <div className="border-t border-line px-4 py-3 space-y-2">
-            {favorites.length === 0 && !addingFav && (
+            {favorites.length === 0 && (
               <p className="text-[0.82rem] text-ink-pale py-1">まだ登録されていません</p>
             )}
 
