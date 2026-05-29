@@ -6,6 +6,7 @@ import ConfirmDialog from '../../components/ConfirmDialog'
 import DatePicker from '../../components/DatePicker'
 
 type TimeSlot = { label: string; value: string }
+type DateOption = { label: string; value: string }
 
 type Reservation = {
   id: string
@@ -351,12 +352,48 @@ function EditModal({
   const [datePart, timePart] = reservation.date.split('T')
   const [date, setDate] = useState(datePart)
   const [time, setTime] = useState(timePart)
+  const [dateOptions, setDateOptions] = useState<DateOption[]>([])
+  const [loadingDates, setLoadingDates] = useState(false)
   const [timeSlots, setTimeSlots] = useState<TimeSlot[]>([])
   const [loadingSlots, setLoadingSlots] = useState(false)
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState<string | null>(null)
 
   useEffect(() => {
+    let alive = true
+    setLoadingDates(true)
+    setErr(null)
+    adminFetch('/api/admin/settings/available-dates')
+      .then(async (res) => {
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok) throw new Error(data.error ?? '日付候補の取得に失敗しました')
+        if (!alive) return
+        const dates = Array.isArray(data.dates) ? data.dates : []
+        setDateOptions(dates)
+        if (dates.length > 0 && !dates.some((d: DateOption) => d.value === date)) {
+          setDate(dates[0].value)
+        } else if (dates.length === 0) {
+          setDate('')
+        }
+      })
+      .catch((e: any) => {
+        if (!alive) return
+        setDateOptions([])
+        setDate('')
+        setErr(e.message ?? '日付候補の取得に失敗しました')
+      })
+      .finally(() => {
+        if (alive) setLoadingDates(false)
+      })
+    return () => { alive = false }
+  }, [])
+
+  useEffect(() => {
+    if (!date) {
+      setTimeSlots([])
+      setTime('')
+      return
+    }
     let alive = true
     setLoadingSlots(true)
     setErr(null)
@@ -419,7 +456,21 @@ function EditModal({
         </div>
         <div className="form-row">
           <label>日付</label>
-          <DatePicker value={date} onChange={setDate} />
+          <select
+            className="text-input"
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+            disabled={loadingDates || dateOptions.length === 0}
+          >
+            {dateOptions.map((d) => (
+              <option key={d.value} value={d.value}>{d.label}</option>
+            ))}
+            {dateOptions.length === 0 && (
+              <option value="">
+                {loadingDates ? '日付候補を読み込み中...' : '選択できる日付がありません'}
+              </option>
+            )}
+          </select>
         </div>
         <div className="form-row">
           <label>時間帯</label>
@@ -442,7 +493,7 @@ function EditModal({
           </select>
         </div>
         <div className="mt-4">
-          <button className="btn-primary" onClick={save} disabled={saving || loadingSlots || timeSlots.length === 0 || !time}>
+          <button className="btn-primary" onClick={save} disabled={saving || loadingDates || loadingSlots || dateOptions.length === 0 || timeSlots.length === 0 || !date || !time}>
             {saving ? '保存中...' : '保存'}
           </button>
         </div>

@@ -206,10 +206,16 @@ export default function NobuEmergencySettings() {
           </span>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-[180px_1fr] gap-4 mb-4">
+        <div className="grid grid-cols-1 lg:grid-cols-[270px_1fr] gap-4 mb-4">
           <div className="form-row mb-0">
             <label>対象日</label>
-            <DatePicker value={emergencyDate} onChange={setEmergencyDate} min={todayJST()} maxDate={maxEmergencyDate()} />
+            <DatePicker
+              value={emergencyDate}
+              onChange={setEmergencyDate}
+              min={todayJST()}
+              maxDate={maxEmergencyDate()}
+              className="w-full justify-start whitespace-nowrap"
+            />
             <p className="text-[0.78rem] text-ink-sub mt-1">
               対象可能範囲: {todayJST()} 〜 {maxEmergencyDate()} / {' '}
               既存予約: <strong>{emergencyCount ?? '-'}</strong> 件

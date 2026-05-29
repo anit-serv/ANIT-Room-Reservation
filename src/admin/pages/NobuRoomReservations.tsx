@@ -5,6 +5,9 @@ import Skeleton from '../../components/Skeleton'
 import ConfirmDialog from '../../components/ConfirmDialog'
 import DatePicker from '../../components/DatePicker'
 
+type DateOption = { label: string; value: string }
+type TimeSlot = { label: string; value: string }
+
 type NobuRoomReservation = {
   id: string
   userId: string
@@ -297,23 +300,98 @@ function NobuRoomEditModal({ reservation, onClose, onSaved }: {
   const [date,      setDate]      = useState(reservation.date)
   const [startTime, setStartTime] = useState(reservation.startTime)
   const [endTime,   setEndTime]   = useState(reservation.endTime)
+  const [dateOptions, setDateOptions] = useState<DateOption[]>([])
+  const [loadingDates, setLoadingDates] = useState(false)
   const [saving,    setSaving]    = useState(false)
   const [err,       setErr]       = useState<string | null>(null)
   const [sameDay,   setSameDay]   = useState<NobuRoomReservation[]>([])
+  const [loadingSameDay, setLoadingSameDay] = useState(false)
+  const [timeSlots, setTimeSlots] = useState<TimeSlot[]>([])
+  const [loadingSlots, setLoadingSlots] = useState(false)
 
-  const timeOptions = buildTimeOptions('08:00', '20:00')
+  const timeOptions = buildTimeOptions(timeSlots)
 
   useEffect(() => {
+    let alive = true
+    setLoadingDates(true)
+    setErr(null)
+    adminFetch('/api/admin/nobu-room-settings/available-dates')
+      .then(async (res) => {
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok) throw new Error(data.error ?? '日付候補の取得に失敗しました')
+        if (!alive) return
+        const dates = Array.isArray(data.dates) ? data.dates : []
+        setDateOptions(dates)
+        if (dates.length > 0 && !dates.some((d: DateOption) => d.value === date)) {
+          setDate(dates[0].value)
+        } else if (dates.length === 0) {
+          setDate('')
+        }
+      })
+      .catch((e: any) => {
+        if (!alive) return
+        setDateOptions([])
+        setDate('')
+        setErr(e.message ?? '日付候補の取得に失敗しました')
+      })
+      .finally(() => {
+        if (alive) setLoadingDates(false)
+      })
+    return () => { alive = false }
+  }, [])
+
+  useEffect(() => {
+    if (!date) {
+      setSameDay([])
+      return
+    }
+    setLoadingSameDay(true)
     adminFetch(`/api/admin/nobu-room-reservations?date=${date}`)
       .then((r) => r.ok ? r.json() : { reservations: [] })
       .then((data) => setSameDay((data.reservations ?? []).filter((r: NobuRoomReservation) => r.id !== reservation.id)))
       .catch(() => setSameDay([]))
+      .finally(() => setLoadingSameDay(false))
   }, [date, reservation.id])
 
-  const conflict = sameDay.find((r) => startTime < r.endTime && r.startTime < endTime)
+  useEffect(() => {
+    if (!date) {
+      setTimeSlots([])
+      return
+    }
+    let alive = true
+    setLoadingSlots(true)
+    adminFetch(`/api/admin/nobu-room-settings/time-slots?date=${encodeURIComponent(date)}`)
+      .then(async (res) => {
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok) throw new Error(data.error ?? '時間枠の取得に失敗しました')
+        if (!alive) return
+        const slots = Array.isArray(data.timeSlots) ? data.timeSlots : []
+        setTimeSlots(slots)
+        if (slots.length === 0) {
+          setStartTime('')
+          setEndTime('')
+        } else if (!rangeFitsInSlot(startTime, endTime, slots)) {
+          const [nextStart, nextEnd] = slots[0].value.split('-')
+          setStartTime(nextStart)
+          setEndTime(nextEnd)
+        }
+      })
+      .catch((e: any) => {
+        if (!alive) return
+        setTimeSlots([])
+        setErr(e.message ?? '時間枠の取得に失敗しました')
+      })
+      .finally(() => {
+        if (alive) setLoadingSlots(false)
+      })
+    return () => { alive = false }
+  }, [date])
 
-  function isStartBlocked(t: string) { return sameDay.some((r) => t < r.endTime && r.startTime < endTime) }
-  function isEndBlocked(t: string)   { return sameDay.some((r) => startTime < r.endTime && r.startTime < t) }
+  const conflict = sameDay.find((r) => timesOverlap(startTime, endTime, r.startTime, r.endTime))
+  const fitsInSlot = rangeFitsInSlot(startTime, endTime, timeSlots)
+
+  function isStartBlocked(t: string) { return sameDay.some((r) => timesOverlap(t, endTime, r.startTime, r.endTime)) }
+  function isEndBlocked(t: string)   { return sameDay.some((r) => timesOverlap(startTime, t, r.startTime, r.endTime)) }
 
   async function save() {
     if (conflict) return
@@ -349,33 +427,54 @@ function NobuRoomEditModal({ reservation, onClose, onSaved }: {
             {conflict.startTime}〜{conflict.endTime}（{conflict.bandName}）と重複しています
           </div>
         )}
+        {!conflict && !fitsInSlot && !loadingSlots && !err && (
+          <div className="banner-warn">選択した時間帯は予約可能時間外です</div>
+        )}
         <div className="form-row">
           <label>バンド名</label>
           <input className="text-input" value={bandName} onChange={(e) => setBandName(e.target.value)} />
         </div>
         <div className="form-row">
           <label>日付</label>
-          <DatePicker value={date} onChange={setDate} />
+          <select
+            className="text-input"
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+            disabled={loadingDates || dateOptions.length === 0}
+          >
+            {dateOptions.map((d) => (
+              <option key={d.value} value={d.value}>{d.label}</option>
+            ))}
+            {dateOptions.length === 0 && (
+              <option value="">
+                {loadingDates ? '日付候補を読み込み中...' : '選択できる日付がありません'}
+              </option>
+            )}
+          </select>
         </div>
         <div className="form-row">
           <label>開始時刻</label>
-          <select className="text-input" value={startTime} onChange={(e) => setStartTime(e.target.value)}>
+          <select className="text-input" value={startTime} onChange={(e) => setStartTime(e.target.value)}
+            disabled={loadingSlots || timeOptions.length === 0}>
             {timeOptions.slice(0, -1).map((t) => (
-              <option key={t} value={t} disabled={isStartBlocked(t)}>{t}</option>
+              <option key={t} value={t} disabled={isStartBlocked(t) || !canUseStart(t, endTime, timeSlots)}>{t}</option>
             ))}
+            {timeOptions.length === 0 && <option value="">選択できる時刻がありません</option>}
           </select>
         </div>
         <div className="form-row">
           <label>終了時刻</label>
-          <select className="text-input" value={endTime} onChange={(e) => setEndTime(e.target.value)}>
+          <select className="text-input" value={endTime} onChange={(e) => setEndTime(e.target.value)}
+            disabled={loadingSlots || timeOptions.length === 0}>
             {timeOptions.slice(1).map((t) => (
-              <option key={t} value={t} disabled={t <= startTime || isEndBlocked(t)}>{t}</option>
+              <option key={t} value={t} disabled={t <= startTime || isEndBlocked(t) || !canUseEnd(startTime, t, timeSlots)}>{t}</option>
             ))}
+            {timeOptions.length === 0 && <option value="">選択できる時刻がありません</option>}
           </select>
         </div>
         <div className="mt-4">
           <button className="btn-primary" onClick={save}
-            disabled={saving || !bandName.trim() || startTime >= endTime || !!conflict}>
+            disabled={saving || loadingDates || loadingSlots || loadingSameDay || dateOptions.length === 0 || timeOptions.length === 0 || !date || !bandName.trim() || startTime >= endTime || !fitsInSlot || !!conflict}>
             {saving ? '保存中...' : '保存'}
           </button>
         </div>
@@ -384,17 +483,46 @@ function NobuRoomEditModal({ reservation, onClose, onSaved }: {
   )
 }
 
-function buildTimeOptions(open: string, close: string): string[] {
-  const options: string[] = []
-  const [oh, om] = open.split(':').map(Number)
-  const [ch, cm] = close.split(':').map(Number)
-  let cur = oh * 60 + om
-  const end = ch * 60 + cm
-  while (cur <= end) {
-    const h = String(Math.floor(cur / 60)).padStart(2, '0')
-    const m = String(cur % 60).padStart(2, '0')
-    options.push(`${h}:${m}`)
-    cur += 15
+function toMinutes(t: string): number {
+  const [h, m] = t.split(':').map(Number)
+  return h * 60 + m
+}
+
+function minutesToTime(m: number): string {
+  return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
+}
+
+function buildTimeOptions(slots: TimeSlot[]): string[] {
+  const options = new Set<string>()
+  for (const slot of slots) {
+    const [start, end] = slot.value.split('-')
+    for (let cur = toMinutes(start); cur <= toMinutes(end); cur += 15) {
+      options.add(minutesToTime(cur))
+    }
   }
-  return options
+  return [...options].sort()
+}
+
+function timesOverlap(startA: string, endA: string, startB: string, endB: string): boolean {
+  return toMinutes(startA) < toMinutes(endB) && toMinutes(startB) < toMinutes(endA)
+}
+
+function rangeFitsInSlot(startTime: string, endTime: string, slots: TimeSlot[]): boolean {
+  if (!startTime || !endTime || startTime >= endTime) return false
+  const start = toMinutes(startTime)
+  const end = toMinutes(endTime)
+  return slots.some((slot) => {
+    const [slotStart, slotEnd] = slot.value.split('-')
+    return start >= toMinutes(slotStart) && end <= toMinutes(slotEnd)
+  })
+}
+
+function canUseStart(startTime: string, endTime: string, slots: TimeSlot[]): boolean {
+  if (!endTime || startTime >= endTime) return true
+  return rangeFitsInSlot(startTime, endTime, slots)
+}
+
+function canUseEnd(startTime: string, endTime: string, slots: TimeSlot[]): boolean {
+  if (!startTime || startTime >= endTime) return false
+  return rangeFitsInSlot(startTime, endTime, slots)
 }

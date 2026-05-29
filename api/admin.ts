@@ -10,9 +10,11 @@ import {
   listPendingFacilitySettingsChanges,
   listPendingReservationSettingsChanges,
   listReservationDayOverrides,
+  isDateAvailableBySettings,
   isTimeSlotAvailableBySettings,
   pickTimeSlotsForDate,
   resolveReservationSettingsForDate,
+  resolveFacilitySettingsForDate,
   todayJST,
 } from '../lib/reservationSettings'
 import 'dotenv/config'
@@ -81,6 +83,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (path === 'settings/scheduled')    return handleSettingsScheduled(req, res)
   if (path === 'settings/lottery-time') return handleSettingsLotteryTime(req, res)
   if (path === 'settings/time-slots')   return handleSettingsTimeSlots(req, res)
+  if (path === 'settings/available-dates') return handleSettingsAvailableDates(req, res)
   if (segments[0] === 'settings' && segments[1] === 'day-overrides') {
     if (segments.length === 2) return handleSettingsDayOverrides(req, res)
     if (segments.length === 3) return handleSettingsDayOverrideByDate(req, res, segments[2])
@@ -128,6 +131,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   // 工部室設定
   if (path === 'kobu-settings') return handleKobuSettings(req, res)
+  if (path === 'kobu-settings/available-dates') return handleFacilityAvailableDates(req, res, 'kobu')
+  if (path === 'kobu-settings/time-slots') return handleFacilityTimeSlots(req, res, 'kobu')
   if (path === 'kobu-settings/scheduled') return handleFacilitySettingsScheduled(req, res, 'kobu')
   if (path === 'kobu-settings/presets') return handleFacilityTimePresets(req, res, 'kobu')
 
@@ -139,6 +144,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   // 農部室設定
   if (path === 'nobu-room-settings') return handleNobuRoomSettings(req, res)
+  if (path === 'nobu-room-settings/available-dates') return handleFacilityAvailableDates(req, res, 'nobu-room')
+  if (path === 'nobu-room-settings/time-slots') return handleFacilityTimeSlots(req, res, 'nobu-room')
   if (path === 'nobu-room-settings/scheduled') return handleFacilitySettingsScheduled(req, res, 'nobu-room')
   if (path === 'nobu-room-settings/presets') return handleFacilityTimePresets(req, res, 'nobu-room')
 
@@ -322,7 +329,94 @@ function toMinutes(t: string): number {
   return h * 60 + m
 }
 
+function isMultipleOf15(t: string): boolean {
+  return toMinutes(t) % 15 === 0
+}
+
+function timesOverlap(startA: string, endA: string, startB: string, endB: string): boolean {
+  return toMinutes(startA) < toMinutes(endB) && toMinutes(startB) < toMinutes(endA)
+}
+
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
+const WEEK_DAYS = ['日', '月', '火', '水', '木', '金', '土']
+
+type DateOption = { label: string; value: string }
+
+function formatDateOption(date: string): DateOption {
+  const d = new Date(date + 'T00:00:00Z')
+  const month = d.getUTCMonth() + 1
+  const day = d.getUTCDate()
+  return { label: `${month}/${day}(${WEEK_DAYS[d.getUTCDay()]})`, value: date }
+}
+
+async function buildReservationAvailableDates(): Promise<DateOption[]> {
+  const dates = Array.from({ length: 8 }, (_, i) => addDaysJST(i))
+  const entries = await Promise.all(dates.map(async (date) => {
+    const settings = await resolveReservationSettingsForDate(db, date)
+    if (isDateAvailableBySettings(date, settings) && pickTimeSlotsForDate(date, settings).length > 0) {
+      return formatDateOption(date)
+    }
+    return null
+  }))
+  return entries.filter((entry): entry is DateOption => entry !== null)
+}
+
+async function getFacilityBaseSettings(settingDocId: string): Promise<SettingsCore> {
+  const doc = await db.collection('settings').doc(settingDocId).get()
+  const data = doc.exists ? doc.data()! : {}
+  let timeSlots = data.timeSlots as TimeSlot[] | undefined
+  if ((!timeSlots || timeSlots.length === 0) && (data.openTime || data.closeTime)) {
+    const open = data.openTime ?? '08:00'
+    const close = data.closeTime ?? '20:00'
+    timeSlots = [{ label: `${open}〜${close}`, value: `${open}-${close}` }]
+  }
+
+  return {
+    availableDays: Array.isArray(data.availableDays) ? data.availableDays : [0, 1, 2, 3, 4, 5, 6],
+    extraDates: Array.isArray(data.extraDates) ? data.extraDates : [],
+    excludedDates: Array.isArray(data.excludedDates) ? data.excludedDates : [],
+    timeSlots: (timeSlots?.length ? timeSlots : [{ label: '8:00~20:00', value: '08:00-20:00' }]).filter((s: any) => !s.deleted),
+    perDaySchedule: data.perDaySchedule ?? { enabled: false, byWeekday: {}, byDate: {} },
+  }
+}
+
+async function buildFacilityAvailableDates(settingDocId: string): Promise<DateOption[]> {
+  const baseSettings = await getFacilityBaseSettings(settingDocId)
+  const dates = Array.from({ length: 31 }, (_, i) => addDaysJST(i))
+  const entries = await Promise.all(dates.map(async (date) => {
+    const settings = await resolveFacilitySettingsForDate(db, settingDocId, date, baseSettings)
+    if (isDateAvailableBySettings(date, settings) && pickTimeSlotsForDate(date, settings).length > 0) {
+      return formatDateOption(date)
+    }
+    return null
+  }))
+  return entries.filter((entry): entry is DateOption => entry !== null)
+}
+
+async function isFacilityReservationRangeAvailable(
+  settingDocId: string,
+  date: string,
+  startTime: string,
+  endTime: string,
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  const baseSettings = await getFacilityBaseSettings(settingDocId)
+  const settings = await resolveFacilitySettingsForDate(db, settingDocId, date, baseSettings)
+  if (!isDateAvailableBySettings(date, settings)) {
+    return { ok: false, message: 'この日は予約できません' }
+  }
+  const start = toMinutes(startTime)
+  const end = toMinutes(endTime)
+  const slots = pickTimeSlotsForDate(date, settings)
+  const fits = slots.some((slot) => {
+    const [slotStart, slotEnd] = slot.value.split('-')
+    return start >= toMinutes(slotStart) && end <= toMinutes(slotEnd)
+  })
+  if (!fits) {
+    const slotStr = slots.map((slot) => slot.value.replace('-', '〜')).join(' / ')
+    return { ok: false, message: slotStr ? `予約可能時間は ${slotStr} です` : 'この日に指定できる時間帯がありません' }
+  }
+  return { ok: true }
+}
 
 // 単一の時間枠配列のバリデーション（形式・順序・重複）
 function validateTimeSlots(timeSlots: any, contextLabel = ''): TimeSlot[] | string {
@@ -490,6 +584,65 @@ async function handleSettingsTimeSlots(req: VercelRequest, res: VercelResponse) 
     return res.status(200).json({
       date,
       timeSlots: pickTimeSlotsForDate(date, settings),
+      effectiveFrom: settings.effectiveFrom,
+    })
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message })
+  }
+}
+
+async function handleSettingsAvailableDates(req: VercelRequest, res: VercelResponse) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method Not Allowed' })
+  try {
+    await verifyAdmin(req.headers.authorization)
+  } catch (err: any) {
+    const status = err.message === 'Forbidden' ? 403 : 401
+    return res.status(status).json({ error: err.message })
+  }
+
+  try {
+    const dates = await buildReservationAvailableDates()
+    return res.status(200).json({ dates })
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message })
+  }
+}
+
+async function handleFacilityAvailableDates(req: VercelRequest, res: VercelResponse, settingDocId: string) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method Not Allowed' })
+  try {
+    await verifyAdmin(req.headers.authorization)
+  } catch (err: any) {
+    const status = err.message === 'Forbidden' ? 403 : 401
+    return res.status(status).json({ error: err.message })
+  }
+
+  try {
+    const dates = await buildFacilityAvailableDates(settingDocId)
+    return res.status(200).json({ dates })
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message })
+  }
+}
+
+async function handleFacilityTimeSlots(req: VercelRequest, res: VercelResponse, settingDocId: string) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method Not Allowed' })
+  try {
+    await verifyAdmin(req.headers.authorization)
+  } catch (err: any) {
+    const status = err.message === 'Forbidden' ? 403 : 401
+    return res.status(status).json({ error: err.message })
+  }
+
+  const date = req.query.date as string | undefined
+  if (!date || !isValidDate(date)) return res.status(400).json({ error: '日付の形式が不正です' })
+
+  try {
+    const baseSettings = await getFacilityBaseSettings(settingDocId)
+    const settings = await resolveFacilitySettingsForDate(db, settingDocId, date, baseSettings)
+    return res.status(200).json({
+      date,
+      timeSlots: isDateAvailableBySettings(date, settings) ? pickTimeSlotsForDate(date, settings) : [],
       effectiveFrom: settings.effectiveFrom,
     })
   } catch (err: any) {
@@ -1452,15 +1605,23 @@ async function handleKobuReservationById(req: VercelRequest, res: VercelResponse
     const finalStartTime = update.startTime ?? before.startTime
     const finalEndTime   = update.endTime   ?? before.endTime
 
+    if (!isValidTime(finalStartTime) || !isValidTime(finalEndTime)) {
+      return res.status(400).json({ error: '時刻の形式が不正です（HH:MM）' })
+    }
+    if (!isMultipleOf15(finalStartTime) || !isMultipleOf15(finalEndTime)) {
+      return res.status(400).json({ error: '時刻は15分単位で指定してください' })
+    }
     if (finalStartTime >= finalEndTime) {
       return res.status(400).json({ error: '開始時刻は終了時刻より前にしてください' })
     }
+    const availability = await isFacilityReservationRangeAvailable('kobu', finalDate, finalStartTime, finalEndTime)
+    if (!availability.ok) return res.status(400).json({ error: availability.message })
 
     const existingSnap = await db.collection('kobu_reservations').where('date', '==', finalDate).get()
     for (const d of existingSnap.docs) {
       if (d.id === id) continue
       const data = d.data()
-      if (finalStartTime < data.endTime && data.startTime < finalEndTime) {
+      if (timesOverlap(finalStartTime, finalEndTime, data.startTime, data.endTime)) {
         return res.status(400).json({ error: `${data.startTime}〜${data.endTime} に既に予約が入っています` })
       }
     }
@@ -1658,15 +1819,23 @@ async function handleNobuRoomReservationById(req: VercelRequest, res: VercelResp
     const finalStartTime = update.startTime ?? before.startTime
     const finalEndTime   = update.endTime   ?? before.endTime
 
+    if (!isValidTime(finalStartTime) || !isValidTime(finalEndTime)) {
+      return res.status(400).json({ error: '時刻の形式が不正です（HH:MM）' })
+    }
+    if (!isMultipleOf15(finalStartTime) || !isMultipleOf15(finalEndTime)) {
+      return res.status(400).json({ error: '時刻は15分単位で指定してください' })
+    }
     if (finalStartTime >= finalEndTime) {
       return res.status(400).json({ error: '開始時刻は終了時刻より前にしてください' })
     }
+    const availability = await isFacilityReservationRangeAvailable('nobu-room', finalDate, finalStartTime, finalEndTime)
+    if (!availability.ok) return res.status(400).json({ error: availability.message })
 
     const existingSnap = await db.collection('nobu_room_reservations').where('date', '==', finalDate).get()
     for (const d of existingSnap.docs) {
       if (d.id === id) continue
       const data = d.data()
-      if (finalStartTime < data.endTime && data.startTime < finalEndTime) {
+      if (timesOverlap(finalStartTime, finalEndTime, data.startTime, data.endTime)) {
         return res.status(400).json({ error: `${data.startTime}〜${data.endTime} に既に予約が入っています` })
       }
     }
