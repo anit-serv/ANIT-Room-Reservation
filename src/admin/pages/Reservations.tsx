@@ -1,10 +1,11 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { adminFetch } from '../auth'
-import TimeRangeInput from '../components/TimeRangeInput'
 import Skeleton from '../../components/Skeleton'
 import ConfirmDialog from '../../components/ConfirmDialog'
 import DatePicker from '../../components/DatePicker'
+
+type TimeSlot = { label: string; value: string }
 
 type Reservation = {
   id: string
@@ -350,8 +351,39 @@ function EditModal({
   const [datePart, timePart] = reservation.date.split('T')
   const [date, setDate] = useState(datePart)
   const [time, setTime] = useState(timePart)
+  const [timeSlots, setTimeSlots] = useState<TimeSlot[]>([])
+  const [loadingSlots, setLoadingSlots] = useState(false)
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+
+  useEffect(() => {
+    let alive = true
+    setLoadingSlots(true)
+    setErr(null)
+    adminFetch(`/api/admin/settings/time-slots?date=${encodeURIComponent(date)}`)
+      .then(async (res) => {
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok) throw new Error(data.error ?? '時間枠の取得に失敗しました')
+        if (!alive) return
+        const slots = Array.isArray(data.timeSlots) ? data.timeSlots : []
+        setTimeSlots(slots)
+        if (slots.length > 0 && !slots.some((slot: TimeSlot) => slot.value === time)) {
+          setTime(slots[0].value)
+        } else if (slots.length === 0) {
+          setTime('')
+        }
+      })
+      .catch((e: any) => {
+        if (!alive) return
+        setTimeSlots([])
+        setTime('')
+        setErr(e.message ?? '時間枠の取得に失敗しました')
+      })
+      .finally(() => {
+        if (alive) setLoadingSlots(false)
+      })
+    return () => { alive = false }
+  }, [date])
 
   async function save() {
     setSaving(true)
@@ -391,10 +423,26 @@ function EditModal({
         </div>
         <div className="form-row">
           <label>時間帯</label>
-          <TimeRangeInput value={time} onChange={setTime} />
+          <select
+            className="text-input"
+            value={time}
+            onChange={(e) => setTime(e.target.value)}
+            disabled={loadingSlots || timeSlots.length === 0}
+          >
+            {timeSlots.map((slot) => (
+              <option key={slot.value} value={slot.value}>
+                {slot.label || slot.value.replace('-', '〜')}
+              </option>
+            ))}
+            {timeSlots.length === 0 && (
+              <option value="">
+                {loadingSlots ? '時間枠を読み込み中...' : '選択できる時間枠がありません'}
+              </option>
+            )}
+          </select>
         </div>
         <div className="mt-4">
-          <button className="btn-primary" onClick={save} disabled={saving}>
+          <button className="btn-primary" onClick={save} disabled={saving || loadingSlots || timeSlots.length === 0 || !time}>
             {saving ? '保存中...' : '保存'}
           </button>
         </div>

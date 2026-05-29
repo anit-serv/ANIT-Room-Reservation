@@ -10,6 +10,8 @@ import {
   listPendingFacilitySettingsChanges,
   listPendingReservationSettingsChanges,
   listReservationDayOverrides,
+  isTimeSlotAvailableBySettings,
+  pickTimeSlotsForDate,
   resolveReservationSettingsForDate,
   todayJST,
 } from '../lib/reservationSettings'
@@ -78,6 +80,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (path === 'settings')              return handleSettings(req, res)
   if (path === 'settings/scheduled')    return handleSettingsScheduled(req, res)
   if (path === 'settings/lottery-time') return handleSettingsLotteryTime(req, res)
+  if (path === 'settings/time-slots')   return handleSettingsTimeSlots(req, res)
   if (segments[0] === 'settings' && segments[1] === 'day-overrides') {
     if (segments.length === 2) return handleSettingsDayOverrides(req, res)
     if (segments.length === 3) return handleSettingsDayOverrideByDate(req, res, segments[2])
@@ -468,6 +471,30 @@ async function handleSettings(req: VercelRequest, res: VercelResponse) {
   }
 
   return res.status(405).json({ error: 'Method Not Allowed' })
+}
+
+async function handleSettingsTimeSlots(req: VercelRequest, res: VercelResponse) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method Not Allowed' })
+  try {
+    await verifyAdmin(req.headers.authorization)
+  } catch (err: any) {
+    const status = err.message === 'Forbidden' ? 403 : 401
+    return res.status(status).json({ error: err.message })
+  }
+
+  const date = req.query.date as string | undefined
+  if (!date || !isValidDate(date)) return res.status(400).json({ error: '日付の形式が不正です' })
+
+  try {
+    const settings = await resolveReservationSettingsForDate(db, date)
+    return res.status(200).json({
+      date,
+      timeSlots: pickTimeSlotsForDate(date, settings),
+      effectiveFrom: settings.effectiveFrom,
+    })
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message })
+  }
 }
 
 // ─── 予約済みの設定変更をキャンセル ────────────────────
@@ -1304,6 +1331,16 @@ async function handleReservationById(req: VercelRequest, res: VercelResponse, id
     const finalBandName = (update.bandName ?? before.bandName) as string
     const finalDate     = (update.date     ?? before.date)     as string
     const finalDateOnly = finalDate.split('T')[0]
+    const settings = await resolveReservationSettingsForDate(db, finalDateOnly)
+    if (!isTimeSlotAvailableBySettings(finalDate, settings)) {
+      const slotStr = pickTimeSlotsForDate(finalDateOnly, settings).map((s) => s.value.replace('-', '〜')).join(' / ')
+      return res.status(400).json({
+        error: slotStr
+          ? `指定できる時間帯は ${slotStr} です`
+          : `${finalDateOnly} に指定できる時間帯がありません`,
+      })
+    }
+
     const dupSnap = await db.collection('reservations')
       .where('bandName', '==', finalBandName)
       .where('date', '>=', `${finalDateOnly}T00:00`)
