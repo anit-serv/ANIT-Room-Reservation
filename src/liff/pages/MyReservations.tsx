@@ -3,7 +3,13 @@ import type { LiffProfile } from '../LiffApp'
 import Skeleton from '../../components/Skeleton'
 import ConfirmDialog from '../../components/ConfirmDialog'
 
-type Favorite = { id: string; name: string; nobuTimeSlot: string | null }
+type Favorite = {
+  id: string
+  name: string
+  nobuTimeSlot: string | null
+  kobuTimeSlot?: string | null
+  nobuRoomTimeSlot?: string | null
+}
 
 
 type Props = {

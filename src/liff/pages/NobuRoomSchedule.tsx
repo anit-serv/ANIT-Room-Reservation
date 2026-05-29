@@ -162,6 +162,9 @@ export default function NobuRoomSchedule({ profile, initialEdit, onEditHandled, 
   const touchStartY = useRef(0)
   const sheetDragStartY = useRef(0)
   const sheetDidDrag = useRef(false)
+  const presetScrollRef = useRef<HTMLDivElement>(null)
+  const startScrollRef = useRef<HTMLDivElement>(null)
+  const endScrollRef = useRef<HTMLDivElement>(null)
   const [loading,      setLoading]      = useState(false)
   const [error,        setError]        = useState<string | null>(null)
   const [modal,        setModal]        = useState<ModalState | null>(null)
@@ -427,6 +430,26 @@ export default function NobuRoomSchedule({ profile, initialEdit, onEditHandled, 
     setModalEnd(best)
   }
 
+  function scrollSelectedOptionLeft(container: HTMLDivElement | null, selector: string) {
+    if (!container) return
+    const selected = container.querySelector<HTMLElement>(selector)
+    if (!selected) return
+    container.scrollTo({ left: Math.max(0, selected.offsetLeft - 1), behavior: 'smooth' })
+  }
+
+  function applyFavoriteTimeSlot(timeSlot: string | null) {
+    if (!timeSlot || !modal || !dayMap || !settings) return
+    const [favStart, favEnd] = timeSlot.split('-')
+    if (!favStart || !favEnd) return
+    const effectiveSlots = getEffectiveSlots(modal.date, settings)
+    const startOpts = buildStartOptions(modal.date, dayMap, effectiveSlots)
+    const endOpts = buildEndOptions(toMinutes(favStart), modal.date, dayMap, effectiveSlots)
+    const isPastStart = modal.date === todayJST() && toMinutes(favStart) < (Math.floor(nowMinutes / 15) + 1) * 15
+    if (isPastStart || !startOpts.includes(favStart) || !endOpts.includes(favEnd)) return
+    setModalStart(favStart)
+    setModalEnd(favEnd)
+  }
+
   async function handleSubmit() {
     if (!modal || !bandName.trim() || !modalStart || !modalEnd) return
     setSubmitting(true)
@@ -452,9 +475,9 @@ export default function NobuRoomSchedule({ profile, initialEdit, onEditHandled, 
           fetch('/api/favorites', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${profile.getAccessToken()}` },
-            body: JSON.stringify({ name: savedName }),
+            body: JSON.stringify({ name: savedName, nobuRoomTimeSlot: `${modalStart}-${modalEnd}` }),
           }).then(r => r.ok ? r.json() : null)
-            .then(d => { if (d?.id) setFavorites(prev => [...prev, { id: d.id, name: savedName, nobuTimeSlot: null }]) })
+            .then(d => { if (d?.id) setFavorites(prev => [...prev, { id: d.id, name: savedName, nobuTimeSlot: null, kobuTimeSlot: null, nobuRoomTimeSlot: `${modalStart}-${modalEnd}` }]) })
             .catch(() => {})
         }
         const reservedWeek = getSundayOfWeek(modal.date)
@@ -608,6 +631,15 @@ export default function NobuRoomSchedule({ profile, initialEdit, onEditHandled, 
       scrollEl.scrollTo({ top: targetTop, behavior: 'smooth' })
     })
   }, [sheetPeeking, modal, modalStart, dispStart])
+
+  useEffect(() => {
+    if (!modal || sheetPeeking) return
+    requestAnimationFrame(() => {
+      scrollSelectedOptionLeft(startScrollRef.current, '[data-time-option="start"][data-active="true"]')
+      scrollSelectedOptionLeft(endScrollRef.current, '[data-time-option="end"][data-active="true"]')
+      scrollSelectedOptionLeft(presetScrollRef.current, '[data-time-option="preset"][data-active="true"]')
+    })
+  }, [modal, sheetPeeking, modalStart, modalEnd])
 
   // ─── ローディング ─────────────────────────────────────
   if (!settings) return (
@@ -1008,8 +1040,8 @@ export default function NobuRoomSchedule({ profile, initialEdit, onEditHandled, 
 
               <div className="mb-3">
                 {!editingId && (
-                  <FavoritePicker favorites={favorites} onSelect={(favId, name) => {
-                    setBandName(name); setSelectedFavId(favId); setSaveAsFavChecked(false)
+                  <FavoritePicker favorites={favorites} onSelect={(favId, name, _nobuTimeSlot, _kobuTimeSlot, nobuRoomTimeSlot) => {
+                    setBandName(name); setSelectedFavId(favId); setSaveAsFavChecked(false); applyFavoriteTimeSlot(nobuRoomTimeSlot)
                   }} />
                 )}
                 <input
@@ -1029,13 +1061,15 @@ export default function NobuRoomSchedule({ profile, initialEdit, onEditHandled, 
 
               {(settings.timePresets ?? []).length > 0 && (
                 <div className="mb-3">
-                  <div className="flex gap-1.5 overflow-x-auto no-scrollbar pb-1" style={{ WebkitOverflowScrolling: 'touch' }}>
+                  <div ref={presetScrollRef} className="flex gap-1.5 overflow-x-auto no-scrollbar pb-1" style={{ WebkitOverflowScrolling: 'touch' }}>
                     {(settings.timePresets ?? []).map((p, i) => {
                       const active = p.startTime === modalStart && p.endTime === modalEnd
                       return (
                         <button
                           key={i}
                           type="button"
+                          data-time-option="preset"
+                          data-active={active ? 'true' : 'false'}
                           className={
                             'flex-shrink-0 px-3 py-2 rounded-lg text-[0.82rem] border-[1.5px] transition ' +
                             (active
@@ -1056,7 +1090,7 @@ export default function NobuRoomSchedule({ profile, initialEdit, onEditHandled, 
               <div className="mb-5 space-y-3">
                 <div>
                   <label className="block text-[0.8rem] text-ink-sub mb-1.5">開始</label>
-                  <div className="flex gap-1.5 overflow-x-auto pb-1" style={{ WebkitOverflowScrolling: 'touch' }}>
+                  <div ref={startScrollRef} className="flex gap-1.5 overflow-x-auto pb-1" style={{ WebkitOverflowScrolling: 'touch' }}>
                     {buildStartOptions(modal.date, effectiveDayMap, effectiveSlots).map((t) => {
                       const isPast = modal.date === today && toMinutes(t) < (Math.floor(nowMinutes / 15) + 1) * 15
                       return (
@@ -1064,6 +1098,8 @@ export default function NobuRoomSchedule({ profile, initialEdit, onEditHandled, 
                           key={t}
                           type="button"
                           disabled={isPast}
+                          data-time-option="start"
+                          data-active={!isPast && t === modalStart ? 'true' : 'false'}
                           className={
                             'flex-shrink-0 px-3 py-2 rounded-lg text-[0.82rem] border-[1.5px] transition ' +
                             (isPast
@@ -1080,11 +1116,13 @@ export default function NobuRoomSchedule({ profile, initialEdit, onEditHandled, 
                 </div>
                 <div>
                   <label className="block text-[0.8rem] text-ink-sub mb-1.5">終了</label>
-                  <div className="flex gap-1.5 overflow-x-auto pb-1" style={{ WebkitOverflowScrolling: 'touch' }}>
+                  <div ref={endScrollRef} className="flex gap-1.5 overflow-x-auto pb-1" style={{ WebkitOverflowScrolling: 'touch' }}>
                     {buildEndOptions(toMinutes(modalStart), modal.date, effectiveDayMap, effectiveSlots).map((t) => (
                       <button
                         key={t}
                         type="button"
+                        data-time-option="end"
+                        data-active={t === modalEnd ? 'true' : 'false'}
                         className={
                           'flex-shrink-0 px-3 py-2 rounded-lg text-[0.82rem] border-[1.5px] transition ' +
                           (t === modalEnd

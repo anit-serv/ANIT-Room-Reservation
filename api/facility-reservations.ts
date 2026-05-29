@@ -17,8 +17,8 @@ if (!admin.apps.length) {
 const db = admin.firestore()
 
 const FACILITY_CONFIG = {
-  kobu:       { collection: 'kobu_reservations',      settingsDoc: 'kobu',      label: '工部室' },
-  'nobu-room': { collection: 'nobu_room_reservations', settingsDoc: 'nobu-room', label: '農部室' },
+  kobu:       { collection: 'kobu_reservations',      settingsDoc: 'kobu',      label: '工部室', favoriteTimeField: 'kobuTimeSlot' },
+  'nobu-room': { collection: 'nobu_room_reservations', settingsDoc: 'nobu-room', label: '農部室', favoriteTimeField: 'nobuRoomTimeSlot' },
 } as const
 type FacilityKey = keyof typeof FACILITY_CONFIG
 
@@ -161,6 +161,13 @@ async function handleCreate(req: VercelRequest, res: VercelResponse) {
       favoriteId: favoriteId ?? null,
       createdAt: new Date(),
     })
+    if (favoriteId) {
+      const favoriteRef = db.collection('favorites').doc(favoriteId)
+      const favoriteDoc = await favoriteRef.get().catch(() => null)
+      if (favoriteDoc?.exists && favoriteDoc.data()?.userId === userId) {
+        await favoriteRef.update({ [cfg.favoriteTimeField]: `${startTime}-${endTime}` }).catch(() => {})
+      }
+    }
     return res.status(201).json({ success: true })
   } catch (err: any) {
     const status = err.message === 'Unauthorized' ? 401 : (err.status ?? 500)
@@ -384,16 +391,24 @@ async function handleFavorites(req: VercelRequest, res: VercelResponse) {
     }
 
     if (req.method === 'POST') {
-      const { name, nobuTimeSlot } = (req.body ?? {}) as { name?: string; nobuTimeSlot?: string }
+      const { name, nobuTimeSlot, kobuTimeSlot, nobuRoomTimeSlot } = (req.body ?? {}) as {
+        name?: string; nobuTimeSlot?: string; kobuTimeSlot?: string; nobuRoomTimeSlot?: string
+      }
       if (!name?.trim()) return res.status(400).json({ error: 'name は必須です' })
+      const trimmedName = name.trim()
 
       const existing = await db.collection('favorites').where('userId', '==', userId).get()
+      if (existing.docs.some((d) => (d.data().name as string | undefined)?.trim() === trimmedName)) {
+        return res.status(400).json({ error: '同じバンド名はすでにお気に入りに登録されています' })
+      }
       if (existing.size >= 5) return res.status(400).json({ error: 'お気に入りは5件まで登録できます' })
 
       const doc = await db.collection('favorites').add({
         userId,
-        name: name.trim(),
+        name: trimmedName,
         nobuTimeSlot: nobuTimeSlot ?? null,
+        kobuTimeSlot: kobuTimeSlot ?? null,
+        nobuRoomTimeSlot: nobuRoomTimeSlot ?? null,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
       })
       return res.status(201).json({ id: doc.id })
@@ -418,17 +433,31 @@ async function handleFavoriteById(req: VercelRequest, res: VercelResponse, id: s
     }
 
     if (req.method === 'PATCH') {
-      const { name, nobuTimeSlot } = (req.body ?? {}) as { name?: string; nobuTimeSlot?: string | null }
+      const { name, nobuTimeSlot, kobuTimeSlot, nobuRoomTimeSlot } = (req.body ?? {}) as {
+        name?: string; nobuTimeSlot?: string | null; kobuTimeSlot?: string | null; nobuRoomTimeSlot?: string | null
+      }
       const oldName = doc.data()!.name as string
       const updates: Record<string, any> = {}
-      if (name !== undefined) updates.name = name.trim()
+      if (name !== undefined) {
+        const trimmedName = name.trim()
+        if (!trimmedName) return res.status(400).json({ error: 'name は必須です' })
+        if (trimmedName !== oldName) {
+          const existing = await db.collection('favorites').where('userId', '==', userId).get()
+          if (existing.docs.some((d) => d.id !== id && (d.data().name as string | undefined)?.trim() === trimmedName)) {
+            return res.status(400).json({ error: '同じバンド名はすでにお気に入りに登録されています' })
+          }
+        }
+        updates.name = trimmedName
+      }
       if (nobuTimeSlot !== undefined) updates.nobuTimeSlot = nobuTimeSlot
+      if (kobuTimeSlot !== undefined) updates.kobuTimeSlot = kobuTimeSlot
+      if (nobuRoomTimeSlot !== undefined) updates.nobuRoomTimeSlot = nobuRoomTimeSlot
 
       await ref.update(updates)
 
       // バンド名が変わった場合、全予約コレクションのbandNameを一括更新
-      if (name !== undefined && name.trim() !== oldName) {
-        const newName = name.trim()
+      if (updates.name !== undefined && updates.name !== oldName) {
+        const newName = updates.name
         await Promise.all([
           cascadeFavoriteNameUpdate('reservations',           id, newName),
           cascadeFavoriteNameUpdate('kobu_reservations',      id, newName),
