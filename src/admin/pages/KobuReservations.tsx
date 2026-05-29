@@ -151,13 +151,19 @@ export default function KobuReservations() {
                   </div>
                   <span className="text-[0.78rem] font-semibold text-ink-sub">{group.items.length}件</span>
                 </div>
-                <table className="admin-table">
+                <table className="admin-table" style={{ tableLayout: 'fixed', width: '100%' }}>
+                  <colgroup>
+                    <col style={{ width: '180px' }} />
+                    <col />
+                    <col style={{ width: '220px' }} />
+                    <col style={{ width: '100px' }} />
+                  </colgroup>
                   <thead>
                     <tr>
                       <th>時間帯</th>
                       <th>バンド名</th>
                       <th>登録者</th>
-                      <th style={{ width: '100px' }}>操作</th>
+                      <th>操作</th>
                     </tr>
                   </thead>
                   <tbody>
