@@ -309,41 +309,48 @@ export default function NobuEmergencySettings() {
         <div className="grid grid-cols-1 lg:grid-cols-[270px_1fr] gap-4 mb-4">
           <div className="form-row mb-0">
             <label>対象日</label>
-            <DatePicker
-              value={emergencyDate}
-              onChange={setEmergencyDate}
-              min={tomorrowJST()}
-              maxDate={maxEmergencyDate()}
-              getDayClass={(date) => {
-                if (date <= todayJST()) return 'text-ink-pale cursor-not-allowed opacity-40'
-                const opt = emergencyDates.find(e => e.value === date)
-                if (!opt || (!opt.canBlock && !opt.canOpen)) return 'text-ink-pale cursor-not-allowed opacity-40'
-                const compatible = !emergencyType
-                  || (emergencyType === 'blocked' ? opt.canBlock : opt.canOpen)
-                if (opt.canBlock) {
+            <div className="flex items-center gap-2 flex-wrap">
+              <DatePicker
+                value={emergencyDate}
+                onChange={setEmergencyDate}
+                min={tomorrowJST()}
+                maxDate={maxEmergencyDate()}
+                getDayClass={(date) => {
+                  if (date <= todayJST()) return 'text-ink-pale cursor-not-allowed opacity-40'
+                  const opt = emergencyDates.find(e => e.value === date)
+                  if (!opt || (!opt.canBlock && !opt.canOpen)) return 'text-ink-pale cursor-not-allowed opacity-40'
+                  const compatible = !emergencyType
+                    || (emergencyType === 'blocked' ? opt.canBlock : opt.canOpen)
+                  if (opt.canBlock) {
+                    return compatible
+                      ? 'text-warn hover:bg-warn-light cursor-pointer font-medium'
+                      : 'text-warn opacity-40 cursor-not-allowed'
+                  }
                   return compatible
-                    ? 'text-warn hover:bg-warn-light cursor-pointer font-medium'
-                    : 'text-warn opacity-40 cursor-not-allowed'
-                }
-                return compatible
-                  ? 'text-brand hover:bg-brand-light cursor-pointer font-medium'
-                  : 'text-brand opacity-40 cursor-not-allowed'
-              }}
-              getSelectedClass={(date) => {
-                const opt = emergencyDates.find(e => e.value === date)
-                if (opt?.canBlock) return 'bg-warn text-white font-bold cursor-pointer'
-                if (opt?.canOpen)  return 'bg-brand text-white font-bold cursor-pointer'
-                return 'bg-brand text-white font-bold cursor-pointer'
-              }}
-              isDateDisabled={(date) => {
-                if (date <= todayJST()) return true
-                const opt = emergencyDates.find(e => e.value === date)
-                if (!opt) return true
-                if (emergencyType) return emergencyType === 'blocked' ? !opt.canBlock : !opt.canOpen
-                return !opt.canBlock && !opt.canOpen
-              }}
-              className="w-full justify-start whitespace-nowrap"
-            />
+                    ? 'text-brand hover:bg-brand-light cursor-pointer font-medium'
+                    : 'text-brand opacity-40 cursor-not-allowed'
+                }}
+                getSelectedClass={(date) => {
+                  const opt = emergencyDates.find(e => e.value === date)
+                  if (opt?.canBlock) return 'bg-warn text-white font-bold cursor-pointer'
+                  if (opt?.canOpen)  return 'bg-brand text-white font-bold cursor-pointer'
+                  return 'bg-brand text-white font-bold cursor-pointer'
+                }}
+                isDateDisabled={(date) => {
+                  if (date <= todayJST()) return true
+                  const opt = emergencyDates.find(e => e.value === date)
+                  if (!opt) return true
+                  if (emergencyType) return emergencyType === 'blocked' ? !opt.canBlock : !opt.canOpen
+                  return !opt.canBlock && !opt.canOpen
+                }}
+                className="justify-start whitespace-nowrap"
+              />
+              {emergencyDate && (
+                <span className="text-[0.78rem] text-ink-sub whitespace-nowrap">
+                  既存予約: <strong className="text-ink">{emergencyCount ?? '-'}</strong> 件
+                </span>
+              )}
+            </div>
             <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1.5 text-[0.75rem] text-ink-sub">
               <span className="flex items-center gap-1">
                 <span className="inline-block w-2 h-2 rounded-full bg-warn" />
@@ -353,7 +360,6 @@ export default function NobuEmergencySettings() {
                 <span className="inline-block w-2 h-2 rounded-full bg-brand" />
                 臨時開放できる日（{emergencyDates.filter(d => d.canOpen).length}日）
               </span>
-              <span>既存予約: <strong>{emergencyCount ?? '-'}</strong> 件</span>
             </div>
             {emergencyType && !selectedDateAllowed && selectedDateWarning && (
               <p className="text-[0.78rem] text-warn mt-1">
