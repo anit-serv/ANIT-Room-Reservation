@@ -57,7 +57,7 @@ export default function NobuEmergencySettings() {
   const [dayOverrides, setDayOverrides] = useState<DayOverride[]>(cached?.dayOverrides ?? [])
   const [defaultSlots, setDefaultSlots] = useState<TimeSlot[]>(cached?.defaultSlots ?? [])
   const [emergencyDates, setEmergencyDates] = useState<EmergencyDateOption[]>(cached?.emergencyDates ?? [])
-  const [emergencyDate, setEmergencyDate] = useState(tomorrowJST())
+  const [emergencyDate, setEmergencyDate] = useState('')
   const [emergencyType, setEmergencyType] = useState<'blocked' | 'opened' | null>(null)
   const [emergencyReason, setEmergencyReason] = useState('')
   const [emergencyUseCustomSlots, setEmergencyUseCustomSlots] = useState(false)
@@ -77,12 +77,12 @@ export default function NobuEmergencySettings() {
   }, [])
 
   useEffect(() => {
-    loadEmergencyDateInfo(emergencyDate)
+    if (emergencyDate) loadEmergencyDateInfo(emergencyDate)
   }, [emergencyDate])
 
   async function loadInitial() {
     if (!getPageCache<EmergencyCache>(EMERGENCY_CACHE_KEY)) setLoading(true)
-    const [slots, dayOverrideData] = await Promise.all([loadSettings(), loadDayOverrides(), loadEmergencyDateInfo(emergencyDate)])
+    const [slots, dayOverrideData] = await Promise.all([loadSettings(), loadDayOverrides()])
     setPageCache<EmergencyCache>(EMERGENCY_CACHE_KEY, {
       defaultSlots: slots ?? defaultSlots,
       dayOverrides: dayOverrideData?.overrides ?? dayOverrides,
@@ -147,9 +147,10 @@ export default function NobuEmergencySettings() {
         ? selectedDateOption?.openReason
         : undefined
   const selectedDateAllowed =
-    !emergencyType ||
+    !!emergencyDate &&
+    (!emergencyType ||
     (emergencyType === 'blocked' && !!selectedDateOption?.canBlock) ||
-    (emergencyType === 'opened' && !!selectedDateOption?.canOpen)
+    (emergencyType === 'opened' && !!selectedDateOption?.canOpen))
 
   function isAllowedDateForType(date: string, type: 'blocked' | 'opened' | null = emergencyType): boolean {
     if (!type) return true
@@ -324,6 +325,12 @@ export default function NobuEmergencySettings() {
                 return compatible
                   ? 'text-brand hover:bg-brand-light cursor-pointer font-medium'
                   : 'text-brand opacity-40 cursor-not-allowed'
+              }}
+              getSelectedClass={(date) => {
+                const opt = emergencyDates.find(e => e.value === date)
+                if (opt?.canBlock) return 'bg-warn text-white font-bold cursor-pointer'
+                if (opt?.canOpen)  return 'bg-brand text-white font-bold cursor-pointer'
+                return 'bg-brand text-white font-bold cursor-pointer'
               }}
               isDateDisabled={(date) => {
                 if (date <= todayJST()) return true

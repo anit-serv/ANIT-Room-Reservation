@@ -17,6 +17,7 @@ type Props = {
    * 未指定時は `text-ink hover:bg-brand-light cursor-pointer` が使われる。
    */
   getDayClass?: (date: string) => string
+  getSelectedClass?: (date: string) => string
   isDateDisabled?: (date: string) => boolean
 }
 
@@ -33,7 +34,7 @@ function getSunday(date: string): string {
   return d.toISOString().slice(0, 10)
 }
 
-export default function CalendarPicker({ value, selectedDates, selectedWeek, onChange, min, maxDate, getDayClass, isDateDisabled }: Props) {
+export default function CalendarPicker({ value, selectedDates, selectedWeek, onChange, min, maxDate, getDayClass, getSelectedClass, isDateDisabled }: Props) {
   const initBase = selectedWeek || value || min || todayJST()
   const [[displayYear, displayMonth], setDisplay] = useState<[number, number]>(() => [
     parseInt(initBase.slice(0, 4)),
@@ -167,7 +168,7 @@ export default function CalendarPicker({ value, selectedDates, selectedWeek, onC
 
               let cellClass: string
               if (isHighlighted) {
-                cellClass = 'bg-brand text-white font-bold cursor-pointer'
+                cellClass = getSelectedClass?.(dateStr) ?? 'bg-brand text-white font-bold cursor-pointer'
               } else if (isDisabled) {
                 cellClass = 'text-ink-pale cursor-not-allowed opacity-50'
               } else if (isToday) {
