@@ -354,7 +354,7 @@ function UserDetail({
                           <span className="font-bold text-ink truncate">{r.bandName}</span>
                           <span className={'badge shrink-0 ' + (isCancelled ? 'badge-neutral' : isConfirmed ? 'badge-confirmed' : 'badge-pending')}>
                             <span className="icon icon-sm">{isCancelled ? 'cancel' : isConfirmed ? 'check_circle' : 'hourglass_empty'}</span>
-                            {isCancelled ? 'キャンセル済み' : r.facility === 'nobu' ? (isConfirmed ? `確定 (${r.order ?? '-'})` : '抽選待ち') : '確定'}
+                            {isCancelled ? 'キャンセル済み' : r.facility === 'nobu' ? (isConfirmed ? `確定 (${typeof r.order === 'number' ? r.order + 1 : '-'})` : '抽選待ち') : '確定'}
                           </span>
                         </div>
                         <div className="text-[0.78rem] text-ink-sub">

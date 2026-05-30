@@ -267,7 +267,7 @@ export default function Reservations() {
                         {statusLabel(r.status)}
                       </span>
                     </td>
-                    <td data-label="順位" className="text-right">{r.order ?? '-'}</td>
+                    <td data-label="順位" className="text-right">{displayOrder(r.order)}</td>
                     <td className="cell-actions">
                       <div className="flex gap-1.5">
                         {r.status !== 'cancelled' && (
@@ -356,6 +356,10 @@ function statusLabel(status: Reservation['status']) {
   return '抽選待ち'
 }
 
+function displayOrder(order?: number) {
+  return typeof order === 'number' ? order + 1 : '-'
+}
+
 function ReservationMobileCard({
   r, highlighted, rowRef, open, onToggle, onEdit, onDelete,
 }: {
@@ -407,7 +411,7 @@ function ReservationMobileCard({
             </div>
             <div className="flex items-center justify-between py-2">
               <span className="text-[0.72rem] text-ink-sub font-semibold uppercase tracking-wide">順位</span>
-              <span className="text-[0.9rem]">{r.order ?? '-'}</span>
+              <span className="text-[0.9rem]">{displayOrder(r.order)}</span>
             </div>
             <div className="flex gap-2 pt-2">
               {r.status !== 'cancelled' && (
