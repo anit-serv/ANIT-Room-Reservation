@@ -22,6 +22,7 @@ type Props = {
   onEditHandled?: () => void
   onKobuEdit?: (r: { id: string; date: string; bandName: string; startTime: string; endTime: string }) => void
   onNobuRoomEdit?: (r: { id: string; date: string; bandName: string; startTime: string; endTime: string }) => void
+  onReservationOpen?: (r: { facility: 'kobu' | 'nobu' | 'nobu-room'; id: string; date: string; bandName: string; startTime?: string; endTime?: string }) => void
 }
 
 type NobuReservation = {
@@ -133,7 +134,7 @@ function availabilityNotice(r: Reservation): {
 }
 
 
-export default function MyReservations({ profile, initialEdit, onEditHandled, onKobuEdit, onNobuRoomEdit }: Props) {
+export default function MyReservations({ profile, initialEdit, onEditHandled, onKobuEdit, onNobuRoomEdit, onReservationOpen }: Props) {
   const cachedReservations = getPageCache<Reservation[]>(MY_RES_KEY)
   const [reservations,  setReservations]  = useState<Reservation[]>(cachedReservations ?? [])
   const [loading,       setLoading]       = useState(!cachedReservations)
@@ -443,7 +444,14 @@ export default function MyReservations({ profile, initialEdit, onEditHandled, on
         }
 
         return (
-          <div key={r.id} className="flex items-center gap-3 px-4 py-[0.9rem] border-b border-line last:border-b-0">
+          <div
+            key={r.id}
+            className={
+              'flex items-center gap-3 px-4 py-[0.9rem] border-b border-line last:border-b-0 ' +
+              (isCancelled ? '' : 'cursor-pointer active:bg-bg')
+            }
+            onClick={isCancelled ? undefined : () => onReservationOpen?.(r)}
+          >
             <div className="flex flex-col items-center gap-1 shrink-0">
               <div className={`w-11 h-11 rounded-xl flex items-center justify-center ${fc.iconBg}`}>
                 <span className={`icon ${fc.iconColor}`} style={{ fontSize: 22 }}>{fc.icon}</span>
@@ -483,10 +491,15 @@ export default function MyReservations({ profile, initialEdit, onEditHandled, on
 
             {!past && !isCancelled && (
               <div className="flex flex-col gap-1 shrink-0">
-                <button className="btn-icon" onClick={handleEdit} disabled={isDeleting} title="変更">
+                <button className="btn-icon" onClick={(e) => { e.stopPropagation(); handleEdit() }} disabled={isDeleting} title="変更">
                   <span className="icon" style={{ fontSize: 20 }}>edit</span>
                 </button>
-                <button className="btn-icon-danger" onClick={() => { if (isPast(r)) return; setConfirmTarget(r); setDeleteError(null) }} disabled={isDeleting} title="キャンセル">
+                <button
+                  className="btn-icon-danger"
+                  onClick={(e) => { e.stopPropagation(); if (isPast(r)) return; setConfirmTarget(r); setDeleteError(null) }}
+                  disabled={isDeleting}
+                  title="キャンセル"
+                >
                   <span className="icon" style={{ fontSize: 20 }}>{isDeleting ? 'hourglass_empty' : 'cancel'}</span>
                 </button>
               </div>

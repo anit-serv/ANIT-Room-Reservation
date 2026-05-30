@@ -12,7 +12,9 @@ type KobuEditTarget = { id: string; date: string; bandName: string; startTime: s
 type Props = {
   profile: LiffProfile
   initialEdit?: KobuEditTarget | null
+  initialFocus?: KobuEditTarget | null
   onEditHandled?: () => void
+  onFocusHandled?: () => void
   onBookingActive?: (active: boolean) => void
 }
 
@@ -155,7 +157,7 @@ function buildEndOptions(startMinutes: number, date: string, dayMap: DayMap, slo
 }
 
 // ─── メインコンポーネント ──────────────────────────────
-export default function KobuSchedule({ profile, initialEdit, onEditHandled, onBookingActive }: Props) {
+export default function KobuSchedule({ profile, initialEdit, initialFocus, onEditHandled, onFocusHandled, onBookingActive }: Props) {
   const [settings,     setSettings]     = useState<KobuSettings | null>(
     () => getPageCache<KobuSettings>(KOBU_SETTINGS_KEY) ?? null
   )
@@ -198,6 +200,7 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled, onBo
   const [selectedFavId,    setSelectedFavId]    = useState<string | null>(null)
   const [saveAsFavChecked, setSaveAsFavChecked] = useState(false)
   const [pendingRepeat, setPendingRepeat] = useState<{ date: string; bandName: string; startTime: string; endTime: string } | null>(null)
+  const [pendingFocus, setPendingFocus] = useState<KobuEditTarget | null>(null)
   const [repeatBlocked, setRepeatBlocked] = useState<{ reason: string; nextNextDate: string; nextNextAvail: boolean } | null>(null)
   const [sheetPeeking, setSheetPeeking] = useState(false)
   const [peekToast, setPeekToast] = useState(false)
@@ -282,6 +285,14 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled, onBo
     setWeekStart(getSundayOfWeek(initialEdit.date))
     onEditHandled?.()
   }, [initialEdit])
+
+  useEffect(() => {
+    if (!initialFocus) return
+    setPendingFocus(initialFocus)
+    setOutgoingWeek(null)
+    setSlideDir(null)
+    setWeekStart(getSundayOfWeek(initialFocus.date))
+  }, [initialFocus])
 
   // dayMapが読み込まれたらpendingEditを適用
   useEffect(() => {
@@ -641,6 +652,21 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled, onBo
   const { md: endMd }   = formatDate(weekDates[6])
 
   useEffect(() => {
+    if (!pendingFocus || !dayMap) return
+    if (weekStart !== getSundayOfWeek(pendingFocus.date)) return
+    const scrollEl = scrollRef.current
+    if (!scrollEl) return
+    const headerHeight = scrollEl.firstElementChild?.getBoundingClientRect().height ?? 0
+    const slotTop = headerHeight + toMinutes(pendingFocus.startTime) - dispStart
+    const targetTop = Math.max(0, slotTop - scrollEl.clientHeight * 0.35)
+    requestAnimationFrame(() => {
+      scrollEl.scrollTo({ top: targetTop, behavior: 'auto' })
+      onFocusHandled?.()
+      window.setTimeout(() => setPendingFocus(null), 1200)
+    })
+  }, [pendingFocus, dayMap, weekStart, dispStart, onFocusHandled])
+
+  useEffect(() => {
     if (!sheetPeeking || !modal || !modalStart) return
     const scrollEl = scrollRef.current
     if (!scrollEl) return
@@ -793,9 +819,13 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled, onBo
                   const top    = toMinutes(b.startTime) - dispStart
                   const height = toMinutes(b.endTime) - toMinutes(b.startTime)
                   const isOwn  = b.userId === profile.userId
+                  const isFocused = b.id === pendingFocus?.id
                   return (
                     <div key={i}
-                      className="absolute inset-x-0.5 rounded overflow-hidden z-10 cursor-pointer active:brightness-90"
+                      className={
+                        'absolute inset-x-0.5 rounded overflow-hidden z-10 cursor-pointer active:brightness-90 ' +
+                        (isFocused ? 'ring-2 ring-warn ring-offset-1 ring-offset-surface' : '')
+                      }
                       style={{ top, height }}
                       onClick={interactive ? (e) => handleBlockTap(e, b, date) : (e) => e.stopPropagation()}
                     >

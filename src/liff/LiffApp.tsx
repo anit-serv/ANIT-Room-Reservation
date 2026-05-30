@@ -47,6 +47,7 @@ function NobuSubNav({ active, onChange }: { active: SubView; onChange: (v: SubVi
 
 type EditTarget = { facility: 'kobu' | 'nobu' | 'nobu-room'; id: string }
 type KobuEditTarget = { id: string; date: string; bandName: string; startTime: string; endTime: string }
+type NobuFocusTarget = { id: string; date: string }
 type PendingNav = { tab?: MainTab; nobuSub?: SubView }
 
 function App() {
@@ -57,6 +58,9 @@ function App() {
   const [editTarget,         setEditTarget]         = useState<EditTarget | null>(null)
   const [kobuEditTarget,     setKobuEditTarget]     = useState<KobuEditTarget | null>(null)
   const [nobuRoomEditTarget, setNobuRoomEditTarget] = useState<KobuEditTarget | null>(null)
+  const [nobuFocusTarget,    setNobuFocusTarget]    = useState<NobuFocusTarget | null>(null)
+  const [kobuFocusTarget,    setKobuFocusTarget]    = useState<KobuEditTarget | null>(null)
+  const [nobuRoomFocusTarget,setNobuRoomFocusTarget]= useState<KobuEditTarget | null>(null)
   const [bookingActive,      setBookingActive]      = useState(false)
   const [pendingNav,         setPendingNav]         = useState<PendingNav | null>(null)
 
@@ -92,6 +96,29 @@ function App() {
   function handleNobuRoomEdit(target: KobuEditTarget) {
     setNobuRoomEditTarget(target)
     setMainTab('nobu-room')
+  }
+
+  function handleReservationOpen(target: { facility: 'kobu' | 'nobu' | 'nobu-room'; id: string; date: string; bandName: string; startTime?: string; endTime?: string }) {
+    if (target.facility === 'nobu') {
+      setNobuFocusTarget({ id: target.id, date: target.date.split('T')[0] })
+      setNobuSub('all')
+      setMainTab('nobu')
+      return
+    }
+    const roomTarget = {
+      id: target.id,
+      date: target.date,
+      bandName: target.bandName,
+      startTime: target.startTime ?? '00:00',
+      endTime: target.endTime ?? target.startTime ?? '00:00',
+    }
+    if (target.facility === 'kobu') {
+      setKobuFocusTarget(roomTarget)
+      setMainTab('kobu')
+    } else {
+      setNobuRoomFocusTarget(roomTarget)
+      setMainTab('nobu-room')
+    }
   }
 
   useEffect(() => {
@@ -183,6 +210,8 @@ function App() {
             {nobuSub === 'all'      && (
               <AllReservations
                 profile={profile}
+                initialFocus={nobuFocusTarget}
+                onFocusHandled={() => setNobuFocusTarget(null)}
                 onEditRequest={(id) => handleEditRequest('nobu', id)}
               />
             )}
@@ -192,7 +221,9 @@ function App() {
           <NobuRoomSchedule
             profile={profile}
             initialEdit={nobuRoomEditTarget}
+            initialFocus={nobuRoomFocusTarget}
             onEditHandled={() => setNobuRoomEditTarget(null)}
+            onFocusHandled={() => setNobuRoomFocusTarget(null)}
             onBookingActive={setBookingActive}
           />
         )}
@@ -200,7 +231,9 @@ function App() {
           <KobuSchedule
             profile={profile}
             initialEdit={kobuEditTarget}
+            initialFocus={kobuFocusTarget}
             onEditHandled={() => setKobuEditTarget(null)}
+            onFocusHandled={() => setKobuFocusTarget(null)}
             onBookingActive={setBookingActive}
           />
         )}
@@ -211,6 +244,7 @@ function App() {
             onEditHandled={() => setEditTarget(null)}
             onKobuEdit={handleKobuEdit}
             onNobuRoomEdit={handleNobuRoomEdit}
+            onReservationOpen={handleReservationOpen}
           />
         )}
       </main>

@@ -14,14 +14,17 @@ type DetailModal = { entry: SlotEntry; date: string; timeSlot: string }
 
 type Props = {
   profile?: LiffProfile | null
+  initialFocus?: { id: string; date: string } | null
+  onFocusHandled?: () => void
   onEditRequest?: (id: string) => void
 }
 
-export default function AllReservations({ profile, onEditRequest }: Props) {
+export default function AllReservations({ profile, initialFocus, onFocusHandled, onEditRequest }: Props) {
   const cachedDates   = getPageCache<DateEntry[]>(DATES_CACHE_KEY) ?? []
   const initDate      = cachedDates[0]?.value ?? ''
   const initSlotMap   = initDate ? (getPageCache<TimeSlotMap>(slotCacheKey(initDate)) ?? null) : null
   const currentDateRef = useRef(initDate)
+  const entryRefs = useRef<Record<string, HTMLButtonElement | null>>({})
 
   const [dates,        setDates]        = useState<DateEntry[]>(cachedDates)
   const [selectedDate, setSelectedDate] = useState(initDate)
@@ -29,6 +32,26 @@ export default function AllReservations({ profile, onEditRequest }: Props) {
   const [loading,      setLoading]      = useState(!!initDate && !initSlotMap)
   const [error,        setError]        = useState<string | null>(null)
   const [detailModal,  setDetailModal]  = useState<DetailModal | null>(null)
+  const [focusId,      setFocusId]      = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!initialFocus) return
+    setFocusId(initialFocus.id)
+    if (initialFocus.date !== selectedDate) {
+      handleDateSelect(initialFocus.date)
+    }
+  }, [initialFocus])
+
+  useEffect(() => {
+    if (!focusId || loading || !slotMap) return
+    const el = entryRefs.current[focusId]
+    if (!el) return
+    requestAnimationFrame(() => {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      onFocusHandled?.()
+      window.setTimeout(() => setFocusId(null), 1200)
+    })
+  }, [focusId, loading, slotMap, onFocusHandled])
 
   useEffect(() => {
     fetch('/api/settings')
@@ -145,8 +168,12 @@ export default function AllReservations({ profile, onEditRequest }: Props) {
               </div>
               {slotMap[ts].map((entry, i) => (
                 <button
-                  key={i}
-                  className="flex items-center gap-2.5 px-3 py-2 bg-surface border border-line rounded-lg mb-1 shadow-[var(--shadow-card-sm)] w-full text-left"
+                  key={entry.id}
+                  ref={(el) => { entryRefs.current[entry.id] = el }}
+                  className={
+                    'flex items-center gap-2.5 px-3 py-2 bg-surface border rounded-lg mb-1 shadow-[var(--shadow-card-sm)] w-full text-left transition-colors ' +
+                    (entry.id === focusId ? 'border-brand bg-brand-light/40' : 'border-line')
+                  }
                   onClick={() => setDetailModal({ entry, date: selectedDate, timeSlot: ts })}
                 >
                   {entry.status === 'confirmed' ? (
