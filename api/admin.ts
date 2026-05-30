@@ -723,14 +723,14 @@ async function buildEmergencyDateOptions(): Promise<EmergencyDateOption[]> {
     const settings = settingsByDate[date]
     const baseSettings = { ...settings, dayOverride: undefined }
     const isReservable = isDateAvailableBySettings(date, baseSettings) && pickTimeSlotsForDate(date, baseSettings).length > 0
-    const canBlock = isReservable
+    const canBlock = date >= tomorrow && isReservable
     const canOpen = date >= tomorrow && !isReservable && !(date === tomorrow && tomorrowBlockedByDeadline)
     return {
       ...formatDateOption(date),
       isReservable,
       canBlock,
       canOpen,
-      blockedReason: canBlock ? undefined : '設定時点で予約可能な日だけ予約不可にできます',
+      blockedReason: canBlock ? undefined : date < tomorrow ? '予約不可は翌日以降の日付だけ指定できます' : '設定時点で予約可能な日だけ予約不可にできます',
       openReason: canOpen
         ? undefined
         : date < tomorrow
