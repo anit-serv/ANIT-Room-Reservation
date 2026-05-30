@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react'
 import CalendarPicker from './CalendarPicker'
+import { getCalendarPopoverPosition } from './popoverPosition'
 
 const WEEK_DAYS = ['日', '月', '火', '水', '木', '金', '土']
 
@@ -31,9 +32,8 @@ export default function DatePicker({
   const triggerRef = useRef<HTMLButtonElement>(null)
 
   function handleOpen() {
-    if (triggerRef.current) {
-      const rect = triggerRef.current.getBoundingClientRect()
-      setPos({ top: rect.bottom + 4, left: rect.left })
+    if (!open && triggerRef.current) {
+      setPos(getCalendarPopoverPosition(triggerRef.current, { gap: 4 }))
     }
     setOpen((o) => !o)
   }

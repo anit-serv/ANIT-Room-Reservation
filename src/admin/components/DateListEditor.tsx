@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import CalendarPicker from '../../components/CalendarPicker'
 import ConfirmDialog from '../../components/ConfirmDialog'
+import { getCalendarPopoverPosition } from '../../components/popoverPosition'
 
 const WEEK_DAYS = ['日', '月', '火', '水', '木', '金', '土']
 
@@ -30,6 +31,8 @@ export default function DateListEditor({
   const [open, setOpen] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const [pendingConflictDate, setPendingConflictDate] = useState<string | null>(null)
+  const [pos, setPos] = useState({ top: 0, left: 0 })
+  const triggerRef = useRef<HTMLButtonElement>(null)
 
   function handleSelect(date: string) {
     setErr(null)
@@ -54,13 +57,21 @@ export default function DateListEditor({
     onChange(dates.filter((x) => x !== d))
   }
 
+  function toggleCalendar() {
+    if (!open && triggerRef.current) {
+      setPos(getCalendarPopoverPosition(triggerRef.current, { gap: 4 }))
+    }
+    setOpen((o) => !o)
+  }
+
   return (
     <div>
       <div className="relative mb-2">
         <button
+          ref={triggerRef}
           type="button"
           aria-label={label}
-          onClick={() => setOpen((o) => !o)}
+          onClick={toggleCalendar}
           className="text-input w-auto flex items-center gap-2 cursor-pointer"
         >
           <span className="icon text-ink-pale" style={{ fontSize: 18 }}>calendar_today</span>
@@ -70,7 +81,7 @@ export default function DateListEditor({
         {open && (
           <>
             <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-            <div className="absolute top-full left-0 mt-1 z-20">
+            <div className="fixed z-20" style={{ top: pos.top, left: pos.left }}>
               <CalendarPicker
                 min={min}
                 selectedDates={dates}

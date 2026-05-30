@@ -3,6 +3,7 @@ import type { LiffProfile } from '../LiffApp'
 import Skeleton from '../../components/Skeleton'
 import CalendarPicker from '../../components/CalendarPicker'
 import FavoritePicker, { type Favorite } from '../../components/FavoritePicker'
+import { getCalendarPopoverPosition } from '../../components/popoverPosition'
 import { getPageCache, setPageCache } from '../pageCache'
 
 const KOBU_SETTINGS_KEY = 'liff:kobu-settings'
@@ -188,6 +189,7 @@ export default function KobuSchedule({ profile, initialEdit, initialFocus, onEdi
   const [submitting,   setSubmitting]   = useState(false)
   const [submitError,  setSubmitError]  = useState<string | null>(null)
   const [calendarOpen, setCalendarOpen] = useState(false)
+  const [calendarPos,  setCalendarPos]  = useState({ top: 0, left: 0 })
   const [detailModal,  setDetailModal]  = useState<DetailModal | null>(null)
   const [cancelling,    setCancelling]    = useState(false)
   const [cancelError,   setCancelError]   = useState<string | null>(null)
@@ -204,12 +206,20 @@ export default function KobuSchedule({ profile, initialEdit, initialFocus, onEdi
   const [repeatBlocked, setRepeatBlocked] = useState<{ reason: string; nextNextDate: string; nextNextAvail: boolean } | null>(null)
   const [sheetPeeking, setSheetPeeking] = useState(false)
   const [peekToast, setPeekToast] = useState(false)
+  const calendarButtonRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
     if (!peekToast) return
     const t = setTimeout(() => setPeekToast(false), 2500)
     return () => clearTimeout(t)
   }, [peekToast])
+
+  function toggleCalendar() {
+    if (!calendarOpen && calendarButtonRef.current) {
+      setCalendarPos(getCalendarPopoverPosition(calendarButtonRef.current))
+    }
+    setCalendarOpen((v) => !v)
+  }
 
   useEffect(() => {
     const id = setInterval(() => setNowMinutes(nowJSTMinutes()), 60_000)
@@ -704,7 +714,7 @@ export default function KobuSchedule({ profile, initialEdit, initialFocus, onEdi
     <div className="flex flex-col flex-1 min-h-0">
       {/* 週ナビゲーション */}
       <div className="flex items-center gap-1.5 mb-2 flex-wrap relative">
-        <button className="btn-icon-nav" onClick={() => setCalendarOpen(v => !v)}>
+        <button ref={calendarButtonRef} className="btn-icon-nav" onClick={toggleCalendar}>
           <span className="icon">calendar_month</span>
         </button>
         <button className="btn-icon-nav" onClick={() => navigateTo(addDays(weekStart, -7), 'right')}>
@@ -725,7 +735,7 @@ export default function KobuSchedule({ profile, initialEdit, initialFocus, onEdi
         {calendarOpen && (
           <>
             <div className="fixed inset-0 z-20" onClick={() => setCalendarOpen(false)} />
-            <div className="absolute top-full left-0 mt-1.5 z-30">
+            <div className="fixed z-30" style={{ top: calendarPos.top, left: calendarPos.left }}>
               <CalendarPicker
                 selectedWeek={weekStart}
                 min={today}
