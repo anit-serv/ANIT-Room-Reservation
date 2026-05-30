@@ -538,11 +538,11 @@ export default function MyReservations({ profile, initialEdit, onEditHandled, on
             </p>
             {deleteError && <div className="banner-error">{deleteError}</div>}
             <div className="flex gap-2">
-              <button className="btn-secondary flex-1" onClick={() => setConfirmTarget(null)} disabled={!!deleting}>
-                キャンセル
+              <button className="btn-secondary flex-1 whitespace-nowrap" onClick={() => setConfirmTarget(null)} disabled={!!deleting}>
+                戻る
               </button>
-              <button className="btn-danger flex-1" onClick={() => handleDelete(confirmTarget)} disabled={!!deleting}>
-                {deleting ? 'キャンセル中...' : 'キャンセルする'}
+              <button className="btn-danger flex-1 whitespace-nowrap" onClick={() => handleDelete(confirmTarget)} disabled={!!deleting}>
+                {deleting ? '処理中...' : '実行する'}
               </button>
             </div>
           </div>
