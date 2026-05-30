@@ -297,7 +297,8 @@ export default function KobuReservations() {
         <ConfirmDialog
           title="予約をキャンセルしますか？"
           message={`「${deleteTarget.bandName}」(${deleteTarget.date} ${deleteTarget.startTime}〜${deleteTarget.endTime}) をキャンセルします。予約はキャンセル済みとして履歴に残ります。`}
-          confirmLabel="キャンセルする"
+          confirmLabel="実行する"
+          cancelLabel="戻る"
           onClose={() => setDeleteTarget(null)}
           onConfirm={() => execDelete(deleteTarget)}
         />

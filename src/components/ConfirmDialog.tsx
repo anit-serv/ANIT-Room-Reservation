@@ -4,11 +4,12 @@ type Props = {
   title: string
   message: string
   confirmLabel?: string
+  cancelLabel?: string
   onClose: () => void
   onConfirm: () => Promise<void>
 }
 
-export default function ConfirmDialog({ title, message, confirmLabel = '削除', onClose, onConfirm }: Props) {
+export default function ConfirmDialog({ title, message, confirmLabel = '削除', cancelLabel = 'キャンセル', onClose, onConfirm }: Props) {
   const [loading, setLoading] = useState(false)
   const [error,   setError]   = useState<string | null>(null)
 
@@ -31,10 +32,10 @@ export default function ConfirmDialog({ title, message, confirmLabel = '削除',
         <p className="text-[0.85rem] text-ink-sub mb-4">{message}</p>
         {error && <div className="banner-error mb-3">{error}</div>}
         <div className="flex gap-2">
-          <button className="btn-secondary flex-1" onClick={onClose} disabled={loading}>
-            キャンセル
+          <button className="btn-secondary flex-1 whitespace-nowrap" onClick={onClose} disabled={loading}>
+            {cancelLabel}
           </button>
-          <button className="btn-danger flex-1" onClick={handleConfirm} disabled={loading}>
+          <button className="btn-danger flex-1 whitespace-nowrap" onClick={handleConfirm} disabled={loading}>
             {loading ? '処理中...' : confirmLabel}
           </button>
         </div>
