@@ -304,16 +304,40 @@ export default function NobuEmergencySettings() {
               onChange={setEmergencyDate}
               min={todayJST()}
               maxDate={maxEmergencyDate()}
-              getDayClass={(date) => isAllowedDateForType(date)
-                ? 'text-ink hover:bg-brand-light cursor-pointer'
-                : 'text-ink-pale cursor-not-allowed opacity-40'}
-              isDateDisabled={(date) => !isAllowedDateForType(date)}
+              getDayClass={(date) => {
+                const opt = emergencyDates.find(e => e.value === date)
+                if (!opt) return 'text-ink-pale cursor-not-allowed opacity-40'
+                if (emergencyType) {
+                  const allowed = emergencyType === 'blocked' ? opt.canBlock : opt.canOpen
+                  return allowed
+                    ? (emergencyType === 'blocked'
+                        ? 'text-warn hover:bg-warn-light cursor-pointer font-medium'
+                        : 'text-brand hover:bg-brand-light cursor-pointer font-medium')
+                    : 'text-ink-pale cursor-not-allowed opacity-40'
+                }
+                if (!opt.canBlock && !opt.canOpen) return 'text-ink-pale cursor-not-allowed opacity-40'
+                if (opt.canBlock) return 'text-warn hover:bg-warn-light cursor-pointer font-medium'
+                return 'text-brand hover:bg-brand-light cursor-pointer font-medium'
+              }}
+              isDateDisabled={(date) => {
+                const opt = emergencyDates.find(e => e.value === date)
+                if (!opt) return true
+                if (emergencyType) return emergencyType === 'blocked' ? !opt.canBlock : !opt.canOpen
+                return !opt.canBlock && !opt.canOpen
+              }}
               className="w-full justify-start whitespace-nowrap"
             />
-            <p className="text-[0.78rem] text-ink-sub mt-1">
-              対象可能範囲: 予約不可は予約可能日、臨時開放は翌日〜7日後の予約不可能日 / {' '}
-              既存予約: <strong>{emergencyCount ?? '-'}</strong> 件
-            </p>
+            <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1.5 text-[0.75rem] text-ink-sub">
+              <span className="flex items-center gap-1">
+                <span className="inline-block w-2 h-2 rounded-full bg-warn" />
+                予約不可にできる日（{emergencyDates.filter(d => d.canBlock).length}日）
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="inline-block w-2 h-2 rounded-full bg-brand" />
+                臨時開放できる日（{emergencyDates.filter(d => d.canOpen).length}日）
+              </span>
+              <span>既存予約: <strong>{emergencyCount ?? '-'}</strong> 件</span>
+            </div>
             {emergencyType && !selectedDateAllowed && selectedDateWarning && (
               <p className="text-[0.78rem] text-warn mt-1">
                 <span className="icon icon-sm align-middle">warning</span>
