@@ -169,7 +169,7 @@ async function redirectWithAuthCode(
   const code = crypto.randomBytes(16).toString('hex')
   await db.collection('auth_codes').doc(code).set({
     accessToken,
-    expiresAt: Date.now() + 60_000,
+    expiresAt: admin.firestore.Timestamp.fromMillis(Date.now() + 60_000),
   })
   return res.redirect(302, `${loginUrl}?code=${encodeURIComponent(code)}`)
 }
@@ -188,7 +188,7 @@ async function handleAuthExchange(req: VercelRequest, res: VercelResponse) {
       return res.status(401).json({ error: 'Invalid or expired code' })
     }
     const data = doc.data()!
-    if (data.expiresAt < Date.now()) {
+    if (data.expiresAt.toMillis() < Date.now()) {
       await docRef.delete()
       return res.status(401).json({ error: 'Code expired' })
     }
