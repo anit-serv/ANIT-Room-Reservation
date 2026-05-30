@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import TimeRangeInput from './TimeRangeInput'
+import ConfirmDialog from '../../components/ConfirmDialog'
 
 export type TimeSlot = { label: string; value: string }
 
@@ -60,6 +61,7 @@ export default function TimeSlotsEditor({
   const conflicts = conflictSet ?? findConflicts(slots)
   const [menuOpen, setMenuOpen] = useState(false)
   const [saveDialog, setSaveDialog] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<TimeSlotPreset | null>(null)
   const [presetName, setPresetName] = useState('')
   const menuRef = useRef<HTMLDivElement>(null)
 
@@ -93,11 +95,10 @@ export default function TimeSlotsEditor({
     setMenuOpen(false)
   }
 
-  async function handleDelete(p: TimeSlotPreset, e: React.MouseEvent) {
+  function handleDelete(p: TimeSlotPreset, e: React.MouseEvent) {
     e.stopPropagation()
     if (!onDeletePreset) return
-    if (!confirm(`プリセット「${p.name}」を削除しますか？`)) return
-    await onDeletePreset(p.id)
+    setDeleteTarget(p)
   }
 
   const canSavePreset = slots.length > 0 && slots.every((s) => s.label && s.value) && conflicts.size === 0
@@ -170,7 +171,7 @@ export default function TimeSlotsEditor({
             <span className="text-[0.8rem] text-ink-pale min-w-[100px]">
               {s.label || '未設定'}
             </span>
-            <button className="btn-icon" onClick={() => remove(i)}>
+            <button className="btn-icon-danger" onClick={() => remove(i)}>
               <span className="icon">delete</span>
             </button>
           </div>
@@ -183,7 +184,12 @@ export default function TimeSlotsEditor({
       {saveDialog && (
         <div className="modal-backdrop" onClick={() => setSaveDialog(false)}>
           <div className="modal-card max-w-[400px]" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-base font-semibold mb-3">プリセットとして保存</h3>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-base font-semibold m-0">プリセットとして保存</h3>
+              <button className="btn-icon-close" onClick={() => setSaveDialog(false)} aria-label="閉じる">
+                <span className="icon">close</span>
+              </button>
+            </div>
             <div className="form-row">
               <label>プリセット名</label>
               <input
@@ -194,12 +200,23 @@ export default function TimeSlotsEditor({
                 autoFocus
               />
             </div>
-            <div className="flex gap-2 mt-4">
-              <button className="btn-outline flex-1" onClick={() => setSaveDialog(false)}>キャンセル</button>
-              <button className="btn-primary flex-1" onClick={handleSave} disabled={!presetName.trim()}>保存</button>
+            <div className="mt-4">
+              <button className="btn-primary" onClick={handleSave} disabled={!presetName.trim()}>保存</button>
             </div>
           </div>
         </div>
+      )}
+
+      {deleteTarget && (
+        <ConfirmDialog
+          title="プリセットを削除しますか？"
+          message={`プリセット「${deleteTarget.name}」を削除します。`}
+          onClose={() => setDeleteTarget(null)}
+          onConfirm={async () => {
+            await onDeletePreset?.(deleteTarget.id)
+            setDeleteTarget(null)
+          }}
+        />
       )}
     </>
   )

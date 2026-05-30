@@ -4,11 +4,12 @@ import { verifyLineToken } from './verifyLineToken'
 export type AdminInfo = {
   userId: string
   displayName: string
+  pictureUrl: string | null
   isSuperAdmin: boolean
 }
 
 /**
- * 認証ヘッダーから LINE ID トークンを検証し、
+ * 認証ヘッダーから LINE アクセストークンを検証し、
  * 管理者として登録されている場合は管理者情報を返す。
  * 未登録または検証失敗時は Error を throw。
  */
@@ -20,9 +21,12 @@ export async function verifyAdmin(authHeader: string | undefined): Promise<Admin
     throw new Error('Forbidden')
   }
   const data = doc.data() ?? {}
+  const userDoc = await db.collection('users').doc(userId).get()
+  const userData = userDoc.data() ?? {}
   return {
     userId,
     displayName: data.displayName ?? '',
+    pictureUrl: userData.pictureUrl ?? null,
     isSuperAdmin: data.isSuperAdmin === true,
   }
 }

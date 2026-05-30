@@ -2,8 +2,14 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "rewrites": [
-    { "source": "/api/admin/:path*", "destination": "/api/admin?_path=:path*" },
-    { "source": "/api/reservations/:path*", "destination": "/api/reservations?_path=:path*" },
+    { "source": "/api/admin/:path*",             "destination": "/api/admin?_path=:path*" },
+    { "source": "/api/reservations/:path*",      "destination": "/api/reservations?_path=:path*" },
+    { "source": "/api/kobu-reservations/:path*",      "destination": "/api/facility-reservations?facility=kobu&_path=:path*" },
+    { "source": "/api/kobu-settings",                 "destination": "/api/facility-settings?facility=kobu" },
+    { "source": "/api/nobu-room-reservations/:path*", "destination": "/api/facility-reservations?facility=nobu-room&_path=:path*" },
+    { "source": "/api/nobu-room-settings",            "destination": "/api/facility-settings?facility=nobu-room" },
+    { "source": "/api/favorites/:id",                 "destination": "/api/facility-reservations?_path=favorites/:id" },
+    { "source": "/api/favorites",                     "destination": "/api/facility-reservations?_path=favorites" },
     { "source": "/admin", "destination": "/index.html" },
     { "source": "/admin/:path*", "destination": "/index.html" }
   ],

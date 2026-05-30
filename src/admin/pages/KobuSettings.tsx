@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo, useCallback } from 'react'
 import { useBlocker } from 'react-router-dom'
 import { adminFetch } from '../auth'
 import { getPageCache, setPageCache } from '../pageCache'
-import TimeSlotsEditor, { findConflicts, toMinutes, type TimeSlot, type TimeSlotPreset } from '../components/TimeSlotsEditor'
+import TimeSlotsEditor, { findConflicts, type TimeSlot, type TimeSlotPreset } from '../components/TimeSlotsEditor'
 import DateListEditor from '../components/DateListEditor'
 import PerDayScheduleEditor, { findAllConflicts, type PerDaySchedule } from '../components/PerDayScheduleEditor'
 import Skeleton from '../../components/Skeleton'
@@ -10,19 +10,20 @@ import ConfirmDialog from '../../components/ConfirmDialog'
 import DatePicker from '../../components/DatePicker'
 import { useToast } from '../../contexts/ToastContext'
 
-type SettingsCore = {
-  availableDays: number[]
-  timeSlots: TimeSlot[]
-  extraDates: string[]
-  excludedDates: string[]
+type KobuSettingsCore = {
+  availableDays:  number[]
+  extraDates:     string[]
+  excludedDates:  string[]
+  timeSlots:      TimeSlot[]
   perDaySchedule: PerDaySchedule
 }
 
-type SettingsResponse = SettingsCore & {
-  nextChange: (SettingsCore & { effectiveFrom: string }) | null
-  scheduledChanges?: (SettingsCore & { effectiveFrom: string })[]
-  lotteryTime: string
+type KobuSettingsResponse = KobuSettingsCore & {
+  scheduledChanges?: (KobuSettingsCore & { effectiveFrom: string })[]
+  timePresets?: TimePreset[]
 }
+
+type TimePreset = { label: string; startTime: string; endTime: string }
 
 const WEEK_DAYS = ['日', '月', '火', '水', '木', '金', '土']
 
@@ -30,36 +31,31 @@ function todayJST(): string {
   return new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10)
 }
 
-function minEffectiveDate(): string {
-  const d = new Date(Date.now() + 9 * 60 * 60 * 1000)
-  d.setUTCDate(d.getUTCDate() + 8)
-  return d.toISOString().slice(0, 10)
-}
-
 function emptySchedule(): PerDaySchedule {
   return { enabled: false, byWeekday: {}, byDate: {} }
 }
 
-const SETTINGS_CACHE_KEY = 'settings:nobu'
+const SETTINGS_CACHE_KEY = 'settings:kobu'
 
-export default function Settings() {
-  const cached = getPageCache<SettingsResponse>(SETTINGS_CACHE_KEY)
-  const [current, setCurrent]             = useState<SettingsResponse | null>(cached ?? null)
-  const [availableDays, setAvailableDays] = useState<number[]>(cached?.availableDays ?? [])
-  const [timeSlots, setTimeSlots]         = useState<TimeSlot[]>(cached?.timeSlots ?? [])
-  const [extraDates, setExtraDates]       = useState<string[]>(cached?.extraDates ?? [])
-  const [excludedDates, setExcludedDates] = useState<string[]>(cached?.excludedDates ?? [])
+export default function KobuSettings() {
+  const cached = getPageCache<KobuSettingsResponse>(SETTINGS_CACHE_KEY)
+  const [current, setCurrent]               = useState<KobuSettingsResponse | null>(cached ?? null)
+  const [availableDays, setAvailableDays]   = useState<number[]>(cached?.availableDays ?? [0,1,2,3,4,5,6])
+  const [extraDates, setExtraDates]         = useState<string[]>(cached?.extraDates ?? [])
+  const [excludedDates, setExcludedDates]   = useState<string[]>(cached?.excludedDates ?? [])
+  const [timeSlots, setTimeSlots]           = useState<TimeSlot[]>(cached?.timeSlots ?? [])
   const [perDaySchedule, setPerDaySchedule] = useState<PerDaySchedule>(cached?.perDaySchedule ?? emptySchedule())
-  const [effectiveFrom, setEffectiveFrom] = useState<string>(minEffectiveDate())
-  const [minDate, setMinDate]             = useState<string>(minEffectiveDate())
-  const [editingScheduled, setEditingScheduled] = useState(false)
+  const [effectiveFrom, setEffectiveFrom]   = useState<string>(todayJST())
+  const [editingScheduled, setEditingScheduled]     = useState(false)
   const [editingScheduledDate, setEditingScheduledDate] = useState<string | null>(null)
-  const [saving, setSaving]               = useState(false)
-  const [message, setMessage]             = useState<{ type: 'success' | 'error'; text: string } | null>(null)
-  const [step, setStep]                   = useState<'editing' | 'confirming'>('editing')
-  const [presets, setPresets]             = useState<TimeSlotPreset[]>([])
-  const [cancelTarget, setCancelTarget]   = useState<string | null>(null)
-  const [lotteryTime, setLotteryTime] = useState(cached?.lotteryTime ?? '21:00')
+  const [saving, setSaving]                 = useState(false)
+  const [message, setMessage]               = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [step, setStep]                     = useState<'editing' | 'confirming'>('editing')
+  const [presets, setPresets]               = useState<TimeSlotPreset[]>([])
+  const [timePresets, setTimePresets]       = useState<TimePreset[]>([])
+  const [presetSaving, setPresetSaving]     = useState(false)
+  const [presetMessage, setPresetMessage]   = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [cancelTarget, setCancelTarget]     = useState<string | null>(null)
   const { showToast } = useToast()
 
   useEffect(() => { load(); loadPresets() }, [])
@@ -90,24 +86,7 @@ export default function Settings() {
     if (res.ok) await loadPresets()
   }
 
-  useEffect(() => {
-    function refresh() {
-      const newMin = minEffectiveDate()
-      setMinDate((prev) => prev !== newMin ? newMin : prev)
-      setEffectiveFrom((prev) => prev < newMin ? newMin : prev)
-    }
-    const visHandler = () => { if (document.visibilityState === 'visible') refresh() }
-    document.addEventListener('visibilitychange', visHandler)
-    window.addEventListener('focus', refresh)
-    const id = setInterval(refresh, 60_000)
-    return () => {
-      document.removeEventListener('visibilitychange', visHandler)
-      window.removeEventListener('focus', refresh)
-      clearInterval(id)
-    }
-  }, [])
-
-  function applyToForm(s: SettingsCore) {
+  function applyToForm(s: KobuSettingsCore) {
     setAvailableDays(s.availableDays)
     setTimeSlots(s.timeSlots)
     setExtraDates(s.extraDates ?? [])
@@ -116,18 +95,41 @@ export default function Settings() {
   }
 
   async function load() {
-    const res = await adminFetch('/api/admin/settings')
+    const res = await adminFetch('/api/admin/kobu-settings')
     if (!res.ok) { setMessage({ type: 'error', text: '設定の取得に失敗しました' }); return }
-    const data = (await res.json()) as SettingsResponse
+    const data = (await res.json()) as KobuSettingsResponse
     setCurrent(data)
-    setPageCache<SettingsResponse>(SETTINGS_CACHE_KEY, data)
-    setLotteryTime(data.lotteryTime ?? '21:00')
+    setPageCache<KobuSettingsResponse>(SETTINGS_CACHE_KEY, data)
+    setTimePresets(data.timePresets ?? [])
     if (!editingScheduled) applyToForm(data)
   }
 
-  const scheduledChanges = current?.scheduledChanges ?? (current?.nextChange ? [current.nextChange] : [])
+  async function saveTimePresets(updated: TimePreset[]) {
+    setPresetSaving(true)
+    setPresetMessage(null)
+    try {
+      const res = await adminFetch('/api/admin/kobu-settings/presets', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ timePresets: updated }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        setPresetMessage({ type: 'error', text: err.error ?? '保存に失敗しました' })
+        return
+      }
+      setTimePresets(updated)
+      showToast('プリセットを保存しました')
+    } catch {
+      setPresetMessage({ type: 'error', text: '保存に失敗しました' })
+    } finally {
+      setPresetSaving(false)
+    }
+  }
 
-  function loadScheduledForEdit(change: SettingsCore & { effectiveFrom: string }) {
+  const scheduledChanges = current?.scheduledChanges ?? []
+
+  function loadScheduledForEdit(change: KobuSettingsCore & { effectiveFrom: string }) {
     applyToForm(change)
     setEffectiveFrom(change.effectiveFrom)
     setEditingScheduled(true)
@@ -138,7 +140,7 @@ export default function Settings() {
   function cancelEditScheduled() {
     if (!current) return
     applyToForm(current)
-    setEffectiveFrom(minEffectiveDate())
+    setEffectiveFrom(todayJST())
     setEditingScheduled(false)
     setEditingScheduledDate(null)
   }
@@ -149,34 +151,22 @@ export default function Settings() {
     )
   }
 
-  function computeLockoutTime(lt: string): string {
-    const [h, m] = lt.split(':').map(Number)
-    const total = h * 60 + m - 10
-    if (total < 0) return '無効'
-    return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`
-  }
-
-  const lotteryTimeInvalid = !lotteryTime || lotteryTime < '01:00'
-
   const isDirty = useMemo(() => {
     if (!current) return false
     const sortedStr = (arr: string[]) => JSON.stringify([...arr].sort())
     return (
-      JSON.stringify(availableDays) !== JSON.stringify(current.availableDays ?? [3, 4, 6]) ||
-      JSON.stringify(timeSlots)     !== JSON.stringify(current.timeSlots ?? []) ||
-      sortedStr(extraDates)         !== sortedStr(current.extraDates ?? []) ||
-      sortedStr(excludedDates)      !== sortedStr(current.excludedDates ?? []) ||
-      JSON.stringify(perDaySchedule) !== JSON.stringify(current.perDaySchedule ?? emptySchedule()) ||
-      lotteryTime !== (current.lotteryTime ?? '21:00')
+      JSON.stringify(availableDays)  !== JSON.stringify(current.availableDays) ||
+      sortedStr(extraDates)          !== sortedStr(current.extraDates ?? []) ||
+      sortedStr(excludedDates)       !== sortedStr(current.excludedDates ?? []) ||
+      JSON.stringify(timeSlots)      !== JSON.stringify(current.timeSlots ?? []) ||
+      JSON.stringify(perDaySchedule) !== JSON.stringify(current.perDaySchedule ?? emptySchedule())
     )
-  }, [current, availableDays, timeSlots, extraDates, excludedDates, perDaySchedule, lotteryTime])
+  }, [current, availableDays, extraDates, excludedDates, timeSlots, perDaySchedule])
 
   const effectiveDirty = isDirty
 
   useEffect(() => {
-    const handler = (e: BeforeUnloadEvent) => {
-      if (effectiveDirty) e.preventDefault()
-    }
+    const handler = (e: BeforeUnloadEvent) => { if (effectiveDirty) e.preventDefault() }
     window.addEventListener('beforeunload', handler)
     return () => window.removeEventListener('beforeunload', handler)
   }, [effectiveDirty])
@@ -187,82 +177,51 @@ export default function Settings() {
     [effectiveDirty])
   )
 
-  const defaultConflicts = findConflicts(timeSlots)
+  const hasDateOverlap      = extraDates.some((d) => excludedDates.includes(d))
+  const defaultConflicts    = findConflicts(timeSlots)
   const hasOverrideConflict = findAllConflicts(perDaySchedule)
-  const hasDateOverlap = extraDates.some((d) => excludedDates.includes(d))
   const earlyExtraDates    = extraDates.filter((d) => d < effectiveFrom)
   const earlyExcludedDates = excludedDates.filter((d) => d < effectiveFrom)
   const earlyPerDayDates   = Object.keys(perDaySchedule.byDate ?? {}).filter((d) => d < effectiveFrom)
 
   function goToConfirm() {
     setMessage(null)
-    if (lotteryTimeInvalid) {
-      setMessage({ type: 'error', text: '抽選時刻は01:00以降を指定してください' })
-      return
-    }
-    if (availableDays.length === 0 && extraDates.length === 0) {
-      setMessage({ type: 'error', text: '登録可能曜日か追加日を1つ以上指定してください' })
-      return
-    }
     if (timeSlots.length === 0 || timeSlots.some((s) => !s.label.trim() || !s.value.trim())) {
-      setMessage({ type: 'error', text: 'デフォルト時間枠を全て入力してください' })
-      return
-    }
-    if (timeSlots.some((s) => {
-      const [a, b] = (s.value ?? '').split('-')
-      return !a || !b || toMinutes(a) >= toMinutes(b)
-    })) {
-      setMessage({ type: 'error', text: '開始時刻は終了時刻より前にしてください' })
+      setMessage({ type: 'error', text: '営業時間枠を全て入力してください' })
       return
     }
     if (defaultConflicts.size > 0) {
-      setMessage({ type: 'error', text: 'デフォルト時間枠が重複しています' })
+      setMessage({ type: 'error', text: '営業時間枠が重複しています' })
       return
     }
     if (hasOverrideConflict) {
-      setMessage({ type: 'error', text: '曜日/日付別の時間枠に未入力または重複があります' })
+      setMessage({ type: 'error', text: '曜日/日付別の営業時間に未入力または重複があります' })
       return
     }
     if (hasDateOverlap) {
       setMessage({ type: 'error', text: '同じ日付が追加日と除外日の両方に指定されています' })
       return
     }
+    if (!effectiveFrom || effectiveFrom < todayJST()) {
+      setMessage({ type: 'error', text: '適用日は今日以降を指定してください' })
+      return
+    }
     setStep('confirming')
   }
 
   async function save() {
-    setMessage(null)
-    const currentMin = minEffectiveDate()
-    let finalEffective = effectiveFrom
-    if (finalEffective < currentMin) {
-      finalEffective = currentMin
-      setEffectiveFrom(currentMin)
-      setMinDate(currentMin)
-      setMessage({ type: 'error', text: `日付が変わったため適用日を ${currentMin} に繰り上げました。内容を確認してもう一度「保存」を押してください` })
-      return
-    }
-
     setSaving(true)
     try {
-      const [res, lotteryRes] = await Promise.all([
-        adminFetch('/api/admin/settings', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ availableDays, timeSlots, extraDates, excludedDates, perDaySchedule, effectiveFrom: finalEffective }),
-        }),
-        adminFetch('/api/admin/settings/lottery-time', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ lotteryTime }),
-        }),
-      ])
+      const res = await adminFetch('/api/admin/kobu-settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ availableDays, extraDates, excludedDates, timeSlots, perDaySchedule, effectiveFrom }),
+      })
       if (!res.ok) throw new Error((await res.json()).error ?? '保存に失敗しました')
-      const lotteryJson = await lotteryRes.json()
-      if (!lotteryRes.ok) throw new Error(lotteryJson.error ?? '抽選時刻の保存に失敗しました')
       const result = await res.json()
       showToast(
-        lotteryJson.cronWarning
-          ? `⚠️ cron-job.org: ${lotteryJson.cronWarning}`
+        effectiveFrom === todayJST()
+          ? '設定を保存しました（本日から適用）'
           : `設定を保存しました（${result.effectiveFrom} から適用予定）`
       )
       setEditingScheduled(false)
@@ -279,7 +238,7 @@ export default function Settings() {
 
   async function execCancelScheduled() {
     if (!cancelTarget) return
-    const res = await adminFetch(`/api/admin/settings/scheduled?date=${encodeURIComponent(cancelTarget)}`, { method: 'DELETE' })
+    const res = await adminFetch(`/api/admin/kobu-settings/scheduled?date=${encodeURIComponent(cancelTarget)}`, { method: 'DELETE' })
     if (!res.ok) throw new Error('取り消しに失敗しました')
     setCancelTarget(null)
     showToast('予約済みの変更を取り消しました')
@@ -290,13 +249,8 @@ export default function Settings() {
 
   if (!current) return (
     <div>
-      <Skeleton width="160px" height="28px" className="mb-6" />
-      {/* 抽選時刻 */}
-      <div className="admin-card">
-        <Skeleton width="72px" height="18px" className="mb-3" />
-        <Skeleton width="130px" height="40px" />
-      </div>
-      {/* 登録可能曜日 */}
+      <Skeleton width="200px" height="28px" className="mb-6" />
+      {/* 利用可能曜日 */}
       <div className="admin-card">
         <Skeleton width="110px" height="18px" className="mb-3" />
         <div className="flex gap-2">
@@ -307,14 +261,14 @@ export default function Settings() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {[0,1].map((i) => (
           <div key={i} className="admin-card">
-            <Skeleton width={i === 0 ? '52px' : '52px'} height="18px" className="mb-3" />
+            <Skeleton width="52px" height="18px" className="mb-3" />
             <Skeleton width="100%" height="72px" />
           </div>
         ))}
       </div>
-      {/* デフォルト時間枠 */}
+      {/* 営業時間枠 */}
       <div className="admin-card">
-        <Skeleton width="130px" height="18px" className="mb-3" />
+        <Skeleton width="90px" height="18px" className="mb-3" />
         <Skeleton width="100%" height="80px" />
       </div>
       {/* 時間枠の例外設定 */}
@@ -337,7 +291,7 @@ export default function Settings() {
         <button className="btn-icon-nav" onClick={() => setStep('editing')} disabled={saving}>
           <span className="icon">arrow_back</span>
         </button>
-        <h1 className="text-2xl font-bold">設定 - 農部生協</h1>
+        <h1 className="text-2xl font-bold">設定 - 工部室</h1>
       </div>
       <p className="text-[0.88rem] text-ink-sub mb-6 ml-11">保存内容の確認</p>
 
@@ -345,16 +299,15 @@ export default function Settings() {
         <table className="w-full text-[0.9rem]">
           <tbody>
             {([
-              ['適用日',               effectiveFrom],
-              ['登録可能曜日',          availableDays.length === 0 ? 'なし' : availableDays.map(d => WEEK_DAYS[d]).join('・')],
-              ['抽選時刻',              lotteryTime],
-              ['デフォルト時間枠',       `${timeSlots.length}件`],
-              ['追加日',               `${extraDates.length}件`],
-              ['除外日',               `${excludedDates.length}件`],
-              ['曜日/日付別スケジュール', perDaySchedule.enabled ? '有効' : '無効'],
+              ['適用日',       effectiveFrom],
+              ['利用可能曜日', availableDays.length === 0 ? 'なし' : availableDays.map(d => WEEK_DAYS[d]).join('・')],
+              ['営業時間枠',   `${timeSlots.length}件`],
+              ['追加日',       `${extraDates.length}件`],
+              ['除外日',       `${excludedDates.length}件`],
+              ['曜日/日付別',  perDaySchedule.enabled ? '有効' : '無効'],
             ] as [string, string][]).map(([label, value]) => (
               <tr key={label} className="border-b border-line last:border-0">
-                <td className="py-3 pr-4 text-ink-sub font-medium w-44 text-[0.88rem]">{label}</td>
+                <td className="py-3 pr-4 text-ink-sub font-medium w-36 text-[0.88rem]">{label}</td>
                 <td className="py-3 font-semibold text-ink">{value}</td>
               </tr>
             ))}
@@ -377,7 +330,7 @@ export default function Settings() {
 
   return (
     <div className="pb-80">
-      <h1 className="text-2xl font-bold mb-6">設定 - 農部生協</h1>
+      <h1 className="text-2xl font-bold mb-6">設定 - 工部室</h1>
 
       {message && <div className="banner-error">{message.text}</div>}
 
@@ -437,34 +390,8 @@ export default function Settings() {
         </div>
       )}
 
-      {/* 抽選時刻 */}
       <div className="admin-card">
-        <h2 className="text-base font-bold mb-1">抽選時刻</h2>
-        <p className="text-[0.85rem] text-ink-sub mb-3">
-          変更すると cron-job.org のスケジュールも自動で更新されます。
-        </p>
-        <input
-          type="time"
-          className="text-input w-auto"
-          min="01:00"
-          max="23:59"
-          value={lotteryTime}
-          onChange={(e) => setLotteryTime(e.target.value)}
-        />
-        {lotteryTimeInvalid ? (
-          <p className="mt-2 text-danger text-[0.85rem]">
-            <span className="icon icon-sm align-middle">error</span>
-            {' '}抽選時刻は01:00以降を指定してください
-          </p>
-        ) : (
-          <p className="mt-2 text-[0.82rem] text-ink-sub">
-            {computeLockoutTime(lotteryTime)}（10分前）〜{lotteryTime} の間、当日・翌日の登録が制限されます
-          </p>
-        )}
-      </div>
-
-      <div className="admin-card">
-        <h2 className="text-base font-bold mb-3">登録可能曜日</h2>
+        <h2 className="text-base font-bold mb-3">利用可能曜日</h2>
         <div className="flex gap-2 flex-wrap">
           {WEEK_DAYS.map((label, i) => {
             const selected = availableDays.includes(i)
@@ -482,60 +409,10 @@ export default function Settings() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div className="admin-card">
-          <h2 className="text-base font-bold mb-3">追加日</h2>
-          <p className="text-[0.85rem] text-ink-sub mb-3">
-            上記の曜日に該当しない日でも、ここに追加した日は予約可能になります。
-            直近8日間は緊急対応で設定してください。
-          </p>
-          <DateListEditor
-            dates={extraDates}
-            onChange={setExtraDates}
-            min={minDate}
-            emptyText="追加日なし"
-            label="予約可能にする日を選択"
-            conflictDates={excludedDates}
-            conflictLabel="除外日"
-            onMoveConflict={(date) => setExcludedDates((prev) => prev.filter((d) => d !== date))}
-          />
-          {earlyExtraDates.length > 0 && (
-            <p className="mt-2 text-warn text-[0.85rem]">
-              <span className="icon icon-sm align-middle">warning</span>
-              {' '}適用日（{effectiveFrom}）より前の日付が含まれています。これらは設定の対象外です：{earlyExtraDates.join('、')}
-            </p>
-          )}
-        </div>
-
-        <div className="admin-card">
-          <h2 className="text-base font-bold mb-3">除外日</h2>
-          <p className="text-[0.85rem] text-ink-sub mb-3">
-            通常は予約可能曜日でも、ここに登録した日は予約できなくなります（祝日や臨時休業など）。
-            直近8日間は緊急対応で設定してください。
-          </p>
-          <DateListEditor
-            dates={excludedDates}
-            onChange={setExcludedDates}
-            min={minDate}
-            emptyText="除外日なし"
-            label="予約不可にする日を選択"
-            conflictDates={extraDates}
-            conflictLabel="追加日"
-            onMoveConflict={(date) => setExtraDates((prev) => prev.filter((d) => d !== date))}
-          />
-          {earlyExcludedDates.length > 0 && (
-            <p className="mt-2 text-warn text-[0.85rem]">
-              <span className="icon icon-sm align-middle">warning</span>
-              {' '}適用日（{effectiveFrom}）より前の日付が含まれています。これらは設定の対象外です：{earlyExcludedDates.join('、')}
-            </p>
-          )}
-        </div>
-      </div>
-
       <div className="admin-card">
-        <h2 className="text-base font-bold mb-3">デフォルト時間枠</h2>
+        <h2 className="text-base font-bold mb-3">デフォルト営業時間枠</h2>
         <p className="text-[0.85rem] text-ink-sub mb-3">
-          全ての日で使用される基本の時間枠です。曜日や日付別に上書きする場合は下の設定で。
+          全ての日で使用される基本の営業時間枠です。曜日や日付別に上書きする場合は下の設定で。
         </p>
         <TimeSlotsEditor
           slots={timeSlots}
@@ -554,7 +431,7 @@ export default function Settings() {
       </div>
 
       <div className="admin-card">
-        <h2 className="text-base font-bold mb-3">時間枠の例外設定</h2>
+        <h2 className="text-base font-bold mb-3">営業時間の例外設定</h2>
         <PerDayScheduleEditor
           schedule={perDaySchedule}
           onChange={setPerDaySchedule}
@@ -574,18 +451,132 @@ export default function Settings() {
         )}
       </div>
 
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="admin-card">
+          <h2 className="text-base font-bold mb-3">追加日</h2>
+          <p className="text-[0.85rem] text-ink-sub mb-3">
+            上記の曜日に該当しない日でも、ここに追加した日は予約可能になります。
+          </p>
+          <DateListEditor
+            dates={extraDates}
+            onChange={setExtraDates}
+            min={todayJST()}
+            emptyText="追加日なし"
+            label="予約可能にする日を選択"
+            conflictDates={excludedDates}
+            conflictLabel="除外日"
+            onMoveConflict={(date) => setExcludedDates((prev) => prev.filter((d) => d !== date))}
+          />
+          {earlyExtraDates.length > 0 && (
+            <p className="mt-2 text-warn text-[0.85rem]">
+              <span className="icon icon-sm align-middle">warning</span>
+              {' '}適用日（{effectiveFrom}）より前の日付が含まれています。これらは設定の対象外です：{earlyExtraDates.join('、')}
+            </p>
+          )}
+        </div>
+
+        <div className="admin-card">
+          <h2 className="text-base font-bold mb-3">除外日</h2>
+          <p className="text-[0.85rem] text-ink-sub mb-3">
+            通常は予約可能曜日でも、ここに登録した日は予約できなくなります（祝日や臨時休業など）。
+          </p>
+          <DateListEditor
+            dates={excludedDates}
+            onChange={setExcludedDates}
+            min={todayJST()}
+            emptyText="除外日なし"
+            label="予約不可にする日を選択"
+            conflictDates={extraDates}
+            conflictLabel="追加日"
+            onMoveConflict={(date) => setExtraDates((prev) => prev.filter((d) => d !== date))}
+          />
+          {earlyExcludedDates.length > 0 && (
+            <p className="mt-2 text-warn text-[0.85rem]">
+              <span className="icon icon-sm align-middle">warning</span>
+              {' '}適用日（{effectiveFrom}）より前の日付が含まれています。これらは設定の対象外です：{earlyExcludedDates.join('、')}
+            </p>
+          )}
+          {hasDateOverlap && (
+            <p className="mt-2 text-danger text-[0.85rem]">
+              <span className="icon icon-sm align-middle">warning</span>
+              {' '}同じ日付が追加日と除外日の両方に指定されています
+            </p>
+          )}
+        </div>
+      </div>
+
       <div className="admin-card">
         <h2 className="text-base font-bold mb-3">適用日</h2>
         <p className="text-[0.85rem] text-ink-sub mb-3">
-          現在予約可能な最長日（7日後）との競合を避けるため、
-          <strong>{minDate}</strong> 以降の日付を指定してください。
+          今日の日付を指定すると即時反映されます。将来の日付を指定すると、その日から設定が適用されます。
         </p>
-        <DatePicker value={effectiveFrom} onChange={setEffectiveFrom} min={minDate} />
+        <DatePicker value={effectiveFrom} onChange={setEffectiveFrom} min={todayJST()} />
       </div>
 
       <button className="btn-primary max-w-[300px]" onClick={goToConfirm}>
         {editingScheduled ? '上書き内容を確認する' : '確認する'}
       </button>
+
+      <hr className="border-line my-6" />
+
+      <div className="admin-card">
+        <h2 className="text-base font-bold mb-1">時間プリセット</h2>
+        <p className="text-[0.85rem] text-ink-sub mb-4">
+          ユーザーが予約時にワンタップで適用できる時間枠のショートカットです。この設定は即時反映されます。
+        </p>
+
+        <div className="flex flex-col gap-2 mb-2">
+          {timePresets.map((p, i) => (
+            <div key={i} className="grid grid-cols-[1fr_110px_110px_auto] gap-2 items-center p-1.5 rounded-lg bg-bg border border-line">
+              <input
+                className="text-input py-1.5 text-[0.88rem]"
+                placeholder="ラベル（例：午前）"
+                value={p.label}
+                onChange={e => setTimePresets(prev => prev.map((x, j) => j === i ? { ...x, label: e.target.value } : x))}
+              />
+              <input
+                className="text-input py-1.5 text-[0.88rem]"
+                type="time"
+                value={p.startTime}
+                onChange={e => setTimePresets(prev => prev.map((x, j) => j === i ? { ...x, startTime: e.target.value } : x))}
+              />
+              <input
+                className="text-input py-1.5 text-[0.88rem]"
+                type="time"
+                value={p.endTime}
+                onChange={e => setTimePresets(prev => prev.map((x, j) => j === i ? { ...x, endTime: e.target.value } : x))}
+              />
+              <button
+                className="btn-icon-danger"
+                onClick={() => setTimePresets(prev => prev.filter((_, j) => j !== i))}
+              >
+                <span className="icon">delete</span>
+              </button>
+            </div>
+          ))}
+        </div>
+
+        <button
+          className="btn-outline w-auto px-3 py-1.5 mt-1"
+          onClick={() => setTimePresets(prev => [...prev, { label: '', startTime: '', endTime: '' }])}
+        >
+          <span className="icon icon-sm">add</span> プリセットを追加
+        </button>
+
+        {presetMessage?.type === 'error' && (
+          <div className="mt-3 banner-error mb-0">{presetMessage.text}</div>
+        )}
+
+        <div className="mt-4">
+          <button
+            className="btn-primary max-w-[200px]"
+            disabled={presetSaving}
+            onClick={() => saveTimePresets(timePresets)}
+          >
+            {presetSaving ? '保存中...' : 'プリセットを保存'}
+          </button>
+        </div>
+      </div>
 
       {blocker.state === 'blocked' && (
         <div className="modal-backdrop" onClick={() => blocker.reset()}>

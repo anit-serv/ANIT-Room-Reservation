@@ -4,6 +4,7 @@ import { createBrowserRouter, RouterProvider } from 'react-router-dom'
 import './index.css'
 import LiffApp from './liff/LiffApp'
 import AdminApp from './admin/AdminApp'
+import { ToastProvider } from './contexts/ToastContext'
 
 const router = createBrowserRouter([
   { path: '/admin/*', element: <AdminApp /> },
@@ -12,6 +13,8 @@ const router = createBrowserRouter([
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <RouterProvider router={router} />
+    <ToastProvider>
+      <RouterProvider router={router} />
+    </ToastProvider>
   </StrictMode>,
 )

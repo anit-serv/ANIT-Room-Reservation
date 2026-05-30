@@ -3,16 +3,16 @@
 /* ── テーマ定義 ────────────────────────────────────── */
 @theme {
   /* ブランドカラー */
-  --color-brand:        #06c755;
-  --color-brand-dark:   #05a847;
-  --color-brand-light:  #e8f9ef;
+  --color-brand:        #10b981;
+  --color-brand-dark:   #059669;
+  --color-brand-light:  #ecfdf5;
 
   /* 警告 (オレンジ) */
-  --color-warn:         #ff9500;
-  --color-warn-light:   #fff4e0;
+  --color-warn:         #d97706;
+  --color-warn-light:   #fef3c7;
 
   /* 危険 (赤) */
-  --color-danger:       #e53e3e;
+  --color-danger:       #c53030;
   --color-danger-light: #fff0f0;
 
   /* スーパー管理者 */
@@ -29,7 +29,7 @@
   --color-line:         #e8e8e8;
 
   /* リンク (青系) */
-  --color-link:         #1a73e8;
+  --color-link:         #2563a8;
   --color-link-light:   #e8f0fe;
 
   /* シャドウ */
@@ -41,6 +41,12 @@
   --animate-skel: skel-shimmer 1.4s ease-in-out infinite;
   --animate-row-flash: row-flash 3s ease-out;
   --animate-spin-line: spin 0.7s linear infinite;
+  --animate-sheet-up:   sheet-slide-up   0.3s cubic-bezier(0.32,0.72,0,1);
+  --animate-sheet-down: sheet-slide-down 0.22s ease-in forwards;
+  --animate-fade-in:      fade-in      0.25s ease-out;
+  --animate-fade-out:     fade-out     0.22s ease-in forwards;
+  --animate-dropdown-in:  dropdown-in  0.18s ease-out;
+  --animate-dropdown-out: dropdown-out 0.15s ease-in  forwards;
 }
 
 @keyframes skel-shimmer {
@@ -51,6 +57,53 @@
 @keyframes row-flash {
   0%   { background-color: var(--color-brand-light); }
   100% { background-color: transparent; }
+}
+
+@keyframes sheet-slide-up {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+
+@keyframes sheet-slide-down {
+  from { transform: translateY(0); }
+  to   { transform: translateY(100%); }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes dropdown-in {
+  from { clip-path: inset(0 0 100% 0); }
+  to   { clip-path: inset(0 0 0% 0); }
+}
+
+@keyframes dropdown-out {
+  from { clip-path: inset(0 0 0% 0); }
+  to   { clip-path: inset(0 0 100% 0); }
+}
+
+@keyframes fade-out {
+  from { opacity: 1; }
+  to   { opacity: 0; }
+}
+
+@keyframes week-slide-in-right {
+  from { transform: translateX(100%); }
+  to   { transform: translateX(0); }
+}
+@keyframes week-slide-in-left {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(0); }
+}
+@keyframes week-slide-out-left {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-100%); }
+}
+@keyframes week-slide-out-right {
+  from { transform: translateX(0); }
+  to   { transform: translateX(100%); }
 }
 
 /* ── ベース ────────────────────────────────────────── */
@@ -75,11 +128,13 @@
   font-style: normal;
   font-size: 20px;
   line-height: 1;
+  width: 1em;
   letter-spacing: normal;
   text-transform: none;
   display: inline-block;
   white-space: nowrap;
   word-wrap: normal;
+  overflow: hidden;
   direction: ltr;
   -webkit-font-smoothing: antialiased;
   font-variation-settings: 'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 24;
@@ -134,21 +189,49 @@
 
 /* ── ボタン ───────────────────────────────────────── */
 @utility btn-primary {
-  @apply w-full px-4 py-[0.9rem] bg-brand text-white rounded-[10px] text-base font-bold cursor-pointer transition;
+  @apply inline-flex items-center justify-center gap-1.5 leading-none;
+  @apply w-full px-6 py-[0.9rem] bg-brand text-white rounded-[10px] text-base font-bold cursor-pointer transition;
   @apply hover:bg-brand-dark active:scale-[0.98];
   @apply disabled:bg-[#b2dfdb] disabled:cursor-not-allowed disabled:scale-100;
 }
 @utility btn-outline {
-  @apply w-full px-3 py-3 bg-white text-brand border-[1.5px] border-brand rounded-[10px] text-[0.95rem] font-semibold cursor-pointer transition;
+  @apply inline-flex items-center justify-center gap-1.5 leading-none;
+  @apply w-full px-3 py-3 bg-white text-brand border-[1.5px] border-brand rounded-[10px] text-base font-semibold cursor-pointer transition;
   @apply hover:bg-brand-light active:bg-brand-light;
 }
+@utility btn-secondary {
+  @apply inline-flex items-center justify-center gap-1.5 leading-none;
+  @apply w-full px-6 py-[0.9rem] bg-[#e8e8e8] text-ink rounded-[10px] text-base font-bold cursor-pointer transition;
+  @apply hover:brightness-95 active:scale-[0.98];
+  @apply disabled:opacity-50 disabled:cursor-not-allowed disabled:scale-100;
+}
 @utility btn-danger {
-  @apply px-3 py-[0.4rem] bg-white text-danger border-[1.5px] border-danger rounded-md text-[0.8rem] cursor-pointer transition;
-  @apply hover:bg-danger-light active:bg-danger-light;
+  @apply inline-flex items-center justify-center gap-1.5 leading-none;
+  @apply w-full px-6 py-[0.9rem] bg-danger text-white rounded-[10px] text-base font-bold cursor-pointer transition;
+  @apply hover:brightness-90 active:scale-[0.98];
+  @apply disabled:opacity-50 disabled:cursor-not-allowed disabled:scale-100;
+}
+/* アイコン付きボタンは錯視補正で左寄り */
+.btn-primary:has(.icon), .btn-outline:has(.icon), .btn-secondary:has(.icon), .btn-danger:has(.icon) {
+  padding-left: 1rem;
+  padding-right: 1.5rem;
 }
 @utility btn-icon {
   @apply w-9 h-9 flex items-center justify-center rounded-md border border-line bg-white text-ink-pale cursor-pointer transition;
+  @apply hover:text-green-700 hover:border-green-400 hover:bg-green-50;
+}
+@utility btn-icon-close {
+  @apply w-9 h-9 flex items-center justify-center rounded-md border border-line bg-white text-ink-pale cursor-pointer transition;
   @apply hover:text-danger hover:border-danger hover:bg-danger-light;
+}
+@utility btn-icon-danger {
+  @apply w-9 h-9 flex items-center justify-center rounded-md border border-line bg-white text-danger cursor-pointer transition;
+  @apply hover:border-danger hover:bg-danger-light;
+}
+@utility btn-icon-nav {
+  @apply w-9 h-9 flex items-center justify-center rounded-md border border-line bg-white text-ink-pale cursor-pointer transition;
+  @apply hover:text-brand-dark hover:border-brand hover:bg-brand-light;
+  @apply disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none;
 }
 
 /* ── 入力 ─────────────────────────────────────────── */
@@ -165,7 +248,7 @@
 
 /* ── バッジ ───────────────────────────────────────── */
 @utility badge {
-  @apply inline-flex items-center gap-1 text-[0.72rem] font-semibold px-2 py-[0.2rem] rounded-full;
+  @apply inline-flex items-center gap-1 text-[0.72rem] font-semibold px-2 py-[0.2rem] rounded-full whitespace-nowrap;
 }
 @utility badge-pending   { @apply bg-warn-light text-warn; }
 @utility badge-confirmed { @apply bg-brand-light text-brand-dark; }
@@ -201,7 +284,7 @@
 
 /* ── LIFF シェル（中央480px） ─────────────────────── */
 @utility liff-shell {
-  @apply max-w-[480px] mx-auto min-h-[100dvh] bg-surface flex flex-col;
+  @apply max-w-[480px] mx-auto h-[100dvh] bg-surface flex flex-col overflow-hidden;
 }
 
 /* ── アバター ─────────────────────────────────────── */

@@ -1,6 +1,9 @@
 import { useEffect, useState, useCallback } from 'react'
+import { useToast } from '../../contexts/ToastContext'
 import { adminFetch } from '../auth'
+import { getPageCache, setPageCache } from '../pageCache'
 import Skeleton from '../../components/Skeleton'
+import ConfirmDialog from '../../components/ConfirmDialog'
 
 type Admin = {
   userId: string
@@ -20,52 +23,81 @@ type Invitation = {
   usedBy: string | null
 }
 
+const ADMINS_CACHE_KEY = 'admins'
+type AdminsCache = {
+  me: { userId: string; isSuperAdmin?: boolean } | null
+  admins: Admin[]
+  invitations: Invitation[]
+}
+
 export default function Admins() {
-  const [admins, setAdmins]           = useState<Admin[]>([])
-  const [invitations, setInvitations] = useState<Invitation[]>([])
-  const [loading, setLoading]         = useState(true)
-  const [me, setMe]                   = useState<{ userId: string; isSuperAdmin?: boolean } | null>(null)
+  const cached = getPageCache<AdminsCache>(ADMINS_CACHE_KEY)
+  const [admins, setAdmins]           = useState<Admin[]>(cached?.admins ?? [])
+  const [invitations, setInvitations] = useState<Invitation[]>(cached?.invitations ?? [])
+  const [loading, setLoading]         = useState(!cached)
+  const [me, setMe]                   = useState<{ userId: string; isSuperAdmin?: boolean } | null>(cached?.me ?? null)
   const [generated, setGenerated]     = useState<{ url: string; expiresAt: string } | null>(null)
   const [generating, setGenerating]   = useState(false)
+  const [openId,     setOpenId]       = useState<string | null>(null)
+  const [message, setMessage] = useState<string | null>(null)
+  const { showToast } = useToast()
+  const [confirmAction, setConfirmAction] = useState<{
+    title: string
+    message: string
+    confirmLabel?: string
+    onConfirm: () => Promise<void>
+  } | null>(null)
 
   const load = useCallback(async () => {
-    setLoading(true)
+    if (!getPageCache<AdminsCache>(ADMINS_CACHE_KEY)) setLoading(true)
     try {
       const [meRes, adminRes, invRes] = await Promise.all([
         adminFetch('/api/admin/auth/me'),
         adminFetch('/api/admin/admins'),
         adminFetch('/api/admin/invitations'),
       ])
-      setMe(await meRes.json())
-      setAdmins((await adminRes.json()).admins)
-      setInvitations((await invRes.json()).invitations)
+      const meData = await meRes.json()
+      const adminData = await adminRes.json()
+      const invitationData = await invRes.json()
+      setMe(meData)
+      setAdmins(adminData.admins)
+      setInvitations(invitationData.invitations)
+      setPageCache<AdminsCache>(ADMINS_CACHE_KEY, {
+        me: meData,
+        admins: adminData.admins,
+        invitations: invitationData.invitations,
+      })
     } catch { /* ignore */ } finally { setLoading(false) }
   }, [])
 
   useEffect(() => { load() }, [load])
 
   async function removeAdmin(a: Admin) {
-    if (!confirm(`「${a.displayName || a.userId}」を管理者から削除しますか？`)) return
-    const res = await adminFetch(`/api/admin/admins/${a.userId}`, { method: 'DELETE' })
-    if (res.ok) {
-      setAdmins((prev) => prev.filter((x) => x.userId !== a.userId))
-    } else {
-      alert((await res.json()).error ?? '削除に失敗しました')
-    }
+    setConfirmAction({
+      title: '管理者を削除しますか？',
+      message: `「${a.displayName || a.userId}」を管理者から削除します。`,
+      onConfirm: async () => {
+        const res = await adminFetch(`/api/admin/admins/${a.userId}`, { method: 'DELETE' })
+        if (!res.ok) throw new Error((await res.json()).error ?? '削除に失敗しました')
+        setAdmins((prev) => prev.filter((x) => x.userId !== a.userId))
+        setConfirmAction(null)
+      },
+    })
   }
 
   async function transferSuper(a: Admin) {
-    if (!confirm(
-      `スーパー管理者を「${a.displayName || a.userId}」に移譲しますか？\n\n` +
-      `この操作は取り消せません。あなたは通常の管理者になります。`
-    )) return
-    const res = await adminFetch(`/api/admin/admins/${a.userId}/transfer-super`, { method: 'POST' })
-    if (res.ok) {
-      alert(`「${a.displayName}」にスーパー管理者を移譲しました`)
-      load()
-    } else {
-      alert((await res.json()).error ?? '移譲に失敗しました')
-    }
+    setConfirmAction({
+      title: 'スーパー管理者を移譲しますか？',
+      message: `スーパー管理者を「${a.displayName || a.userId}」に移譲します。この操作は取り消せません。あなたは通常の管理者になります。`,
+      confirmLabel: '移譲',
+      onConfirm: async () => {
+        const res = await adminFetch(`/api/admin/admins/${a.userId}/transfer-super`, { method: 'POST' })
+        if (!res.ok) throw new Error((await res.json()).error ?? '移譲に失敗しました')
+        showToast(`「${a.displayName || a.userId}」にスーパー管理者を移譲しました`)
+        setConfirmAction(null)
+        await load()
+      },
+    })
   }
 
   async function generateInvite() {
@@ -78,46 +110,70 @@ export default function Admins() {
       setGenerated({ url: data.url, expiresAt: data.expiresAt })
       load()
     } catch {
-      alert('招待リンクの生成に失敗しました')
+      setMessage({ type: 'error', text: '招待リンクの生成に失敗しました' })
     } finally {
       setGenerating(false)
     }
   }
 
   async function revokeInvitation(token: string) {
-    if (!confirm('この招待リンクを取り消しますか？')) return
-    const res = await adminFetch(`/api/admin/invitations/${token}`, { method: 'DELETE' })
-    if (res.ok) {
-      setInvitations((prev) => prev.filter((x) => x.token !== token))
-    }
+    setConfirmAction({
+      title: '招待リンクを取り消しますか？',
+      message: 'この招待リンクを取り消します。',
+      confirmLabel: '取り消す',
+      onConfirm: async () => {
+        const res = await adminFetch(`/api/admin/invitations/${token}`, { method: 'DELETE' })
+        if (!res.ok) throw new Error((await res.json()).error ?? '取り消しに失敗しました')
+        setInvitations((prev) => prev.filter((x) => x.token !== token))
+        setConfirmAction(null)
+      },
+    })
   }
 
   function copyUrl(url: string) {
     navigator.clipboard.writeText(url).then(
-      () => alert('URLをコピーしました'),
-      () => alert('コピーに失敗しました')
+      () => showToast('URLをコピーしました'),
+      () => setMessage('コピーに失敗しました')
     )
   }
 
   if (loading) return (
     <div>
-      <Skeleton width="180px" height="28px" className="mb-6" />
+      <Skeleton width="160px" height="28px" className="mb-6" />
+      {/* 招待カード */}
       <div className="admin-card">
-        <Skeleton width="60%" height="20px" className="mb-2" />
-        <Skeleton width="90%" height="14px" className="mb-4" />
-        <Skeleton width="160px" height="36px" />
+        <div className="flex items-center justify-between mb-3">
+          <Skeleton width="150px" height="18px" />
+          <Skeleton width="148px" height="36px" />
+        </div>
+        <Skeleton width="90%" height="13px" />
       </div>
+      {/* 管理者リスト */}
       <div className="bg-surface border border-line rounded-xl overflow-hidden shadow-[var(--shadow-card-sm)]">
         <div className="px-5 py-4 border-b border-line">
-          <Skeleton width="200px" height="20px" />
+          <Skeleton width="190px" height="18px" />
         </div>
-        {[0, 1, 2].map((i) => (
-          <div key={i} className="flex gap-3 px-4 py-3 border-b border-line items-center last:border-b-0">
-            <Skeleton width="40%" height="16px" />
-            <Skeleton width="80px" height="14px" className="ml-auto" />
-            <Skeleton width="32px" height="32px" />
-          </div>
-        ))}
+        {/* Desktop (md+): avatar | 名前+バッジ | 登録日 | 操作 */}
+        <div className="hidden md:block">
+          {[0,1,2].map((i) => (
+            <div key={i} className="flex items-center gap-3 px-4 py-3 border-b border-line last:border-b-0">
+              <Skeleton width={32} height={32} circle />
+              <Skeleton className="flex-1" height="15px" />
+              <Skeleton width="80px" height="13px" />
+              <Skeleton width="32px" height="32px" />
+            </div>
+          ))}
+        </div>
+        {/* Mobile (< md): accordion rows */}
+        <div className="md:hidden">
+          {[0,1,2].map((i) => (
+            <div key={i} className="flex items-center gap-3 px-4 py-3 border-b border-line last:border-b-0">
+              <Skeleton width={32} height={32} circle />
+              <Skeleton className="flex-1" height="15px" />
+              <Skeleton width="24px" height="24px" />
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   )
@@ -125,6 +181,8 @@ export default function Admins() {
   return (
     <div>
       <h1 className="text-2xl font-bold mb-6">管理者管理</h1>
+
+      {message && <div className="banner-error">{message}</div>}
 
       {/* 招待リンク発行 */}
       <div className="admin-card">
@@ -195,7 +253,7 @@ export default function Admins() {
                       </button>
                     )}
                     {!a.isSuperAdmin && me?.userId !== a.userId && (
-                      <button className="btn-icon" onClick={() => removeAdmin(a)} title="削除">
+                      <button className="btn-icon-danger" onClick={() => removeAdmin(a)} title="削除">
                         <span className="icon">person_remove</span>
                       </button>
                     )}
@@ -216,6 +274,8 @@ export default function Admins() {
               key={a.userId}
               a={a}
               me={me}
+              open={openId === a.userId}
+              onToggle={() => setOpenId(openId === a.userId ? null : a.userId)}
               onRemove={() => removeAdmin(a)}
               onTransfer={() => transferSuper(a)}
             />
@@ -260,7 +320,7 @@ export default function Admins() {
                     </td>
                     <td className="cell-actions">
                       {!inv.used && !expired && (
-                        <button className="btn-icon" onClick={() => revokeInvitation(inv.token)}>
+                        <button className="btn-icon-danger" onClick={() => revokeInvitation(inv.token)}>
                           <span className="icon">delete</span>
                         </button>
                       )}
@@ -277,32 +337,45 @@ export default function Admins() {
               <InvitationMobileCard
                 key={inv.token}
                 inv={inv}
+                open={openId === inv.token}
+                onToggle={() => setOpenId(openId === inv.token ? null : inv.token)}
                 onRevoke={() => revokeInvitation(inv.token)}
               />
             ))}
           </div>
         </div>
       )}
+
+      {confirmAction && (
+        <ConfirmDialog
+          title={confirmAction.title}
+          message={confirmAction.message}
+          confirmLabel={confirmAction.confirmLabel}
+          onClose={() => setConfirmAction(null)}
+          onConfirm={confirmAction.onConfirm}
+        />
+      )}
     </div>
   )
 }
 
 function AdminMobileCard({
-  a, me, onRemove, onTransfer,
+  a, me, open, onToggle, onRemove, onTransfer,
 }: {
   a: Admin
   me: { userId: string; isSuperAdmin?: boolean } | null
+  open: boolean
+  onToggle: () => void
   onRemove: () => void
   onTransfer: () => void
 }) {
-  const [open, setOpen] = useState(false)
   const isSelf = me?.userId === a.userId
 
   return (
     <div className="border-b border-line last:border-b-0">
       <button
         className="w-full flex items-center gap-3 px-4 py-3 text-left bg-transparent border-0 cursor-pointer hover:bg-[#fafbfc] transition-colors"
-        onClick={() => setOpen((v) => !v)}
+        onClick={onToggle}
       >
         {a.pictureUrl
           ? <img src={a.pictureUrl} alt="" className="avatar shrink-0" />
@@ -336,16 +409,20 @@ function AdminMobileCard({
               <div className="flex gap-2 pt-2">
                 {me?.isSuperAdmin && (
                   <button
-                    className="btn-icon"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-[0.82rem] font-medium cursor-pointer transition bg-white hover:opacity-80"
                     onClick={onTransfer}
-                    title="スーパー管理者に移譲"
                     style={{ color: 'var(--color-super)', borderColor: 'var(--color-super-border)' }}
                   >
-                    <span className="icon">star</span>
+                    <span className="icon" style={{ fontSize: 16 }}>star</span>
+                    スーパー管理者に移譲
                   </button>
                 )}
-                <button className="btn-icon" onClick={onRemove} title="削除">
-                  <span className="icon">person_remove</span>
+                <button
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-danger text-danger bg-white text-[0.82rem] font-medium cursor-pointer transition hover:bg-danger-light"
+                  onClick={onRemove}
+                >
+                  <span className="icon" style={{ fontSize: 16 }}>person_remove</span>
+                  削除
                 </button>
               </div>
             )}
@@ -357,19 +434,20 @@ function AdminMobileCard({
 }
 
 function InvitationMobileCard({
-  inv, onRevoke,
+  inv, open, onToggle, onRevoke,
 }: {
   inv: Invitation
+  open: boolean
+  onToggle: () => void
   onRevoke: () => void
 }) {
-  const [open, setOpen] = useState(false)
   const expired = inv.expiresAt ? inv.expiresAt < Date.now() : false
 
   return (
     <div className="border-b border-line last:border-b-0">
       <button
         className="w-full flex items-center gap-3 px-4 py-3 text-left bg-transparent border-0 cursor-pointer hover:bg-[#fafbfc] transition-colors"
-        onClick={() => setOpen((v) => !v)}
+        onClick={onToggle}
       >
         <div className="flex-1 min-w-0 text-[0.85rem] text-ink-sub">
           {inv.createdAt ? new Date(inv.createdAt).toLocaleString('ja-JP') : '-'}
@@ -403,7 +481,7 @@ function InvitationMobileCard({
             </div>
             {!inv.used && !expired && (
               <div className="pt-2">
-                <button className="btn-icon" onClick={onRevoke}>
+                <button className="btn-icon-danger" onClick={onRevoke}>
                   <span className="icon">delete</span>
                 </button>
               </div>

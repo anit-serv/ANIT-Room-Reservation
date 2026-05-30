@@ -1,4 +1,7 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
+import CalendarPicker from '../../components/CalendarPicker'
+import ConfirmDialog from '../../components/ConfirmDialog'
+import { getCalendarPopoverPosition } from '../../components/popoverPosition'
 
 const WEEK_DAYS = ['日', '月', '火', '水', '木', '金', '土']
 
@@ -15,39 +18,82 @@ type Props = {
   onChange: (dates: string[]) => void
   emptyText?: string
   min?: string
+  label?: string
+  conflictDates?: string[]
+  conflictLabel?: string
+  onMoveConflict?: (date: string) => void
 }
 
-export default function DateListEditor({ dates, onChange, emptyText, min }: Props) {
-  const [picker, setPicker] = useState('')
+export default function DateListEditor({
+  dates, onChange, emptyText, min, label = '日付を選択して追加',
+  conflictDates = [], conflictLabel, onMoveConflict,
+}: Props) {
+  const [open, setOpen] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  const [pendingConflictDate, setPendingConflictDate] = useState<string | null>(null)
+  const [pos, setPos] = useState({ top: 0, left: 0 })
+  const triggerRef = useRef<HTMLButtonElement>(null)
 
-  function add() {
+  function handleSelect(date: string) {
     setErr(null)
-    if (!picker) return
-    if (dates.includes(picker)) { setErr('既に追加されています'); return }
-    onChange([...dates, picker].sort())
-    setPicker('')
+    if (dates.includes(date)) {
+      onChange(dates.filter((d) => d !== date))
+      return
+    }
+    if (conflictDates.includes(date)) {
+      setPendingConflictDate(date)
+      return
+    }
+    onChange([...dates, date].sort())
+  }
+
+  async function moveConflictDate(date: string) {
+    onMoveConflict?.(date)
+    onChange([...dates, date].sort())
+    setPendingConflictDate(null)
   }
 
   function remove(d: string) {
     onChange(dates.filter((x) => x !== d))
   }
 
+  function toggleCalendar() {
+    if (!open && triggerRef.current) {
+      setPos(getCalendarPopoverPosition(triggerRef.current, { gap: 4 }))
+    }
+    setOpen((o) => !o)
+  }
+
   return (
     <div>
-      <div className="flex gap-2 mb-2">
-        <input
-          type="date"
-          className="text-input w-auto"
-          value={picker}
-          min={min}
-          onChange={(e) => setPicker(e.target.value)}
-        />
-        <button className="btn-outline w-auto px-3 py-2" onClick={add}>
-          <span className="icon icon-sm">add</span> 追加
+      <div className="relative mb-2">
+        <button
+          ref={triggerRef}
+          type="button"
+          aria-label={label}
+          onClick={toggleCalendar}
+          className="text-input w-auto flex items-center gap-2 cursor-pointer"
+        >
+          <span className="icon text-ink-pale" style={{ fontSize: 18 }}>calendar_today</span>
+          <span className="text-ink-pale">{label}</span>
         </button>
+
+        {open && (
+          <>
+            <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+            <div className="fixed z-20" style={{ top: pos.top, left: pos.left }}>
+              <CalendarPicker
+                min={min}
+                selectedDates={dates}
+                onChange={(date) => { handleSelect(date); setErr(null) }}
+              />
+            </div>
+          </>
+        )}
       </div>
+
       {err && <div className="text-danger text-[0.85rem] mb-2">{err}</div>}
+
       {dates.length === 0
         ? <div className="text-ink-pale text-[0.85rem]">{emptyText ?? '登録なし'}</div>
         : (
@@ -66,6 +112,16 @@ export default function DateListEditor({ dates, onChange, emptyText, min }: Prop
             ))}
           </div>
         )}
+
+      {pendingConflictDate && (
+        <ConfirmDialog
+          title="日付の設定を移動しますか？"
+          message={`${formatDate(pendingConflictDate)} は${conflictLabel ?? '別の設定'}に登録されています。こちらに変更しますか？`}
+          confirmLabel="変更"
+          onClose={() => setPendingConflictDate(null)}
+          onConfirm={() => moveConflictDate(pendingConflictDate)}
+        />
+      )}
     </div>
   )
 }

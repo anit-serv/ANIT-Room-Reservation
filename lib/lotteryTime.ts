@@ -1,12 +1,12 @@
 import type { Firestore } from 'firebase-admin/firestore'
+import { resolveReservationSettingsForDate, todayJST } from './reservationSettings'
 
 export const DEFAULT_LOTTERY_TIME = '21:00'
 
 /** Firestoreから抽選時刻を取得（HH:MM形式） */
 export async function getLotteryTime(db: Firestore): Promise<string> {
-  const doc = await db.collection('settings').doc('reservation').get()
-  if (!doc.exists) return DEFAULT_LOTTERY_TIME
-  return (doc.data()?.lotteryTime as string | undefined) ?? DEFAULT_LOTTERY_TIME
+  const settings = await resolveReservationSettingsForDate(db, todayJST())
+  return settings.lotteryTime ?? DEFAULT_LOTTERY_TIME
 }
 
 /** HH:MM → 総分数 */

@@ -1,23 +1,69 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
+import type { LiffProfile } from '../LiffApp'
 import Skeleton from '../../components/Skeleton'
+import { getPageCache, setPageCache } from '../pageCache'
+
+const DATES_CACHE_KEY = 'liff:nobu-settings'
+function slotCacheKey(date: string) { return `liff:nobu-slots:${date}` }
 
 type TimeSlot    = { label: string; value: string }
 type DateEntry   = { label: string; value: string; timeSlots: TimeSlot[] }
-type SlotEntry   = { bandName: string; status: string; order?: number }
+type SlotEntry   = { id: string; userId: string; bandName: string; status: string; order?: number }
 type TimeSlotMap = { [timeSlot: string]: SlotEntry[] }
+type DetailModal = { entry: SlotEntry; date: string; timeSlot: string }
 
-export default function AllReservations() {
-  const [dates,        setDates]        = useState<DateEntry[]>([])
-  const [selectedDate, setSelectedDate] = useState('')
-  const [slotMap,      setSlotMap]      = useState<TimeSlotMap | null>(null)
-  const [loading,      setLoading]      = useState(false)
+type Props = {
+  profile?: LiffProfile | null
+  initialFocus?: { id: string; date: string } | null
+  onFocusHandled?: () => void
+  onEditRequest?: (id: string) => void
+}
+
+export default function AllReservations({ profile, initialFocus, onFocusHandled, onEditRequest }: Props) {
+  const cachedDates   = getPageCache<DateEntry[]>(DATES_CACHE_KEY) ?? []
+  const initDate      = cachedDates[0]?.value ?? ''
+  const initSlotMap   = initDate ? (getPageCache<TimeSlotMap>(slotCacheKey(initDate)) ?? null) : null
+  const currentDateRef = useRef(initDate)
+  const entryRefs = useRef<Record<string, HTMLButtonElement | null>>({})
+
+  const [dates,        setDates]        = useState<DateEntry[]>(cachedDates)
+  const [selectedDate, setSelectedDate] = useState(initDate)
+  const [slotMap,      setSlotMap]      = useState<TimeSlotMap | null>(initSlotMap)
+  const [loading,      setLoading]      = useState(!!initDate && !initSlotMap)
   const [error,        setError]        = useState<string | null>(null)
+  const [detailModal,  setDetailModal]  = useState<DetailModal | null>(null)
+  const [focusId,      setFocusId]      = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!initialFocus) return
+    setFocusId(initialFocus.id)
+    if (initialFocus.date !== selectedDate) {
+      handleDateSelect(initialFocus.date)
+    }
+  }, [initialFocus])
+
+  useEffect(() => {
+    if (!focusId || loading || !slotMap) return
+    const el = entryRefs.current[focusId]
+    if (!el) return
+    requestAnimationFrame(() => {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      onFocusHandled?.()
+      window.setTimeout(() => setFocusId(null), 1200)
+    })
+  }, [focusId, loading, slotMap, onFocusHandled])
 
   useEffect(() => {
     fetch('/api/settings')
       .then((r) => r.json())
-      .then((data) => setDates(data.availableDatesWithToday ?? []))
+      .then((data) => {
+        const available: DateEntry[] = data.availableDatesWithToday ?? []
+        setDates(available)
+        setPageCache(DATES_CACHE_KEY, available)
+        if (available.length > 0 && !initDate) handleDateSelect(available[0].value)
+      })
       .catch(() => setError('設定の取得に失敗しました'))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const selectedDateEntry = dates.find((d) => d.value === selectedDate)
@@ -25,14 +71,35 @@ export default function AllReservations() {
 
   async function handleDateSelect(date: string) {
     setSelectedDate(date)
+    currentDateRef.current = date
+    const cached = getPageCache<TimeSlotMap>(slotCacheKey(date))
+    if (cached) {
+      setSlotMap(cached)
+      setLoading(false)
+      const authHeader = profile ? { Authorization: `Bearer ${profile.getAccessToken()}` } : {}
+      fetch(`/api/reservations/all?date=${date}`, { headers: authHeader })
+        .then(r => r.ok ? r.json() : null)
+        .then(data => {
+          if (data && currentDateRef.current === date) {
+            const sm = data.slotMap ?? {}
+            setSlotMap(sm)
+            setPageCache(slotCacheKey(date), sm)
+          }
+        })
+        .catch(() => {})
+      return
+    }
     setSlotMap(null)
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch(`/api/reservations/all?date=${date}`)
+      const authHeader = profile ? { Authorization: `Bearer ${profile.getAccessToken()}` } : {}
+      const res = await fetch(`/api/reservations/all?date=${date}`, { headers: authHeader })
       if (!res.ok) throw new Error()
       const data = await res.json()
-      setSlotMap(data.slotMap ?? {})
+      const sm = data.slotMap ?? {}
+      setSlotMap(sm)
+      setPageCache(slotCacheKey(date), sm)
     } catch {
       setError('取得に失敗しました')
     } finally {
@@ -47,6 +114,8 @@ export default function AllReservations() {
         return [...known, ...extra]
       })()
     : []
+
+  const isOwn = (entry: SlotEntry) => !!profile && entry.userId === profile.userId
 
   return (
     <div>
@@ -100,7 +169,15 @@ export default function AllReservations() {
                 <span className="ml-auto text-ink-pale font-normal">{slotMap[ts].length}件</span>
               </div>
               {slotMap[ts].map((entry, i) => (
-                <div key={i} className="flex items-center gap-2.5 px-3 py-2 bg-surface border border-line rounded-lg mb-1 shadow-[var(--shadow-card-sm)]">
+                <button
+                  key={entry.id}
+                  ref={(el) => { entryRefs.current[entry.id] = el }}
+                  className={
+                    'flex items-center gap-2.5 px-3 py-2 bg-surface border rounded-lg mb-1 shadow-[var(--shadow-card-sm)] w-full text-left transition-colors ' +
+                    (entry.id === focusId ? 'border-brand bg-brand-light/40' : 'border-line')
+                  }
+                  onClick={() => setDetailModal({ entry, date: selectedDate, timeSlot: ts })}
+                >
                   {entry.status === 'confirmed' ? (
                     <div className="w-[22px] h-[22px] rounded-full bg-brand-light text-brand-dark text-[0.7rem] font-bold flex items-center justify-center flex-shrink-0">
                       {i + 1}
@@ -108,8 +185,9 @@ export default function AllReservations() {
                   ) : (
                     <div className="w-1.5 h-1.5 rounded-full bg-ink-pale flex-shrink-0" />
                   )}
-                  <span className="text-[0.9rem] text-ink font-medium">{entry.bandName}</span>
-                </div>
+                  <span className="text-[0.9rem] text-ink font-medium flex-1">{entry.bandName}</span>
+                  {isOwn(entry) && <span className="icon icon-sm text-ink-pale">chevron_right</span>}
+                </button>
               ))}
             </div>
           ))
@@ -119,6 +197,54 @@ export default function AllReservations() {
         <div className="flex flex-col items-center gap-2 py-12 px-4 text-ink-pale text-center">
           <span className="icon icon-xl text-ink-pale">calendar_month</span>
           <span className="text-[0.9rem]">日付を選択してください</span>
+        </div>
+      )}
+
+      {/* バンド詳細モーダル */}
+      {detailModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setDetailModal(null)} />
+          <div className="relative bg-surface rounded-2xl shadow-[var(--shadow-modal)] w-full max-w-[320px] overflow-hidden">
+            <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-line">
+              <p className="text-base font-bold text-ink">登録詳細</p>
+              <button className="btn-icon-close" onClick={() => setDetailModal(null)}>
+                <span className="icon">close</span>
+              </button>
+            </div>
+            <div className="px-5 py-4 space-y-3">
+              <div className="flex items-center gap-2.5">
+                <span className="icon text-brand" style={{ fontSize: 20 }}>groups</span>
+                <span className="text-[0.95rem] font-semibold text-ink">{detailModal.entry.bandName}</span>
+              </div>
+              <div className="flex items-center gap-2.5">
+                <span className="icon text-ink-pale" style={{ fontSize: 20 }}>calendar_today</span>
+                <span className="text-[0.88rem] text-ink-sub">{detailModal.date.slice(5).replace('-', '/')}</span>
+              </div>
+              <div className="flex items-center gap-2.5">
+                <span className="icon text-ink-pale" style={{ fontSize: 20 }}>schedule</span>
+                <span className="text-[0.88rem] text-ink-sub">{detailModal.timeSlot}</span>
+              </div>
+              <div className="flex items-center gap-2.5">
+                <span className="icon text-ink-pale" style={{ fontSize: 20 }}>
+                  {detailModal.entry.status === 'confirmed' ? 'check_circle' : 'hourglass_empty'}
+                </span>
+                <span className="text-[0.88rem] text-ink-sub">
+                  {detailModal.entry.status === 'confirmed' ? '抽選確定' : '抽選待ち'}
+                </span>
+              </div>
+            </div>
+            {isOwn(detailModal.entry) && onEditRequest && (
+              <div className="px-5 pb-5">
+                <button
+                  className="btn-outline w-full flex items-center justify-center gap-1.5 py-2.5"
+                  onClick={() => { setDetailModal(null); onEditRequest(detailModal.entry.id) }}
+                >
+                  <span className="icon" style={{ fontSize: 16 }}>edit</span>
+                  編集
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>

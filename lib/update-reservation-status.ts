@@ -1,7 +1,11 @@
 import * as admin from 'firebase-admin';
 
 /**
- * 抽選結果をreservationsコレクションに反映する
+ * 【農部生協専用】抽選結果を reservations コレクションに反映する。
+ *
+ * 工部室・農部室は先着順確定（作成時 status: 'confirmed'）のため抽選不使用。
+ * 施設追加時にこの関数を流用しないこと。
+ *
  * @param targetDateStr 対象日付 (例: "2024-12-20")
  * @param db Firestore instance
  * @returns 更新件数
@@ -53,7 +57,7 @@ export async function updateReservationStatus(
           const bandIndex = bands.indexOf(bandName);
           await db.collection('reservations').doc(doc.id).update({
             status: 'confirmed',
-            order: bandIndex // 順番も記録
+            order: bandIndex + 1
           });
           updatedCount++;
         }
