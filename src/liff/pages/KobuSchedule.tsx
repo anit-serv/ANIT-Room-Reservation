@@ -816,8 +816,10 @@ export default function KobuSchedule({ profile, initialEdit, initialFocus, onEdi
                     style={{ top: toMinutes(modalStart) - dispStart, height: toMinutes(modalEnd) - toMinutes(modalStart) }} />
                 )}
                 {blocks.map((b, i) => {
-                  const top    = toMinutes(b.startTime) - dispStart
-                  const height = toMinutes(b.endTime) - toMinutes(b.startTime)
+                  const rawTop = toMinutes(b.startTime) - dispStart
+                  const rawHeight = toMinutes(b.endTime) - toMinutes(b.startTime)
+                  const top = rawTop + 1
+                  const height = Math.max(16, rawHeight - 2)
                   const isOwn  = b.userId === profile.userId
                   const isFocused = b.id === pendingFocus?.id
                   return (
