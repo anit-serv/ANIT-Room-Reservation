@@ -14,6 +14,7 @@ import {
   isTimeSlotAvailableBySettings,
   pickTimeSlotsForDate,
   resolveReservationSettingsForDate,
+  resolveReservationSettingsForDates,
   resolveFacilitySettingsForDate,
   todayJST,
 } from '../lib/reservationSettings'
@@ -341,6 +342,13 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 const WEEK_DAYS = ['日', '月', '火', '水', '木', '金', '土']
 
 type DateOption = { label: string; value: string }
+type EmergencyDateOption = DateOption & {
+  isReservable: boolean
+  canBlock: boolean
+  canOpen: boolean
+  blockedReason?: string
+  openReason?: string
+}
 
 function formatDateOption(date: string): DateOption {
   const d = new Date(date + 'T00:00:00Z')
@@ -693,6 +701,47 @@ async function reservationCountForDate(date: string): Promise<number> {
   return snap.docs.filter((d) => d.data().status !== 'cancelled').length
 }
 
+function afterTomorrowOpenDeadline(lotteryTime: string): boolean {
+  const [h, m] = lotteryTime.split(':').map(Number)
+  const lockoutMinutes = h * 60 + m - 10
+  const now = new Date(Date.now() + 9 * 60 * 60 * 1000)
+  const nowMinutes = now.getUTCHours() * 60 + now.getUTCMinutes()
+  return nowMinutes >= lockoutMinutes
+}
+
+async function buildEmergencyDateOptions(): Promise<EmergencyDateOption[]> {
+  const today = todayJST()
+  const tomorrow = addDaysJST(1)
+  const dates = Array.from({ length: 8 }, (_, i) => addDaysJST(i))
+  const [settingsByDate, todaySettings] = await Promise.all([
+    resolveReservationSettingsForDates(db, dates),
+    resolveReservationSettingsForDate(db, today),
+  ])
+  const tomorrowBlockedByDeadline = afterTomorrowOpenDeadline(todaySettings.lotteryTime)
+
+  return dates.map((date) => {
+    const settings = settingsByDate[date]
+    const baseSettings = { ...settings, dayOverride: undefined }
+    const isReservable = isDateAvailableBySettings(date, baseSettings) && pickTimeSlotsForDate(date, baseSettings).length > 0
+    const canBlock = isReservable
+    const canOpen = date >= tomorrow && !isReservable && !(date === tomorrow && tomorrowBlockedByDeadline)
+    return {
+      ...formatDateOption(date),
+      isReservable,
+      canBlock,
+      canOpen,
+      blockedReason: canBlock ? undefined : '設定時点で予約可能な日だけ予約不可にできます',
+      openReason: canOpen
+        ? undefined
+        : date < tomorrow
+          ? '予約解放は翌日以降の日付だけ指定できます'
+          : date === tomorrow && tomorrowBlockedByDeadline
+            ? '抽選時刻10分前を過ぎているため、翌日は予約解放できません'
+            : '設定時点で予約不可能な日だけ予約解放できます',
+    }
+  })
+}
+
 // ─── 農部生協の直近日付例外（緊急ブロック/臨時開放） ───
 async function handleSettingsDayOverrides(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method Not Allowed' })
@@ -706,22 +755,27 @@ async function handleSettingsDayOverrides(req: VercelRequest, res: VercelRespons
   const date = req.query.date as string | undefined
   if (date) {
     if (!isValidDate(date)) return res.status(400).json({ error: '日付の形式が不正です' })
-    const [doc, reservationCount] = await Promise.all([
+    const [doc, reservationCount, emergencyDates] = await Promise.all([
       db.collection('settings').doc('reservation').collection('dayOverrides').doc(date).get(),
       reservationCountForDate(date),
+      buildEmergencyDateOptions(),
     ])
     return res.status(200).json({
       override: doc.exists ? doc.data() : null,
       reservationCount,
+      dateOption: emergencyDates.find((entry) => entry.value === date) ?? null,
     })
   }
 
-  const overrides = await listReservationDayOverrides(db, { minDate: todayJST() })
+  const [overrides, emergencyDates] = await Promise.all([
+    listReservationDayOverrides(db, { minDate: todayJST() }),
+    buildEmergencyDateOptions(),
+  ])
   const withCounts = await Promise.all(overrides.map(async (override) => ({
     ...override,
     reservationCount: await reservationCountForDate(override.date),
   })))
-  return res.status(200).json({ overrides: withCounts })
+  return res.status(200).json({ overrides: withCounts, emergencyDates })
 }
 
 async function handleSettingsDayOverrideByDate(req: VercelRequest, res: VercelResponse, date: string) {
@@ -765,6 +819,16 @@ async function handleSettingsDayOverrideByDate(req: VercelRequest, res: VercelRe
   }
   const trimmedReason = (reason ?? '').trim()
   if (!trimmedReason) return res.status(400).json({ error: '理由を入力してください' })
+  const dateOption = (await buildEmergencyDateOptions()).find((entry) => entry.value === date)
+  if (!dateOption) {
+    return res.status(400).json({ error: `緊急対応の対象日は${todayJST()}〜${addDaysJST(7)}を指定してください` })
+  }
+  if (type === 'blocked' && !dateOption.canBlock) {
+    return res.status(400).json({ error: dateOption.blockedReason ?? 'この日は予約不可にできません' })
+  }
+  if (type === 'opened' && !dateOption.canOpen) {
+    return res.status(400).json({ error: dateOption.openReason ?? 'この日は予約解放できません' })
+  }
 
   let validatedSlots: TimeSlot[] | undefined
   if (type === 'opened' && Array.isArray(timeSlots) && timeSlots.length > 0) {

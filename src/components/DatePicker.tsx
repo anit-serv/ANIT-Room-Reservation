@@ -18,6 +18,8 @@ type Props = {
   min?: string
   maxDate?: string
   placeholder?: string
+  getDayClass?: (date: string) => string
+  isDateDisabled?: (date: string) => boolean
   /** 選択解除ボタンを表示する */
   clearable?: boolean
   className?: string
@@ -25,7 +27,7 @@ type Props = {
 
 export default function DatePicker({
   value, onChange, min, maxDate,
-  placeholder = '日付を選択', clearable, className,
+  placeholder = '日付を選択', getDayClass, isDateDisabled, clearable, className,
 }: Props) {
   const [open, setOpen] = useState(false)
   const [pos,  setPos]  = useState({ top: 0, left: 0 })
@@ -72,6 +74,8 @@ export default function DatePicker({
               onChange={(date) => { onChange(date); setOpen(false) }}
               min={min}
               maxDate={maxDate}
+              getDayClass={getDayClass}
+              isDateDisabled={isDateDisabled}
             />
           </div>
         </>

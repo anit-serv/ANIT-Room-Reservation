@@ -14,6 +14,16 @@ type DayOverride = {
   reservationCount?: number
 }
 
+type EmergencyDateOption = {
+  label: string
+  value: string
+  isReservable: boolean
+  canBlock: boolean
+  canOpen: boolean
+  blockedReason?: string
+  openReason?: string
+}
+
 type SettingsResponse = {
   timeSlots: TimeSlot[]
 }
@@ -32,6 +42,7 @@ const EMERGENCY_CACHE_KEY = 'settings:nobu-emergency'
 type EmergencyCache = {
   dayOverrides: DayOverride[]
   defaultSlots: TimeSlot[]
+  emergencyDates: EmergencyDateOption[]
 }
 
 export default function NobuEmergencySettings() {
@@ -39,6 +50,7 @@ export default function NobuEmergencySettings() {
   const [loading, setLoading] = useState(!cached)
   const [dayOverrides, setDayOverrides] = useState<DayOverride[]>(cached?.dayOverrides ?? [])
   const [defaultSlots, setDefaultSlots] = useState<TimeSlot[]>(cached?.defaultSlots ?? [])
+  const [emergencyDates, setEmergencyDates] = useState<EmergencyDateOption[]>(cached?.emergencyDates ?? [])
   const [emergencyDate, setEmergencyDate] = useState(todayJST())
   const [emergencyType, setEmergencyType] = useState<'blocked' | 'opened' | null>(null)
   const [emergencyReason, setEmergencyReason] = useState('')
@@ -64,10 +76,11 @@ export default function NobuEmergencySettings() {
 
   async function loadInitial() {
     if (!getPageCache<EmergencyCache>(EMERGENCY_CACHE_KEY)) setLoading(true)
-    const [slots, overrides] = await Promise.all([loadSettings(), loadDayOverrides(), loadEmergencyDateInfo(emergencyDate)])
+    const [slots, dayOverrideData] = await Promise.all([loadSettings(), loadDayOverrides(), loadEmergencyDateInfo(emergencyDate)])
     setPageCache<EmergencyCache>(EMERGENCY_CACHE_KEY, {
       defaultSlots: slots ?? defaultSlots,
-      dayOverrides: overrides ?? dayOverrides,
+      dayOverrides: dayOverrideData?.overrides ?? dayOverrides,
+      emergencyDates: dayOverrideData?.emergencyDates ?? emergencyDates,
     })
     setLoading(false)
   }
@@ -87,9 +100,12 @@ export default function NobuEmergencySettings() {
     try {
       const res = await adminFetch('/api/admin/settings/day-overrides')
       if (res.ok) {
-        const overrides = (await res.json()).overrides ?? []
+        const data = await res.json()
+        const overrides = data.overrides ?? []
+        const dates = data.emergencyDates ?? []
         setDayOverrides(overrides)
-        return overrides
+        setEmergencyDates(dates)
+        return { overrides, emergencyDates: dates }
       }
     } catch { /* ignore */ }
     return null
@@ -117,6 +133,33 @@ export default function NobuEmergencySettings() {
     }
   }
 
+  const selectedDateOption = emergencyDates.find((entry) => entry.value === emergencyDate)
+  const selectedDateWarning =
+    emergencyType === 'blocked'
+      ? selectedDateOption?.blockedReason
+      : emergencyType === 'opened'
+        ? selectedDateOption?.openReason
+        : undefined
+  const selectedDateAllowed =
+    !emergencyType ||
+    (emergencyType === 'blocked' && !!selectedDateOption?.canBlock) ||
+    (emergencyType === 'opened' && !!selectedDateOption?.canOpen)
+
+  function isAllowedDateForType(date: string, type: 'blocked' | 'opened' | null = emergencyType): boolean {
+    if (!type) return true
+    const option = emergencyDates.find((entry) => entry.value === date)
+    if (!option) return false
+    return type === 'blocked' ? option.canBlock : option.canOpen
+  }
+
+  function selectEmergencyType(type: 'blocked' | 'opened') {
+    setEmergencyType(type)
+    if (!isAllowedDateForType(emergencyDate, type)) {
+      const nextDate = emergencyDates.find((entry) => type === 'blocked' ? entry.canBlock : entry.canOpen)?.value
+      if (nextDate) setEmergencyDate(nextDate)
+    }
+  }
+
   async function saveDayOverride() {
     setMessage(null)
     if (!emergencyDate) {
@@ -129,6 +172,10 @@ export default function NobuEmergencySettings() {
     }
     if (!emergencyType) {
       setMessage({ type: 'error', text: '操作を選択してください' })
+      return
+    }
+    if (!selectedDateAllowed) {
+      setMessage({ type: 'error', text: selectedDateWarning ?? 'この日付は選択した操作の対象にできません' })
       return
     }
     if (!emergencyReason.trim()) {
@@ -240,7 +287,7 @@ export default function NobuEmergencySettings() {
           <div>
             <h2 className="text-base font-bold mb-1">緊急対応</h2>
             <p className="text-[0.85rem] text-ink-sub">
-              通常設定では間に合わない日付（今日から7日後まで）だけ、新規予約受付の停止または臨時開放を即時反映します。既存予約は自動では削除されません。
+              通常設定では間に合わない日付だけ、新規予約受付の停止または臨時開放を即時反映します。既存予約は自動では削除されません。
             </p>
           </div>
           <span className="badge badge-warn">
@@ -257,12 +304,22 @@ export default function NobuEmergencySettings() {
               onChange={setEmergencyDate}
               min={todayJST()}
               maxDate={maxEmergencyDate()}
+              getDayClass={(date) => isAllowedDateForType(date)
+                ? 'text-ink hover:bg-brand-light cursor-pointer'
+                : 'text-ink-pale cursor-not-allowed opacity-40'}
+              isDateDisabled={(date) => !isAllowedDateForType(date)}
               className="w-full justify-start whitespace-nowrap"
             />
             <p className="text-[0.78rem] text-ink-sub mt-1">
-              対象可能範囲: {todayJST()} 〜 {maxEmergencyDate()} / {' '}
+              対象可能範囲: 予約不可は予約可能日、臨時開放は翌日〜7日後の予約不可能日 / {' '}
               既存予約: <strong>{emergencyCount ?? '-'}</strong> 件
             </p>
+            {emergencyType && !selectedDateAllowed && selectedDateWarning && (
+              <p className="text-[0.78rem] text-warn mt-1">
+                <span className="icon icon-sm align-middle">warning</span>
+                {' '}{selectedDateWarning}
+              </p>
+            )}
           </div>
 
           <div className="form-row mb-0">
@@ -276,7 +333,7 @@ export default function NobuEmergencySettings() {
                     ? 'border-warn bg-warn-light text-warn'
                     : 'border-line bg-surface text-ink-sub hover:border-warn')
                 }
-                onClick={() => setEmergencyType('blocked')}
+                onClick={() => selectEmergencyType('blocked')}
               >
                 <div className="font-semibold flex items-center gap-1.5">
                   <span className="icon icon-sm">block</span>
@@ -292,7 +349,7 @@ export default function NobuEmergencySettings() {
                     ? 'border-brand bg-brand-light text-brand-dark'
                     : 'border-line bg-surface text-ink-sub hover:border-brand')
                 }
-                onClick={() => setEmergencyType('opened')}
+                onClick={() => selectEmergencyType('opened')}
               >
                 <div className="font-semibold flex items-center gap-1.5">
                   <span className="icon icon-sm">event_available</span>
@@ -344,7 +401,7 @@ export default function NobuEmergencySettings() {
         )}
 
         <div className="flex gap-2 flex-wrap mb-4">
-          <button className="btn-primary w-auto px-5" onClick={saveDayOverride} disabled={saving}>
+          <button className="btn-primary w-auto px-5" onClick={saveDayOverride} disabled={saving || !selectedDateAllowed}>
             {saving ? '保存中...' : '緊急対応を保存'}
           </button>
           {dayOverrides.some((override) => override.date === emergencyDate) && (
