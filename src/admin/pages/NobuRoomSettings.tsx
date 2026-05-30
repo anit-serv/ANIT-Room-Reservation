@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo, useCallback } from 'react'
 import { useBlocker } from 'react-router-dom'
 import { adminFetch } from '../auth'
+import { getPageCache, setPageCache } from '../pageCache'
 import TimeSlotsEditor, { findConflicts, type TimeSlot, type TimeSlotPreset } from '../components/TimeSlotsEditor'
 import DateListEditor from '../components/DateListEditor'
 import PerDayScheduleEditor, { findAllConflicts, type PerDaySchedule } from '../components/PerDayScheduleEditor'
@@ -34,13 +35,16 @@ function emptySchedule(): PerDaySchedule {
   return { enabled: false, byWeekday: {}, byDate: {} }
 }
 
+const SETTINGS_CACHE_KEY = 'settings:nobu-room'
+
 export default function NobuRoomSettings() {
-  const [current, setCurrent]               = useState<NobuRoomSettingsResponse | null>(null)
-  const [availableDays, setAvailableDays]   = useState<number[]>([0,1,2,3,4,5,6])
-  const [extraDates, setExtraDates]         = useState<string[]>([])
-  const [excludedDates, setExcludedDates]   = useState<string[]>([])
-  const [timeSlots, setTimeSlots]           = useState<TimeSlot[]>([])
-  const [perDaySchedule, setPerDaySchedule] = useState<PerDaySchedule>(emptySchedule())
+  const cached = getPageCache<NobuRoomSettingsResponse>(SETTINGS_CACHE_KEY)
+  const [current, setCurrent]               = useState<NobuRoomSettingsResponse | null>(cached ?? null)
+  const [availableDays, setAvailableDays]   = useState<number[]>(cached?.availableDays ?? [0,1,2,3,4,5,6])
+  const [extraDates, setExtraDates]         = useState<string[]>(cached?.extraDates ?? [])
+  const [excludedDates, setExcludedDates]   = useState<string[]>(cached?.excludedDates ?? [])
+  const [timeSlots, setTimeSlots]           = useState<TimeSlot[]>(cached?.timeSlots ?? [])
+  const [perDaySchedule, setPerDaySchedule] = useState<PerDaySchedule>(cached?.perDaySchedule ?? emptySchedule())
   const [effectiveFrom, setEffectiveFrom]   = useState<string>(todayJST())
   const [editingScheduled, setEditingScheduled]         = useState(false)
   const [editingScheduledDate, setEditingScheduledDate] = useState<string | null>(null)
@@ -95,6 +99,7 @@ export default function NobuRoomSettings() {
     if (!res.ok) { setMessage({ type: 'error', text: '設定の取得に失敗しました' }); return }
     const data = (await res.json()) as NobuRoomSettingsResponse
     setCurrent(data)
+    setPageCache<NobuRoomSettingsResponse>(SETTINGS_CACHE_KEY, data)
     setTimePresets(data.timePresets ?? [])
     if (!editingScheduled) applyToForm(data)
   }

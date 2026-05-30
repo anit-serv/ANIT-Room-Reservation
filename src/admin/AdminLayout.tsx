@@ -35,6 +35,7 @@ export default function AdminLayout() {
   const navRef           = useRef<HTMLElement>(null)
   const dropdownTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pendingDropdown  = useRef<DropdownData | null>(null)
+  const previousLocation = useRef<{ pathname: string; search: string } | null>(null)
   const [mobileDropdown, setMobileDropdown] = useState<DropdownData | null>(null)
   const [dropdownClosing, setDropdownClosing] = useState(false)
 
@@ -82,6 +83,21 @@ export default function AdminLayout() {
       setMobileDropdown(data)       // 何も開いていない → すぐ開く
     }
   }
+
+  useEffect(() => {
+    const previous = previousLocation.current
+    previousLocation.current = { pathname: location.pathname, search: location.search }
+
+    const params = new URLSearchParams(location.search)
+    const previousParams = new URLSearchParams(previous?.search ?? '')
+    const hasReservationFocus = params.has('focus') || params.has('dateFocus')
+    const hadReservationFocus = previousParams.has('focus') || previousParams.has('dateFocus')
+
+    if (hasReservationFocus || hadReservationFocus) return
+    if (!previous || previous.pathname !== location.pathname) {
+      window.scrollTo({ top: 0, left: 0, behavior: 'auto' })
+    }
+  }, [location.pathname, location.search])
 
   useEffect(() => {
     setDropdownClosing(false)

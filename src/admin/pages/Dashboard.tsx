@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { adminFetch } from '../auth'
+import { getPageCache, setPageCache } from '../pageCache'
 import Skeleton from '../../components/Skeleton'
 
 type Stats = {
@@ -100,26 +101,46 @@ const DASHBOARD_GRID = 'grid grid-cols-[minmax(0,1fr)_minmax(340px,0.58fr)] gap-
 const STATS_GRID3 = 'grid grid-cols-3 gap-3 mb-3 max-md:grid-cols-3'
 const STATS_GRID2 = 'grid grid-cols-2 gap-3 mb-3 max-md:grid-cols-2'
 const SECTION_HEADER = 'flex justify-between items-center px-4 py-3 border-b border-line'
+const DASHBOARD_POLL_MS = 60_000
+const DASHBOARD_CACHE_KEY = 'dashboard'
+type DashboardCache = {
+  me: { displayName: string; isSuperAdmin?: boolean } | null
+  data: DashboardData
+}
 
 export default function Dashboard() {
   const navigate = useNavigate()
-  const [me, setMe] = useState<{ displayName: string; isSuperAdmin?: boolean } | null>(null)
-  const [data, setData] = useState<DashboardData | null>(null)
+  const cached = getPageCache<DashboardCache>(DASHBOARD_CACHE_KEY)
+  const [me, setMe] = useState<{ displayName: string; isSuperAdmin?: boolean } | null>(cached?.me ?? null)
+  const [data, setData] = useState<DashboardData | null>(cached?.data ?? null)
   const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
-    Promise.all([
+  const load = useCallback(async () => {
+    setError(null)
+    return Promise.all([
       adminFetch('/api/admin/auth/me').then((r) => r.ok ? r.json() : null),
       adminFetch('/api/admin/dashboard').then((r) => r.ok ? r.json() : Promise.reject()),
     ])
       .then(([meData, dashData]) => {
         setMe(meData)
         setData(dashData)
+        setPageCache<DashboardCache>(DASHBOARD_CACHE_KEY, { me: meData, data: dashData })
       })
       .catch(() => setError('ダッシュボードの取得に失敗しました'))
   }, [])
 
-  if (error) return <div className="banner-error">{error}</div>
+  useEffect(() => {
+    load()
+  }, [load])
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      if (document.visibilityState === 'visible') load()
+    }, DASHBOARD_POLL_MS)
+    return () => window.clearInterval(id)
+  }, [load])
+
+  if (error && !data) return <div className="banner-error">{error}</div>
   if (!data) return <DashboardSkeleton />
 
   const { stats, upcoming, pendingChange, recentLogs } = data

@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react'
 import { adminFetch } from '../auth'
+import { getPageCache, setPageCache } from '../pageCache'
 import Skeleton from '../../components/Skeleton'
 
 type Log = {
@@ -175,17 +176,42 @@ function renderDetails(action: string, details: any): React.ReactNode {
 
 const ACTION_OPTIONS = Object.keys(ACTION_LABELS)
 
+type LogsCache = {
+  logs: Log[]
+  hasMore: boolean
+  nextBefore: number | null
+}
+
+function logsCacheKey(actionFilter: string) {
+  return `logs:${actionFilter}`
+}
+
 export default function Logs() {
-  const [logs, setLogs]       = useState<Log[]>([])
-  const [loading, setLoading] = useState(true)
   const [error, setError]     = useState<string | null>(null)
   const [actionFilter, setActionFilter] = useState<string>('')
-  const [hasMore, setHasMore] = useState(false)
-  const [nextBefore, setNextBefore] = useState<number | null>(null)
+  const initialCache = getPageCache<LogsCache>(logsCacheKey(''))
+  const [logs, setLogs]       = useState<Log[]>(initialCache?.logs ?? [])
+  const [loading, setLoading] = useState(!initialCache)
+  const [hasMore, setHasMore] = useState(initialCache?.hasMore ?? false)
+  const [nextBefore, setNextBefore] = useState<number | null>(initialCache?.nextBefore ?? null)
   const [loadingMore, setLoadingMore] = useState(false)
 
   const load = useCallback(async (reset = true) => {
-    if (reset) { setLoading(true); setLogs([]) } else { setLoadingMore(true) }
+    const cacheKey = logsCacheKey(actionFilter)
+    const cached = getPageCache<LogsCache>(cacheKey)
+    if (reset) {
+      if (cached) {
+        setLogs(cached.logs)
+        setHasMore(cached.hasMore)
+        setNextBefore(cached.nextBefore)
+        setLoading(false)
+      } else {
+        setLoading(true)
+        setLogs([])
+      }
+    } else {
+      setLoadingMore(true)
+    }
     setError(null)
     try {
       const params = new URLSearchParams()
@@ -195,16 +221,22 @@ export default function Logs() {
       const res = await adminFetch(`/api/admin/logs?${params}`)
       if (!res.ok) throw new Error()
       const data = await res.json()
-      setLogs((prev) => reset ? data.logs : [...prev, ...data.logs])
+      const nextLogs = reset ? data.logs : [...logs, ...data.logs]
+      setLogs(nextLogs)
       setHasMore(data.hasMore)
       setNextBefore(data.nextBefore)
+      setPageCache<LogsCache>(cacheKey, {
+        logs: nextLogs,
+        hasMore: data.hasMore,
+        nextBefore: data.nextBefore,
+      })
     } catch {
       setError('ログの取得に失敗しました')
     } finally {
       setLoading(false)
       setLoadingMore(false)
     }
-  }, [actionFilter, nextBefore])
+  }, [actionFilter, logs, nextBefore])
 
   useEffect(() => { load(true) /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [actionFilter])
 

@@ -3,6 +3,10 @@ import type { LiffProfile } from '../LiffApp'
 import Skeleton from '../../components/Skeleton'
 import CalendarPicker from '../../components/CalendarPicker'
 import FavoritePicker, { type Favorite } from '../../components/FavoritePicker'
+import { getPageCache, setPageCache } from '../pageCache'
+
+const KOBU_SETTINGS_KEY = 'liff:kobu-settings'
+const KOBU_WEEK_PREFIX  = 'liff:kobu-week:'
 
 type KobuEditTarget = { id: string; date: string; bandName: string; startTime: string; endTime: string }
 type Props = {
@@ -152,9 +156,15 @@ function buildEndOptions(startMinutes: number, date: string, dayMap: DayMap, slo
 
 // ─── メインコンポーネント ──────────────────────────────
 export default function KobuSchedule({ profile, initialEdit, onEditHandled, onBookingActive }: Props) {
-  const [settings,     setSettings]     = useState<KobuSettings | null>(null)
+  const [settings,     setSettings]     = useState<KobuSettings | null>(
+    () => getPageCache<KobuSettings>(KOBU_SETTINGS_KEY) ?? null
+  )
   const [weekStart,    setWeekStart]    = useState(() => getSundayOfWeek(todayJST()))
-  const [weekCache,    setWeekCache]    = useState<Record<string, DayMap>>({})
+  const [weekCache,    setWeekCache]    = useState<Record<string, DayMap>>(() => {
+    const initWS = getSundayOfWeek(todayJST())
+    const cached = getPageCache<DayMap>(`${KOBU_WEEK_PREFIX}${initWS}`)
+    return cached ? { [initWS]: cached } : {}
+  })
   const [outgoingWeek,     setOutgoingWeek]     = useState<string | null>(null)
   const [slideDir,         setSlideDir]         = useState<'left' | 'right' | null>(null)
   const scrollRef   = useRef<HTMLDivElement>(null)
@@ -241,12 +251,21 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled, onBo
   useEffect(() => {
     fetch('/api/kobu-settings')
       .then(r => r.json())
-      .then(setSettings)
+      .then(data => {
+        setSettings(data)
+        setPageCache(KOBU_SETTINGS_KEY, data)
+      })
       .catch(() => setError('設定の取得に失敗しました'))
   }, [])
 
   // 週データ取得
   useEffect(() => { fetchWeek(weekStart) }, [weekStart])
+
+  // 初回マウント時、週データのキャッシュがあればバックグラウンドでリフレッシュ
+  useEffect(() => {
+    if (weekCache[weekStart] !== undefined) fetchWeek(weekStart, true, true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // 隣接週プリフェッチ
   useEffect(() => {
@@ -303,7 +322,9 @@ export default function KobuSchedule({ profile, initialEdit, onEditHandled, onBo
       const res = await fetch(`/api/kobu-reservations/all?weekStart=${start}`)
       if (!res.ok) throw new Error()
       const data = await res.json()
-      setWeekCache(prev => ({ ...prev, [start]: data.dayMap ?? {} }))
+      const dayMapData = data.dayMap ?? {}
+      setWeekCache(prev => ({ ...prev, [start]: dayMapData }))
+      setPageCache(`${KOBU_WEEK_PREFIX}${start}`, dayMapData)
     } catch {
       if (!silent) setError('取得に失敗しました')
     } finally {

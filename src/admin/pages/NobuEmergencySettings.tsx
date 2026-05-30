@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { adminFetch } from '../auth'
+import { getPageCache, setPageCache } from '../pageCache'
 import TimeSlotsEditor, { findConflicts, type TimeSlot } from '../components/TimeSlotsEditor'
 import Skeleton from '../../components/Skeleton'
 import DatePicker from '../../components/DatePicker'
@@ -27,10 +28,17 @@ function maxEmergencyDate(): string {
   return d.toISOString().slice(0, 10)
 }
 
+const EMERGENCY_CACHE_KEY = 'settings:nobu-emergency'
+type EmergencyCache = {
+  dayOverrides: DayOverride[]
+  defaultSlots: TimeSlot[]
+}
+
 export default function NobuEmergencySettings() {
-  const [loading, setLoading] = useState(true)
-  const [dayOverrides, setDayOverrides] = useState<DayOverride[]>([])
-  const [defaultSlots, setDefaultSlots] = useState<TimeSlot[]>([])
+  const cached = getPageCache<EmergencyCache>(EMERGENCY_CACHE_KEY)
+  const [loading, setLoading] = useState(!cached)
+  const [dayOverrides, setDayOverrides] = useState<DayOverride[]>(cached?.dayOverrides ?? [])
+  const [defaultSlots, setDefaultSlots] = useState<TimeSlot[]>(cached?.defaultSlots ?? [])
   const [emergencyDate, setEmergencyDate] = useState(todayJST())
   const [emergencyType, setEmergencyType] = useState<'blocked' | 'opened' | null>(null)
   const [emergencyReason, setEmergencyReason] = useState('')
@@ -55,25 +63,36 @@ export default function NobuEmergencySettings() {
   }, [emergencyDate])
 
   async function loadInitial() {
-    setLoading(true)
-    await Promise.all([loadSettings(), loadDayOverrides(), loadEmergencyDateInfo(emergencyDate)])
+    if (!getPageCache<EmergencyCache>(EMERGENCY_CACHE_KEY)) setLoading(true)
+    const [slots, overrides] = await Promise.all([loadSettings(), loadDayOverrides(), loadEmergencyDateInfo(emergencyDate)])
+    setPageCache<EmergencyCache>(EMERGENCY_CACHE_KEY, {
+      defaultSlots: slots ?? defaultSlots,
+      dayOverrides: overrides ?? dayOverrides,
+    })
     setLoading(false)
   }
 
   async function loadSettings() {
     try {
       const res = await adminFetch('/api/admin/settings')
-      if (!res.ok) return
+      if (!res.ok) return null
       const data = (await res.json()) as SettingsResponse
-      setDefaultSlots(data.timeSlots ?? [])
-    } catch { /* ignore */ }
+      const slots = data.timeSlots ?? []
+      setDefaultSlots(slots)
+      return slots
+    } catch { return null }
   }
 
   async function loadDayOverrides() {
     try {
       const res = await adminFetch('/api/admin/settings/day-overrides')
-      if (res.ok) setDayOverrides((await res.json()).overrides ?? [])
+      if (res.ok) {
+        const overrides = (await res.json()).overrides ?? []
+        setDayOverrides(overrides)
+        return overrides
+      }
     } catch { /* ignore */ }
+    return null
   }
 
   async function loadEmergencyDateInfo(date: string) {

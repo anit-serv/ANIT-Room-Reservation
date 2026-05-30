@@ -1,6 +1,10 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import type { LiffProfile } from '../LiffApp'
 import Skeleton from '../../components/Skeleton'
+import { getPageCache, setPageCache } from '../pageCache'
+
+const DATES_CACHE_KEY = 'liff:nobu-settings'
+function slotCacheKey(date: string) { return `liff:nobu-slots:${date}` }
 
 type TimeSlot    = { label: string; value: string }
 type DateEntry   = { label: string; value: string; timeSlots: TimeSlot[] }
@@ -14,10 +18,15 @@ type Props = {
 }
 
 export default function AllReservations({ profile, onEditRequest }: Props) {
-  const [dates,        setDates]        = useState<DateEntry[]>([])
-  const [selectedDate, setSelectedDate] = useState('')
-  const [slotMap,      setSlotMap]      = useState<TimeSlotMap | null>(null)
-  const [loading,      setLoading]      = useState(false)
+  const cachedDates   = getPageCache<DateEntry[]>(DATES_CACHE_KEY) ?? []
+  const initDate      = cachedDates[0]?.value ?? ''
+  const initSlotMap   = initDate ? (getPageCache<TimeSlotMap>(slotCacheKey(initDate)) ?? null) : null
+  const currentDateRef = useRef(initDate)
+
+  const [dates,        setDates]        = useState<DateEntry[]>(cachedDates)
+  const [selectedDate, setSelectedDate] = useState(initDate)
+  const [slotMap,      setSlotMap]      = useState<TimeSlotMap | null>(initSlotMap)
+  const [loading,      setLoading]      = useState(!!initDate && !initSlotMap)
   const [error,        setError]        = useState<string | null>(null)
   const [detailModal,  setDetailModal]  = useState<DetailModal | null>(null)
 
@@ -27,9 +36,11 @@ export default function AllReservations({ profile, onEditRequest }: Props) {
       .then((data) => {
         const available: DateEntry[] = data.availableDatesWithToday ?? []
         setDates(available)
-        if (available.length > 0) handleDateSelect(available[0].value)
+        setPageCache(DATES_CACHE_KEY, available)
+        if (available.length > 0 && !initDate) handleDateSelect(available[0].value)
       })
       .catch(() => setError('設定の取得に失敗しました'))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const selectedDateEntry = dates.find((d) => d.value === selectedDate)
@@ -37,6 +48,23 @@ export default function AllReservations({ profile, onEditRequest }: Props) {
 
   async function handleDateSelect(date: string) {
     setSelectedDate(date)
+    currentDateRef.current = date
+    const cached = getPageCache<TimeSlotMap>(slotCacheKey(date))
+    if (cached) {
+      setSlotMap(cached)
+      setLoading(false)
+      fetch(`/api/reservations/all?date=${date}`)
+        .then(r => r.ok ? r.json() : null)
+        .then(data => {
+          if (data && currentDateRef.current === date) {
+            const sm = data.slotMap ?? {}
+            setSlotMap(sm)
+            setPageCache(slotCacheKey(date), sm)
+          }
+        })
+        .catch(() => {})
+      return
+    }
     setSlotMap(null)
     setLoading(true)
     setError(null)
@@ -44,7 +72,9 @@ export default function AllReservations({ profile, onEditRequest }: Props) {
       const res = await fetch(`/api/reservations/all?date=${date}`)
       if (!res.ok) throw new Error()
       const data = await res.json()
-      setSlotMap(data.slotMap ?? {})
+      const sm = data.slotMap ?? {}
+      setSlotMap(sm)
+      setPageCache(slotCacheKey(date), sm)
     } catch {
       setError('取得に失敗しました')
     } finally {

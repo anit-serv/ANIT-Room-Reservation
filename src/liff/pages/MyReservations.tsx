@@ -2,6 +2,10 @@ import { useState, useEffect, useCallback } from 'react'
 import type { LiffProfile } from '../LiffApp'
 import Skeleton from '../../components/Skeleton'
 import ConfirmDialog from '../../components/ConfirmDialog'
+import { getPageCache, setPageCache } from '../pageCache'
+
+const MY_RES_KEY = 'liff:my-reservations'
+const MY_FAV_KEY = 'liff:my-favorites'
 
 type Favorite = {
   id: string
@@ -130,8 +134,9 @@ function availabilityNotice(r: Reservation): {
 
 
 export default function MyReservations({ profile, initialEdit, onEditHandled, onKobuEdit, onNobuRoomEdit }: Props) {
-  const [reservations,  setReservations]  = useState<Reservation[]>([])
-  const [loading,       setLoading]       = useState(true)
+  const cachedReservations = getPageCache<Reservation[]>(MY_RES_KEY)
+  const [reservations,  setReservations]  = useState<Reservation[]>(cachedReservations ?? [])
+  const [loading,       setLoading]       = useState(!cachedReservations)
   const [error,         setError]         = useState<string | null>(null)
   const [deleting,      setDeleting]      = useState<string | null>(null)
   const [modifyingNobu, setModifyingNobu] = useState<NobuReservation | null>(null)
@@ -139,15 +144,14 @@ export default function MyReservations({ profile, initialEdit, onEditHandled, on
   const [deleteError,   setDeleteError]   = useState<string | null>(null)
 
   // お気に入り
-  const [favorites,       setFavorites]       = useState<Favorite[]>([])
+  const [favorites,       setFavorites]       = useState<Favorite[]>(getPageCache<Favorite[]>(MY_FAV_KEY) ?? [])
   const [favOpen,         setFavOpen]         = useState(false)
   const [favEditModal,    setFavEditModal]    = useState<Favorite | null>(null)
   const [favDeleteConfirm,setFavDeleteConfirm]= useState<Favorite | null>(null)
   const [favAddModal,     setFavAddModal]     = useState(false)
 
-  const fetchReservations = useCallback(async () => {
-    setLoading(true)
-    setError(null)
+  const fetchReservations = useCallback(async ({ silent = false }: { silent?: boolean } = {}) => {
+    if (!silent) { setLoading(true); setError(null) }
     try {
       const headers = { Authorization: `Bearer ${profile.getAccessToken()}` }
       const [nobuRes, kobuRes, nobuRoomRes] = await Promise.all([
@@ -175,19 +179,30 @@ export default function MyReservations({ profile, initialEdit, onEditHandled, on
 
       const all: Reservation[] = [...nobu, ...kobu, ...nobuRoom].sort((a, b) => sortKey(a).localeCompare(sortKey(b)))
       setReservations(all)
+      setPageCache(MY_RES_KEY, all)
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : '予約の取得に失敗しました')
+      if (!silent) setError(err instanceof Error ? err.message : '予約の取得に失敗しました')
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
   }, [profile])
 
-  useEffect(() => { fetchReservations() }, [fetchReservations])
+  useEffect(() => {
+    if (getPageCache(MY_RES_KEY)) {
+      fetchReservations({ silent: true })
+    } else {
+      fetchReservations()
+    }
+  }, [fetchReservations])
 
   const fetchFavorites = useCallback(async () => {
     try {
       const r = await fetch('/api/favorites', { headers: { Authorization: `Bearer ${profile.getAccessToken()}` } })
-      if (r.ok) setFavorites((await r.json()).favorites ?? [])
+      if (r.ok) {
+        const data = (await r.json()).favorites ?? []
+        setFavorites(data)
+        setPageCache(MY_FAV_KEY, data)
+      }
     } catch {}
   }, [profile])
 

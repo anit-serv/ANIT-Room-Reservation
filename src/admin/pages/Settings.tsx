@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo, useCallback } from 'react'
 import { useBlocker } from 'react-router-dom'
 import { adminFetch } from '../auth'
+import { getPageCache, setPageCache } from '../pageCache'
 import TimeSlotsEditor, { findConflicts, toMinutes, type TimeSlot, type TimeSlotPreset } from '../components/TimeSlotsEditor'
 import DateListEditor from '../components/DateListEditor'
 import PerDayScheduleEditor, { findAllConflicts, type PerDaySchedule } from '../components/PerDayScheduleEditor'
@@ -39,13 +40,16 @@ function emptySchedule(): PerDaySchedule {
   return { enabled: false, byWeekday: {}, byDate: {} }
 }
 
+const SETTINGS_CACHE_KEY = 'settings:nobu'
+
 export default function Settings() {
-  const [current, setCurrent]             = useState<SettingsResponse | null>(null)
-  const [availableDays, setAvailableDays] = useState<number[]>([])
-  const [timeSlots, setTimeSlots]         = useState<TimeSlot[]>([])
-  const [extraDates, setExtraDates]       = useState<string[]>([])
-  const [excludedDates, setExcludedDates] = useState<string[]>([])
-  const [perDaySchedule, setPerDaySchedule] = useState<PerDaySchedule>(emptySchedule())
+  const cached = getPageCache<SettingsResponse>(SETTINGS_CACHE_KEY)
+  const [current, setCurrent]             = useState<SettingsResponse | null>(cached ?? null)
+  const [availableDays, setAvailableDays] = useState<number[]>(cached?.availableDays ?? [])
+  const [timeSlots, setTimeSlots]         = useState<TimeSlot[]>(cached?.timeSlots ?? [])
+  const [extraDates, setExtraDates]       = useState<string[]>(cached?.extraDates ?? [])
+  const [excludedDates, setExcludedDates] = useState<string[]>(cached?.excludedDates ?? [])
+  const [perDaySchedule, setPerDaySchedule] = useState<PerDaySchedule>(cached?.perDaySchedule ?? emptySchedule())
   const [effectiveFrom, setEffectiveFrom] = useState<string>(minEffectiveDate())
   const [minDate, setMinDate]             = useState<string>(minEffectiveDate())
   const [editingScheduled, setEditingScheduled] = useState(false)
@@ -56,7 +60,7 @@ export default function Settings() {
   const [presets, setPresets]             = useState<TimeSlotPreset[]>([])
   const [cancelTarget, setCancelTarget]   = useState<string | null>(null)
   const [toast, setToast]                 = useState<string | null>(null)
-  const [lotteryTime, setLotteryTime] = useState('21:00')
+  const [lotteryTime, setLotteryTime] = useState(cached?.lotteryTime ?? '21:00')
 
   useEffect(() => { load(); loadPresets() }, [])
 
@@ -116,6 +120,7 @@ export default function Settings() {
     if (!res.ok) { setMessage({ type: 'error', text: '設定の取得に失敗しました' }); return }
     const data = (await res.json()) as SettingsResponse
     setCurrent(data)
+    setPageCache<SettingsResponse>(SETTINGS_CACHE_KEY, data)
     setLotteryTime(data.lotteryTime ?? '21:00')
     if (!editingScheduled) applyToForm(data)
   }

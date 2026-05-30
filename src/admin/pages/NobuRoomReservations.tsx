@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { adminFetch } from '../auth'
+import { getPageCache, setPageCache } from '../pageCache'
 import Skeleton from '../../components/Skeleton'
 import ConfirmDialog from '../../components/ConfirmDialog'
 import DatePicker from '../../components/DatePicker'
@@ -21,6 +22,12 @@ type NobuRoomReservation = {
   createdAt: number | null
 }
 
+const RESERVATION_POLL_MS = 60_000
+
+function reservationsCacheKey(dateFilter: string, search: string) {
+  return `reservations:nobu-room:${dateFilter}:${search}`
+}
+
 function formatDateHeading(date: string): string {
   const [year, month, day] = date.split('-').map(Number)
   const weekdays = ['日', '月', '火', '水', '木', '金', '土']
@@ -36,8 +43,10 @@ export default function NobuRoomReservations() {
   const desktopDateRefs = useRef<Record<string, HTMLElement | null>>({})
   const mobileDateRefs = useRef<Record<string, HTMLElement | null>>({})
 
-  const [reservations, setReservations] = useState<NobuRoomReservation[]>([])
-  const [loading, setLoading]           = useState(true)
+  const initialCacheKey = reservationsCacheKey('', '')
+  const cachedReservations = getPageCache<NobuRoomReservation[]>(initialCacheKey)
+  const [reservations, setReservations] = useState<NobuRoomReservation[]>(cachedReservations ?? [])
+  const [loading, setLoading]           = useState(!cachedReservations)
   const [error, setError]               = useState<string | null>(null)
   const [dateFilter, setDateFilter]     = useState('')
   const [search, setSearch]             = useState('')
@@ -46,8 +55,17 @@ export default function NobuRoomReservations() {
   const [openId,        setOpenId]        = useState<string | null>(null)
   const [highlightedId, setHighlightedId] = useState<string | null>(null)
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  const load = useCallback(async (opts: { silent?: boolean } = {}) => {
+    const cacheKey = reservationsCacheKey(dateFilter, search)
+    const cached = getPageCache<NobuRoomReservation[]>(cacheKey)
+    if (!opts.silent) {
+      if (cached) {
+        setReservations(cached)
+        setLoading(false)
+      } else {
+        setLoading(true)
+      }
+    }
     setError(null)
     try {
       const params = new URLSearchParams()
@@ -60,14 +78,22 @@ export default function NobuRoomReservations() {
       }
       const data = await res.json()
       setReservations(data.reservations)
+      setPageCache<NobuRoomReservation[]>(cacheKey, data.reservations)
     } catch (err: any) {
       setError(err.message)
     } finally {
-      setLoading(false)
+      if (!opts.silent) setLoading(false)
     }
   }, [dateFilter, search])
 
   useEffect(() => { load() }, [load])
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      if (document.visibilityState === 'visible') load({ silent: true })
+    }, RESERVATION_POLL_MS)
+    return () => window.clearInterval(id)
+  }, [load])
 
   useEffect(() => {
     if (reservations.length === 0) return
@@ -125,8 +151,8 @@ export default function NobuRoomReservations() {
   async function execDelete(r: NobuRoomReservation) {
     const res = await adminFetch(`/api/admin/nobu-room-reservations/${r.id}`, { method: 'DELETE' })
     if (!res.ok) throw new Error('削除に失敗しました')
-    setReservations((prev) => prev.filter((x) => x.id !== r.id))
     setDeleteTarget(null)
+    await load({ silent: true })
   }
 
   const reservationGroups = reservations.reduce<{ date: string; items: NobuRoomReservation[] }[]>((groups, reservation) => {
@@ -271,7 +297,7 @@ export default function NobuRoomReservations() {
         <NobuRoomEditModal
           reservation={editing}
           onClose={() => setEditing(null)}
-          onSaved={() => { setEditing(null); load() }}
+          onSaved={() => { setEditing(null); load({ silent: true }) }}
         />
       )}
     </div>

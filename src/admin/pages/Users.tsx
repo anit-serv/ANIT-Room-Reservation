@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { adminFetch } from '../auth'
+import { getPageCache, setPageCache } from '../pageCache'
 import Skeleton from '../../components/Skeleton'
 import ConfirmDialog from '../../components/ConfirmDialog'
 
@@ -30,9 +31,12 @@ const FACILITY_CFG = {
   'nobu-room': { label: '農部室',   icon: 'door_sliding', iconBg: 'bg-teal-100',    iconColor: 'text-teal-600',    labelColor: 'text-teal-600'    },
 } as const
 
+const USERS_CACHE_KEY = 'users'
+
 export default function Users() {
-  const [users, setUsers]     = useState<User[]>([])
-  const [loading, setLoading] = useState(true)
+  const cachedUsers = getPageCache<User[]>(USERS_CACHE_KEY)
+  const [users, setUsers]     = useState<User[]>(cachedUsers ?? [])
+  const [loading, setLoading] = useState(!cachedUsers)
   const [error, setError]     = useState<string | null>(null)
   const [search, setSearch]   = useState('')
   const [tab, setTab]         = useState<'all' | 'banned' | 'admin'>('all')
@@ -50,11 +54,13 @@ export default function Users() {
   }, [tab])
 
   async function load() {
-    setLoading(true)
+    if (!getPageCache<User[]>(USERS_CACHE_KEY)) setLoading(true)
     try {
       const res = await adminFetch('/api/admin/users')
       if (!res.ok) throw new Error()
-      setUsers((await res.json()).users)
+      const data = await res.json()
+      setUsers(data.users)
+      setPageCache<User[]>(USERS_CACHE_KEY, data.users)
     } catch {
       setError('ユーザー一覧の取得に失敗しました')
     } finally {

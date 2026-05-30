@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { adminFetch } from '../auth'
+import { getPageCache, setPageCache } from '../pageCache'
 import Skeleton from '../../components/Skeleton'
 import ConfirmDialog from '../../components/ConfirmDialog'
 
@@ -21,11 +22,19 @@ type Invitation = {
   usedBy: string | null
 }
 
+const ADMINS_CACHE_KEY = 'admins'
+type AdminsCache = {
+  me: { userId: string; isSuperAdmin?: boolean } | null
+  admins: Admin[]
+  invitations: Invitation[]
+}
+
 export default function Admins() {
-  const [admins, setAdmins]           = useState<Admin[]>([])
-  const [invitations, setInvitations] = useState<Invitation[]>([])
-  const [loading, setLoading]         = useState(true)
-  const [me, setMe]                   = useState<{ userId: string; isSuperAdmin?: boolean } | null>(null)
+  const cached = getPageCache<AdminsCache>(ADMINS_CACHE_KEY)
+  const [admins, setAdmins]           = useState<Admin[]>(cached?.admins ?? [])
+  const [invitations, setInvitations] = useState<Invitation[]>(cached?.invitations ?? [])
+  const [loading, setLoading]         = useState(!cached)
+  const [me, setMe]                   = useState<{ userId: string; isSuperAdmin?: boolean } | null>(cached?.me ?? null)
   const [generated, setGenerated]     = useState<{ url: string; expiresAt: string } | null>(null)
   const [generating, setGenerating]   = useState(false)
   const [openId,     setOpenId]       = useState<string | null>(null)
@@ -38,16 +47,24 @@ export default function Admins() {
   } | null>(null)
 
   const load = useCallback(async () => {
-    setLoading(true)
+    if (!getPageCache<AdminsCache>(ADMINS_CACHE_KEY)) setLoading(true)
     try {
       const [meRes, adminRes, invRes] = await Promise.all([
         adminFetch('/api/admin/auth/me'),
         adminFetch('/api/admin/admins'),
         adminFetch('/api/admin/invitations'),
       ])
-      setMe(await meRes.json())
-      setAdmins((await adminRes.json()).admins)
-      setInvitations((await invRes.json()).invitations)
+      const meData = await meRes.json()
+      const adminData = await adminRes.json()
+      const invitationData = await invRes.json()
+      setMe(meData)
+      setAdmins(adminData.admins)
+      setInvitations(invitationData.invitations)
+      setPageCache<AdminsCache>(ADMINS_CACHE_KEY, {
+        me: meData,
+        admins: adminData.admins,
+        invitations: invitationData.invitations,
+      })
     } catch { /* ignore */ } finally { setLoading(false) }
   }, [])
 
