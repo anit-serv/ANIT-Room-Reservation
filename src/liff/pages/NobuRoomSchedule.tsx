@@ -457,7 +457,17 @@ export default function NobuRoomSchedule({ profile, initialEdit, initialFocus, o
     setEditOriginal(null)
   }
 
+  function isPresetAvailable(preset: TimePreset): boolean {
+    if (!modal || !dayMap || !settings) return false
+    const effectiveSlots = getEffectiveSlots(modal.date, settings)
+    const startOpts = buildStartOptions(modal.date, dayMap, effectiveSlots)
+    const endOpts   = buildEndOptions(toMinutes(preset.startTime), modal.date, dayMap, effectiveSlots)
+    const isPastStart = modal.date === todayJST() && toMinutes(preset.startTime) < (Math.floor(nowMinutes / 15) + 1) * 15
+    return !isPastStart && startOpts.includes(preset.startTime) && endOpts.includes(preset.endTime)
+  }
+
   function handlePresetSelect(preset: TimePreset) {
+    if (!isPresetAvailable(preset)) return
     setModalStart(preset.startTime)
     setModalEnd(preset.endTime)
   }
@@ -1142,18 +1152,22 @@ export default function NobuRoomSchedule({ profile, initialEdit, initialFocus, o
                 <div className="mb-3">
                   <div ref={presetScrollRef} className="flex gap-1.5 overflow-x-auto no-scrollbar pb-1" style={{ WebkitOverflowScrolling: 'touch' }}>
                     {(settings.timePresets ?? []).map((p, i) => {
-                      const active = p.startTime === modalStart && p.endTime === modalEnd
+                      const active    = p.startTime === modalStart && p.endTime === modalEnd
+                      const available = isPresetAvailable(p)
                       return (
                         <button
                           key={i}
                           type="button"
                           data-time-option="preset"
                           data-active={active ? 'true' : 'false'}
+                          disabled={!available}
                           className={
                             'flex-shrink-0 px-3 py-2 rounded-lg text-[0.82rem] border-[1.5px] transition ' +
                             (active
                               ? 'bg-brand border-brand text-white font-semibold'
-                              : 'bg-surface border-line text-ink-sub hover:border-brand hover:text-brand')
+                              : available
+                                ? 'bg-surface border-line text-ink-sub hover:border-brand hover:text-brand'
+                                : 'bg-surface border-line text-ink-pale opacity-40 cursor-not-allowed')
                           }
                           onClick={() => handlePresetSelect(p)}
                         >

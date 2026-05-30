@@ -385,6 +385,18 @@ async function handleModify(req: VercelRequest, res: VercelResponse, docId: stri
         return res.status(400).json({ error: `終了時刻は ${slotEnd} より後にはできません` })
     }
 
+    // 変更後の (start, end) が有効なスロット内に収まるか最終チェック
+    const finalStart = (newStart !== data.startTime ? newStart : data.startTime) as string
+    const finalEnd   = (newEnd   !== data.endTime   ? newEnd   : data.endTime)   as string
+    const fitsInSlot = slots.some(
+      s => timeToMinutes(finalStart) >= timeToMinutes(s.start)
+        && timeToMinutes(finalEnd)   <= timeToMinutes(s.end)
+    )
+    if (!fitsInSlot) {
+      const slotStr = slots.map(s => `${s.start}〜${s.end}`).join(' / ')
+      return res.status(400).json({ error: `予約可能時間は ${slotStr} です` })
+    }
+
     if (newStart !== data.startTime) updates.startTime = newStart
     if (newEnd   !== data.endTime)   updates.endTime   = newEnd
     updates.updatedAt = new Date()
