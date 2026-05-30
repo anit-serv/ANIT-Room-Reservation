@@ -813,7 +813,6 @@ async function handleSettingsLotteryTime(req: VercelRequest, res: VercelResponse
   }
 
   await db.collection('settings').doc('reservation').set({ lotteryTime }, { merge: true })
-  await audit(me, 'settings.lotteryTime', { targetType: 'settings', details: { lotteryTime } })
 
   // cron-job.org スケジュール更新（抽選ジョブ: 5分前 / 通知ジョブ: 抽選時刻）
   const apiKey        = process.env.CRONJOB_ORG_API_KEY

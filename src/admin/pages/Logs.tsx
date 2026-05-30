@@ -29,7 +29,6 @@ const ACTION_LABELS: Record<string, { label: string; icon: string; color: string
   'settings.update':                    { label: '設定変更(農部生協/即時)', icon: 'settings',        color: 'var(--color-brand)' },
   'settings.schedule':                  { label: '設定変更(農部生協/予定)', icon: 'schedule',        color: 'var(--color-warn)' },
   'settings.scheduled.cancel':          { label: '設定予定の取消(農部生協)', icon: 'cancel',          color: 'var(--color-ink-sub)' },
-  'settings.lotteryTime':               { label: '抽選時刻変更',             icon: 'alarm',           color: 'var(--color-ink-sub)' },
   'settings.dayOverride.block':         { label: '緊急対応(予約不可)',       icon: 'block',           color: 'var(--color-warn)' },
   'settings.dayOverride.open':          { label: '緊急対応(臨時開放)',       icon: 'event_available', color: 'var(--color-brand)' },
   'settings.dayOverride.delete':        { label: '緊急対応の解除',           icon: 'delete',          color: 'var(--color-ink-sub)' },
@@ -144,14 +143,6 @@ function renderDetails(action: string, details: any): React.ReactNode {
     ) : null
   }
 
-  // 抽選時刻変更
-  if (action === 'settings.lotteryTime') {
-    return details.lotteryTime ? (
-      <div className="mt-1 text-[0.78rem] text-ink-sub">
-        新しい抽選時刻: <span className="font-semibold text-ink">{details.lotteryTime}</span>
-      </div>
-    ) : null
-  }
 
   // 時間プリセット更新（工部室 / 農部室）
   if (

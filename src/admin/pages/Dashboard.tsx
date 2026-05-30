@@ -54,7 +54,6 @@ const ACTION_LABELS: Record<string, string> = {
   'settings.update': '設定変更(農部生協/即時)',
   'settings.schedule': '設定変更(農部生協/予定)',
   'settings.scheduled.cancel': '設定予定の取消(農部生協)',
-  'settings.lotteryTime': '抽選時刻変更',
   'settings.dayOverride.block': '緊急対応(予約不可)',
   'settings.dayOverride.open': '緊急対応(臨時開放)',
   'settings.dayOverride.delete': '緊急対応の解除',
