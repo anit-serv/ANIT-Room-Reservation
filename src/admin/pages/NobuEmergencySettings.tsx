@@ -204,20 +204,23 @@ export default function NobuEmergencySettings() {
         return
       }
     }
-    if (
-      emergencyType === 'blocked' &&
-      (emergencyCount ?? 0) > 0
-    ) {
-      setConfirmAction({
-        title: '既存予約があります',
-        message: `${emergencyDate} には予約が ${emergencyCount} 件あります。新規予約受付だけを停止し、既存予約は残します。続行しますか？`,
-        confirmLabel: '続行',
-        onConfirm: async () => {
-          await executeSaveDayOverride()
-          setConfirmAction(null)
-        },
-      })
-      return
+    if (emergencyType === 'blocked') {
+      if (emergencyCount === null) {
+        setMessage('既存予約件数の取得に失敗しています。日付を選択し直してください')
+        return
+      }
+      if (emergencyCount > 0) {
+        setConfirmAction({
+          title: '既存予約があります',
+          message: `${emergencyDate} には予約が ${emergencyCount} 件あります。新規予約受付だけを停止し、既存予約は残します。続行しますか？`,
+          confirmLabel: '続行',
+          onConfirm: async () => {
+            await executeSaveDayOverride()
+            setConfirmAction(null)
+          },
+        })
+        return
+      }
     }
 
     await executeSaveDayOverride()

@@ -409,6 +409,11 @@ function KobuEditModal({ reservation, onClose, onSaved }: {
   const [loadingSameDay, setLoadingSameDay] = useState(false)
   const [timeSlots, setTimeSlots] = useState<TimeSlot[]>([])
   const [loadingSlots, setLoadingSlots] = useState(false)
+  // useEffect([date]) の非同期コールバック内で常に最新の時間値を参照するための ref
+  const startTimeRef = useRef(startTime)
+  const endTimeRef   = useRef(endTime)
+  useEffect(() => { startTimeRef.current = startTime }, [startTime])
+  useEffect(() => { endTimeRef.current   = endTime   }, [endTime])
 
   const timeOptions = buildTimeOptions(timeSlots)
 
@@ -471,7 +476,7 @@ function KobuEditModal({ reservation, onClose, onSaved }: {
         if (slots.length === 0) {
           setStartTime('')
           setEndTime('')
-        } else if (!rangeFitsInSlot(startTime, endTime, slots)) {
+        } else if (!rangeFitsInSlot(startTimeRef.current, endTimeRef.current, slots)) {
           const [nextStart, nextEnd] = slots[0].value.split('-')
           setStartTime(nextStart)
           setEndTime(nextEnd)

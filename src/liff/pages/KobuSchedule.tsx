@@ -619,21 +619,31 @@ export default function KobuSchedule({ profile, initialEdit, initialFocus, onEdi
     }
     const nextWeekStart = getSundayOfWeek(nextDate)
     const nextDayMap = weekCache[nextWeekStart]
-    if (nextDayMap !== undefined) {
-      const blocks = nextDayMap[nextDate] ?? []
-      const taken = blocks.some(
-        b => toMinutes(block.startTime) < toMinutes(b.endTime) && toMinutes(b.startTime) < toMinutes(block.endTime)
-      )
-      if (taken) {
-        const { md, wd } = formatDate(nextDate)
-        const nextNextDate = addDays(date, 14)
-        setRepeatBlocked({
-          reason: `来週（${md}${wd}）の ${block.startTime}〜${block.endTime} はすでに予約が入っています。`,
-          nextNextDate,
-          nextNextAvail: isDateAvailable(nextNextDate, settings, today, maxDate),
-        })
-        return
-      }
+    const { md, wd } = formatDate(nextDate)
+    const nextNextDate = addDays(date, 14)
+
+    if (nextDayMap === undefined) {
+      // キャッシュ未取得 → バックグラウンドで取得し、再試行を促す
+      fetchWeek(nextWeekStart, true)
+      setRepeatBlocked({
+        reason: `来週（${md}${wd}）のスケジュールを確認中です。もう一度タップしてください。`,
+        nextNextDate,
+        nextNextAvail: isDateAvailable(nextNextDate, settings, today, maxDate),
+      })
+      return
+    }
+
+    const blocks = nextDayMap[nextDate] ?? []
+    const taken = blocks.some(
+      b => toMinutes(block.startTime) < toMinutes(b.endTime) && toMinutes(b.startTime) < toMinutes(block.endTime)
+    )
+    if (taken) {
+      setRepeatBlocked({
+        reason: `来週（${md}${wd}）の ${block.startTime}〜${block.endTime} はすでに予約が入っています。`,
+        nextNextDate,
+        nextNextAvail: isDateAvailable(nextNextDate, settings, today, maxDate),
+      })
+      return
     }
     openRepeat(nextDate, block.bandName, block.startTime, block.endTime)
   }
@@ -1225,7 +1235,7 @@ export default function KobuSchedule({ profile, initialEdit, initialFocus, onEdi
               )}
 
               <button className="btn-primary" onClick={handleSubmit}
-                disabled={submitting || !bandName.trim() || !modalEnd}>
+                disabled={submitting || !bandName.trim() || !modalStart || !modalEnd}>
                 {submitting ? (editingId ? '変更中...' : '送信中...') : (editingId ? '変更' : '予約')}
               </button>
             </div>
