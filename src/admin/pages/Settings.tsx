@@ -7,8 +7,8 @@ import DateListEditor from '../components/DateListEditor'
 import PerDayScheduleEditor, { findAllConflicts, type PerDaySchedule } from '../components/PerDayScheduleEditor'
 import Skeleton from '../../components/Skeleton'
 import ConfirmDialog from '../../components/ConfirmDialog'
-import Toast from '../../components/Toast'
 import DatePicker from '../../components/DatePicker'
+import { useToast } from '../../contexts/ToastContext'
 
 type SettingsCore = {
   availableDays: number[]
@@ -59,8 +59,8 @@ export default function Settings() {
   const [step, setStep]                   = useState<'editing' | 'confirming'>('editing')
   const [presets, setPresets]             = useState<TimeSlotPreset[]>([])
   const [cancelTarget, setCancelTarget]   = useState<string | null>(null)
-  const [toast, setToast]                 = useState<string | null>(null)
   const [lotteryTime, setLotteryTime] = useState(cached?.lotteryTime ?? '21:00')
+  const { showToast } = useToast()
 
   useEffect(() => { load(); loadPresets() }, [])
 
@@ -260,7 +260,7 @@ export default function Settings() {
       const lotteryJson = await lotteryRes.json()
       if (!lotteryRes.ok) throw new Error(lotteryJson.error ?? '抽選時刻の保存に失敗しました')
       const result = await res.json()
-      setToast(
+      showToast(
         lotteryJson.cronWarning
           ? `⚠️ cron-job.org: ${lotteryJson.cronWarning}`
           : `設定を保存しました（${result.effectiveFrom} から適用予定）`
@@ -282,7 +282,7 @@ export default function Settings() {
     const res = await adminFetch(`/api/admin/settings/scheduled?date=${encodeURIComponent(cancelTarget)}`, { method: 'DELETE' })
     if (!res.ok) throw new Error('取り消しに失敗しました')
     setCancelTarget(null)
-    setToast('予約済みの変更を取り消しました')
+    showToast('予約済みの変更を取り消しました')
     setEditingScheduled(false)
     setEditingScheduledDate(null)
     load()
@@ -579,7 +579,6 @@ export default function Settings() {
         />
       )}
 
-      {toast && <Toast message={toast} onClose={() => setToast(null)} />}
     </div>
   )
 }

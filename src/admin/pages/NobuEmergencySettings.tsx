@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useToast } from '../../contexts/ToastContext'
 import { adminFetch } from '../auth'
 import { getPageCache, setPageCache } from '../pageCache'
 import TimeSlotsEditor, { findConflicts, type TimeSlot } from '../components/TimeSlotsEditor'
@@ -64,7 +65,8 @@ export default function NobuEmergencySettings() {
   const [emergencySlots, setEmergencySlots] = useState<TimeSlot[]>([])
   const [emergencyCount, setEmergencyCount] = useState<number | null>(null)
   const [saving, setSaving] = useState(false)
-  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [message, setMessage] = useState<string | null>(null)
+  const { showToast } = useToast()
   const [confirmAction, setConfirmAction] = useState<{
     title: string
     message: string
@@ -173,32 +175,32 @@ export default function NobuEmergencySettings() {
   async function saveDayOverride() {
     setMessage(null)
     if (!emergencyDate) {
-      setMessage({ type: 'error', text: '日付を指定してください' })
+      setMessage('日付を指定してください')
       return
     }
     if (emergencyDate < tomorrowJST() || emergencyDate > maxEmergencyDate()) {
-      setMessage({ type: 'error', text: `緊急対応は ${tomorrowJST()} 〜 ${maxEmergencyDate()} の範囲で指定してください` })
+      setMessage(`緊急対応は ${tomorrowJST()} 〜 ${maxEmergencyDate()} の範囲で指定してください`)
       return
     }
     if (!emergencyType) {
-      setMessage({ type: 'error', text: '操作を選択してください' })
+      setMessage('操作を選択してください')
       return
     }
     if (!selectedDateAllowed) {
-      setMessage({ type: 'error', text: selectedDateWarning ?? 'この日付は選択した操作の対象にできません' })
+      setMessage(selectedDateWarning ?? 'この日付は選択した操作の対象にできません')
       return
     }
     if (!emergencyReason.trim()) {
-      setMessage({ type: 'error', text: '理由を入力してください' })
+      setMessage('理由を入力してください')
       return
     }
     if (emergencyType === 'opened' && emergencyUseCustomSlots) {
       if (emergencySlots.length === 0 || emergencySlots.some((s) => !s.label.trim() || !s.value.trim())) {
-        setMessage({ type: 'error', text: '臨時開放の時間枠を入力してください' })
+        setMessage('臨時開放の時間枠を入力してください')
         return
       }
       if (findConflicts(emergencySlots).size > 0) {
-        setMessage({ type: 'error', text: '臨時開放の時間枠が重複しています' })
+        setMessage('臨時開放の時間枠が重複しています')
         return
       }
     }
@@ -236,16 +238,16 @@ export default function NobuEmergencySettings() {
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data.error ?? '保存に失敗しました')
-      setMessage({
-        type: 'success',
-        text: emergencyType === 'blocked'
+      showToast(
+        emergencyType === 'blocked'
           ? `${emergencyDate} の新規予約受付を停止しました`
           : `${emergencyDate} を臨時開放しました`,
-      })
+      )
+      setMessage(null)
       setEmergencyCount(data.reservationCount ?? emergencyCount)
       await Promise.all([loadDayOverrides(), loadEmergencyDateInfo(emergencyDate)])
     } catch (err: any) {
-      setMessage({ type: 'error', text: err.message })
+      setMessage(err.message)
     } finally {
       setSaving(false)
     }
@@ -261,7 +263,7 @@ export default function NobuEmergencySettings() {
         try {
           const res = await adminFetch(`/api/admin/settings/day-overrides/${encodeURIComponent(date)}`, { method: 'DELETE' })
           if (!res.ok) throw new Error((await res.json()).error ?? '解除に失敗しました')
-          setMessage({ type: 'success', text: `${date} の緊急対応を解除しました` })
+          showToast(`${date} の緊急対応を解除しました`)
           setConfirmAction(null)
           await loadDayOverrides()
           if (date === emergencyDate) await loadEmergencyDateInfo(date)
@@ -286,11 +288,7 @@ export default function NobuEmergencySettings() {
     <div>
       <h1 className="text-2xl font-bold mb-6">緊急対応 - 農部生協</h1>
 
-      {message && (
-        <div className={message.type === 'success' ? 'banner-success' : 'banner-error'}>
-          {message.text}
-        </div>
-      )}
+      {message && <div className="banner-error">{message}</div>}
 
       <div className="admin-card">
         <div className="flex items-start justify-between gap-3 flex-wrap mb-3">

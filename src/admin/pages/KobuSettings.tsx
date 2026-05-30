@@ -7,8 +7,8 @@ import DateListEditor from '../components/DateListEditor'
 import PerDayScheduleEditor, { findAllConflicts, type PerDaySchedule } from '../components/PerDayScheduleEditor'
 import Skeleton from '../../components/Skeleton'
 import ConfirmDialog from '../../components/ConfirmDialog'
-import Toast from '../../components/Toast'
 import DatePicker from '../../components/DatePicker'
+import { useToast } from '../../contexts/ToastContext'
 
 type KobuSettingsCore = {
   availableDays:  number[]
@@ -56,7 +56,7 @@ export default function KobuSettings() {
   const [presetSaving, setPresetSaving]     = useState(false)
   const [presetMessage, setPresetMessage]   = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [cancelTarget, setCancelTarget]     = useState<string | null>(null)
-  const [toast, setToast]                   = useState<string | null>(null)
+  const { showToast } = useToast()
 
   useEffect(() => { load(); loadPresets() }, [])
 
@@ -119,7 +119,7 @@ export default function KobuSettings() {
         return
       }
       setTimePresets(updated)
-      setToast('プリセットを保存しました')
+      showToast('プリセットを保存しました')
     } catch {
       setPresetMessage({ type: 'error', text: '保存に失敗しました' })
     } finally {
@@ -219,7 +219,7 @@ export default function KobuSettings() {
       })
       if (!res.ok) throw new Error((await res.json()).error ?? '保存に失敗しました')
       const result = await res.json()
-      setToast(
+      showToast(
         effectiveFrom === todayJST()
           ? '設定を保存しました（本日から適用）'
           : `設定を保存しました（${result.effectiveFrom} から適用予定）`
@@ -241,7 +241,7 @@ export default function KobuSettings() {
     const res = await adminFetch(`/api/admin/kobu-settings/scheduled?date=${encodeURIComponent(cancelTarget)}`, { method: 'DELETE' })
     if (!res.ok) throw new Error('取り消しに失敗しました')
     setCancelTarget(null)
-    setToast('予約済みの変更を取り消しました')
+    showToast('予約済みの変更を取り消しました')
     setEditingScheduled(false)
     setEditingScheduledDate(null)
     load()
@@ -575,7 +575,6 @@ export default function KobuSettings() {
         />
       )}
 
-      {toast && <Toast message={toast} onClose={() => setToast(null)} />}
     </div>
   )
 }

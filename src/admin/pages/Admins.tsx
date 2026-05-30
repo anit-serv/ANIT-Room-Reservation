@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
+import { useToast } from '../../contexts/ToastContext'
 import { adminFetch } from '../auth'
 import { getPageCache, setPageCache } from '../pageCache'
 import Skeleton from '../../components/Skeleton'
@@ -38,7 +39,8 @@ export default function Admins() {
   const [generated, setGenerated]     = useState<{ url: string; expiresAt: string } | null>(null)
   const [generating, setGenerating]   = useState(false)
   const [openId,     setOpenId]       = useState<string | null>(null)
-  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [message, setMessage] = useState<string | null>(null)
+  const { showToast } = useToast()
   const [confirmAction, setConfirmAction] = useState<{
     title: string
     message: string
@@ -91,7 +93,7 @@ export default function Admins() {
       onConfirm: async () => {
         const res = await adminFetch(`/api/admin/admins/${a.userId}/transfer-super`, { method: 'POST' })
         if (!res.ok) throw new Error((await res.json()).error ?? '移譲に失敗しました')
-        setMessage({ type: 'success', text: `「${a.displayName || a.userId}」にスーパー管理者を移譲しました` })
+        showToast(`「${a.displayName || a.userId}」にスーパー管理者を移譲しました`)
         setConfirmAction(null)
         await load()
       },
@@ -130,8 +132,8 @@ export default function Admins() {
 
   function copyUrl(url: string) {
     navigator.clipboard.writeText(url).then(
-      () => setMessage({ type: 'success', text: 'URLをコピーしました' }),
-      () => setMessage({ type: 'error', text: 'コピーに失敗しました' })
+      () => showToast('URLをコピーしました'),
+      () => setMessage('コピーに失敗しました')
     )
   }
 
@@ -162,11 +164,7 @@ export default function Admins() {
     <div>
       <h1 className="text-2xl font-bold mb-6">管理者管理</h1>
 
-      {message && (
-        <div className={message.type === 'success' ? 'banner-success' : 'banner-error'}>
-          {message.text}
-        </div>
-      )}
+      {message && <div className="banner-error">{message}</div>}
 
       {/* 招待リンク発行 */}
       <div className="admin-card">

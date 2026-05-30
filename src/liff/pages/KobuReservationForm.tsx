@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useToast } from '../../contexts/ToastContext'
 import type { LiffProfile } from '../LiffApp'
 import Skeleton from '../../components/Skeleton'
 import FavoritePicker, { type Favorite } from '../../components/FavoritePicker'
@@ -96,6 +97,7 @@ export default function KobuReservationForm({ profile }: Props) {
   const [selectedFavId, setSelectedFavId] = useState<string | null>(null)
   const [favSaved,      setFavSaved]      = useState(false)
   const [savingFav,     setSavingFav]     = useState(false)
+  const { showToast } = useToast()
   const today = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10)
 
   useEffect(() => {
@@ -133,6 +135,7 @@ export default function KobuReservationForm({ profile }: Props) {
         body: JSON.stringify({ bandName: bandName.trim(), date: selectedDate, startTime, endTime, ...(selectedFavId ? { favoriteId: selectedFavId } : {}) }),
       })
       if (!res.ok) throw new Error((await res.json()).error ?? '登録に失敗しました')
+      showToast('予約を確定しました。')
       setDone(true)
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : '登録に失敗しました')
@@ -181,7 +184,6 @@ export default function KobuReservationForm({ profile }: Props) {
     const isAlreadyFav = !!selectedFavId || favorites.some(f => f.name === bandName.trim())
     return (
       <div>
-        <div className="banner-success">✅ 予約を確定しました。</div>
         <div className="bg-surface border border-line rounded-xl p-4 mb-3 shadow-[var(--shadow-card-sm)]">
           <SummaryRow label="バンド名" value={bandName} />
           <SummaryRow label="日付"     value={dateLabel} />

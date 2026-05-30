@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useToast } from '../../contexts/ToastContext'
 import { adminFetch } from '../auth'
 import { getPageCache, setPageCache } from '../pageCache'
 import Skeleton from '../../components/Skeleton'
@@ -234,7 +235,7 @@ function UserDetail({
   const [data, setData] = useState<{ user: User; reservations: Reservation[] } | null>(null)
   const [working, setWorking] = useState(false)
   const [banConfirm, setBanConfirm] = useState(false)
-  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const { showToast } = useToast()
 
   function jumpToReservation(r: Reservation) {
     onClose()
@@ -268,7 +269,7 @@ function UserDetail({
       })
       if (!res.ok) throw new Error()
       setData({ ...data, user: { ...data.user, banned: next } })
-      setMessage({ type: 'success', text: next ? 'BANしました' : 'BANを解除しました' })
+      showToast(next ? 'BANしました' : 'BANを解除しました')
       setBanConfirm(false)
       onUpdated()
     } catch {
@@ -315,11 +316,6 @@ function UserDetail({
               </button>
             )}
 
-            {message && (
-              <div className={message.type === 'success' ? 'banner-success' : 'banner-error'}>
-                {message.text}
-              </div>
-            )}
 
             <h3 className="text-[0.9rem] font-semibold mb-2">予約履歴 ({data.reservations.length}件)</h3>
             {data.reservations.length === 0 ? (

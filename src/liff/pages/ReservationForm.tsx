@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useToast } from '../../contexts/ToastContext'
 import type { LiffProfile } from '../LiffApp'
 import Skeleton from '../../components/Skeleton'
 import FavoritePicker, { type Favorite } from '../../components/FavoritePicker'
@@ -21,6 +22,7 @@ export default function ReservationForm({ profile, onBookingActive }: Props) {
   const [preferredTimeSlot, setPreferredTimeSlot] = useState<string | null>(null)
   const [favSaved,          setFavSaved]          = useState(false)
   const [savingFav,         setSavingFav]         = useState(false)
+  const { showToast } = useToast()
 
   const isDirty = !done && !!bandName.trim()
   useEffect(() => { onBookingActive?.(isDirty) }, [isDirty])
@@ -100,6 +102,7 @@ export default function ReservationForm({ profile, onBookingActive }: Props) {
         }),
       })
       if (!res.ok) throw new Error((await res.json()).error ?? '登録に失敗しました')
+      showToast('予約を受け付けました。抽選結果をお待ちください。')
       setDone(true)
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : '登録に失敗しました')
@@ -134,7 +137,6 @@ export default function ReservationForm({ profile, onBookingActive }: Props) {
     const isAlreadyFav = !!selectedFavId || favorites.some(f => f.name === bandName.trim())
     return (
       <div>
-        <div className="banner-success">✅ 予約を受け付けました。抽選結果をお待ちください。</div>
         <Summary bandName={bandName} dateLabel={dateLabel} timeLabel={timeLabel} />
         {!isAlreadyFav && !favSaved && (
           <button
