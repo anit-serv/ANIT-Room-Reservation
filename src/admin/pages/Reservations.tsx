@@ -16,7 +16,7 @@ type Reservation = {
   userPictureUrl: string | null
   bandName: string
   date: string
-  status: 'pending' | 'confirmed'
+  status: 'pending' | 'confirmed' | 'cancelled'
   order?: number
   createdAt: number | null
 }
@@ -48,7 +48,7 @@ export default function Reservations() {
   const [loading, setLoading]           = useState(!cachedReservations)
   const [error, setError]               = useState<string | null>(null)
   const [dateFilter, setDateFilter]     = useState('')
-  const [statusFilter, setStatusFilter] = useState<'' | 'pending' | 'confirmed'>('')
+  const [statusFilter, setStatusFilter] = useState<'' | 'pending' | 'confirmed' | 'cancelled'>('')
   const [search, setSearch]             = useState('')
   const [editing,       setEditing]       = useState<Reservation | null>(null)
   const [deleteTarget,  setDeleteTarget]  = useState<Reservation | null>(null)
@@ -148,7 +148,7 @@ export default function Reservations() {
 
   async function execDelete(r: Reservation) {
     const res = await adminFetch(`/api/admin/reservations/${r.id}`, { method: 'DELETE' })
-    if (!res.ok) throw new Error('削除に失敗しました')
+    if (!res.ok) throw new Error('キャンセルに失敗しました')
     setDeleteTarget(null)
     await load({ silent: true })
   }
@@ -172,6 +172,7 @@ export default function Reservations() {
             <option value="">全ステータス</option>
             <option value="pending">抽選待ち</option>
             <option value="confirmed">抽選確定</option>
+            <option value="cancelled">キャンセル済み</option>
           </select>
           <input type="text" className="text-input flex-1" placeholder="バンド名で検索" value={search} onChange={(e) => setSearch(e.target.value)} />
           <button className="btn-outline w-auto px-3 py-2"
@@ -259,22 +260,26 @@ export default function Reservations() {
                       </div>
                     </td>
                     <td data-label="ステータス" className="text-right">
-                      <span className={'badge ' + (r.status === 'confirmed' ? 'badge-confirmed' : 'badge-pending')}>
+                      <span className={'badge ' + statusBadgeClass(r.status)}>
                         <span className="icon icon-sm">
-                          {r.status === 'confirmed' ? 'check_circle' : 'hourglass_empty'}
+                          {statusIcon(r.status)}
                         </span>
-                        {r.status === 'confirmed' ? '確定' : '抽選待ち'}
+                        {statusLabel(r.status)}
                       </span>
                     </td>
                     <td data-label="順位" className="text-right">{r.order ?? '-'}</td>
                     <td className="cell-actions">
                       <div className="flex gap-1.5">
-                        <button className="btn-icon" onClick={() => setEditing(r)}>
-                          <span className="icon">edit</span>
-                        </button>
-                        <button className="btn-icon-danger" onClick={() => setDeleteTarget(r)}>
-                          <span className="icon">delete</span>
-                        </button>
+                        {r.status !== 'cancelled' && (
+                          <>
+                            <button className="btn-icon" onClick={() => setEditing(r)}>
+                              <span className="icon">edit</span>
+                            </button>
+                            <button className="btn-icon-danger" onClick={() => setDeleteTarget(r)} title="キャンセル">
+                              <span className="icon">cancel</span>
+                            </button>
+                          </>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -313,8 +318,9 @@ export default function Reservations() {
 
       {deleteTarget && (
         <ConfirmDialog
-          title="予約を削除しますか？"
-          message={`「${deleteTarget.bandName}」(${deleteTarget.date}) を削除します。この操作は取り消せません。`}
+          title="予約をキャンセルしますか？"
+          message={`「${deleteTarget.bandName}」(${deleteTarget.date}) をキャンセルします。予約はキャンセル済みとして履歴に残ります。`}
+          confirmLabel="キャンセルする"
           onClose={() => setDeleteTarget(null)}
           onConfirm={() => execDelete(deleteTarget)}
         />
@@ -329,6 +335,24 @@ export default function Reservations() {
       )}
     </div>
   )
+}
+
+function statusBadgeClass(status: Reservation['status']) {
+  if (status === 'confirmed') return 'badge-confirmed'
+  if (status === 'cancelled') return 'badge-neutral'
+  return 'badge-pending'
+}
+
+function statusIcon(status: Reservation['status']) {
+  if (status === 'confirmed') return 'check_circle'
+  if (status === 'cancelled') return 'cancel'
+  return 'hourglass_empty'
+}
+
+function statusLabel(status: Reservation['status']) {
+  if (status === 'confirmed') return '確定'
+  if (status === 'cancelled') return 'キャンセル済み'
+  return '抽選待ち'
 }
 
 function ReservationMobileCard({
@@ -356,9 +380,9 @@ function ReservationMobileCard({
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between gap-2">
             <span className="font-medium text-[0.9rem] truncate">{r.bandName}</span>
-            <span className={'badge shrink-0 ' + (r.status === 'confirmed' ? 'badge-confirmed' : 'badge-pending')}>
-              <span className="icon icon-sm">{r.status === 'confirmed' ? 'check_circle' : 'hourglass_empty'}</span>
-              {r.status === 'confirmed' ? '確定' : '抽選待ち'}
+            <span className={'badge shrink-0 ' + statusBadgeClass(r.status)}>
+              <span className="icon icon-sm">{statusIcon(r.status)}</span>
+              {statusLabel(r.status)}
             </span>
           </div>
           <div className="text-[0.8rem] text-ink-sub mt-0.5">{datePart}　{timePart}</div>
@@ -385,12 +409,16 @@ function ReservationMobileCard({
               <span className="text-[0.9rem]">{r.order ?? '-'}</span>
             </div>
             <div className="flex gap-2 pt-2">
-              <button className="btn-outline py-1.5 text-[0.85rem]" onClick={onEdit}>
-                <span className="icon icon-sm">edit</span> 編集
-              </button>
-              <button className="btn-icon-danger" onClick={onDelete}>
-                <span className="icon">delete</span>
-              </button>
+              {r.status !== 'cancelled' && (
+                <>
+                  <button className="btn-outline py-1.5 text-[0.85rem]" onClick={onEdit}>
+                    <span className="icon icon-sm">edit</span> 編集
+                  </button>
+                  <button className="btn-icon-danger" onClick={onDelete} title="キャンセル">
+                    <span className="icon">cancel</span>
+                  </button>
+                </>
+              )}
             </div>
           </div>
         </div>

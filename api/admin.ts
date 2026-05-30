@@ -690,7 +690,7 @@ async function reservationCountForDate(date: string): Promise<number> {
     .where('date', '>=', `${date}T00:00`)
     .where('date', '<=', `${date}T23:59`)
     .get()
-  return snap.size
+  return snap.docs.filter((d) => d.data().status !== 'cancelled').length
 }
 
 // ─── 農部生協の直近日付例外（緊急ブロック/臨時開放） ───
@@ -865,7 +865,7 @@ async function handleReservationsList(req: VercelRequest, res: VercelResponse) {
         .where('date', '>=', `${date}T00:00`)
         .where('date', '<=', `${date}T23:59`)
     }
-    if (status === 'pending' || status === 'confirmed') {
+    if (status === 'pending' || status === 'confirmed' || status === 'cancelled') {
       query = query.where('status', '==', status)
     }
 
@@ -909,6 +909,10 @@ async function handleReservationsList(req: VercelRequest, res: VercelResponse) {
       bandName: d.bandName,
       date: d.date,
       status: d.status,
+      cancelledAt: d.cancelledAt?.toMillis?.() ?? null,
+      cancelledByType: d.cancelledByType ?? null,
+      cancelledById: d.cancelledById ?? null,
+      cancelReason: d.cancelReason ?? null,
       order: d.order,
       createdAt: d.createdAt?.toMillis?.() ?? null,
     }))
@@ -1170,18 +1174,18 @@ async function handleDashboard(req: VercelRequest, res: VercelResponse) {
     ])
 
     // 農部生協 統計
-    const nobuAll = resSnap.docs.map((d) => ({ id: d.id, ...d.data() } as any))
+    const nobuAll = resSnap.docs.map((d) => ({ id: d.id, ...d.data() } as any)).filter((r) => r.status !== 'cancelled')
     const pendingCount   = nobuAll.filter((r) => r.status === 'pending').length
     const confirmedCount = nobuAll.filter((r) => r.status === 'confirmed').length
     const nobuToday      = nobuAll.filter((r) => (r.date ?? '').startsWith(todayStr)).length
     const bannedCount    = usersSnap.docs.filter((d) => d.data().banned === true).length
 
     // 工部室・農部室 統計
-    const kobuAll      = kobuSnap.docs.map((d) => ({ id: d.id, ...d.data() } as any))
+    const kobuAll      = kobuSnap.docs.map((d) => ({ id: d.id, ...d.data() } as any)).filter((r) => r.status !== 'cancelled')
     const kobuToday    = kobuAll.filter((r) => r.date === todayStr).length
     const kobuWeek     = kobuAll.length
 
-    const nobuRoomAll  = nobuRoomSnap.docs.map((d) => ({ id: d.id, ...d.data() } as any))
+    const nobuRoomAll  = nobuRoomSnap.docs.map((d) => ({ id: d.id, ...d.data() } as any)).filter((r) => r.status !== 'cancelled')
     const nobuRoomToday = nobuRoomAll.filter((r) => r.date === todayStr).length
     const nobuRoomWeek  = nobuRoomAll.length
 
@@ -1470,6 +1474,7 @@ async function handleReservationById(req: VercelRequest, res: VercelResponse, id
   const before = doc.data()!
 
   if (req.method === 'PUT') {
+    if (before.status === 'cancelled') return res.status(400).json({ error: 'キャンセル済みの予約は編集できません' })
     const { bandName, date } = (req.body ?? {}) as { bandName?: string; date?: string }
     const update: Record<string, any> = {}
     if (typeof bandName === 'string' && bandName.trim()) update.bandName = bandName.trim()
@@ -1499,13 +1504,14 @@ async function handleReservationById(req: VercelRequest, res: VercelResponse, id
       .where('date', '>=', `${finalDateOnly}T00:00`)
       .where('date', '<=', `${finalDateOnly}T23:59`)
       .get()
-    const conflict = dupSnap.docs.find((d) => d.id !== id)
+    const conflict = dupSnap.docs.find((d) => d.id !== id && d.data().status !== 'cancelled')
     if (conflict) {
       return res.status(400).json({
         error: `${finalDateOnly} には「${finalBandName}」が既に登録されています`,
       })
     }
 
+    update.updatedAt = new Date()
     await docRef.update(update)
     await audit(me, 'reservation.update', {
       targetType: 'reservation', targetId: id, targetLabel: before.bandName,
@@ -1515,10 +1521,19 @@ async function handleReservationById(req: VercelRequest, res: VercelResponse, id
   }
 
   if (req.method === 'DELETE') {
-    await docRef.delete()
-    await audit(me, 'reservation.delete', {
+    const { reason } = (req.body ?? {}) as { reason?: string }
+    const cancelUpdate = {
+      status: 'cancelled',
+      cancelledAt: new Date(),
+      cancelledByType: 'admin',
+      cancelledById: me.userId,
+      cancelReason: typeof reason === 'string' && reason.trim() ? reason.trim() : null,
+      updatedAt: new Date(),
+    }
+    await docRef.update(cancelUpdate)
+    await audit(me, 'reservation.cancel', {
       targetType: 'reservation', targetId: id, targetLabel: before.bandName,
-      details: { bandName: before.bandName, date: before.date, userId: before.userId, status: before.status },
+      details: { bandName: before.bandName, date: before.date, userId: before.userId, status: before.status, after: cancelUpdate },
     })
     return res.status(200).json({ success: true })
   }
@@ -1566,6 +1581,10 @@ async function handleKobuReservationsList(req: VercelRequest, res: VercelRespons
       id: r.id, userId: r.userId,
       bandName: r.bandName, date: r.date, startTime: r.startTime, endTime: r.endTime,
       status: r.status, createdAt: r.createdAt?.toMillis?.() ?? null,
+      cancelledAt: r.cancelledAt?.toMillis?.() ?? null,
+      cancelledByType: r.cancelledByType ?? null,
+      cancelledById: r.cancelledById ?? null,
+      cancelReason: r.cancelReason ?? null,
       userDisplayName: userMap[r.userId]?.displayName ?? '',
       userPictureUrl:  userMap[r.userId]?.pictureUrl  ?? null,
     }))
@@ -1591,6 +1610,7 @@ async function handleKobuReservationById(req: VercelRequest, res: VercelResponse
   const before = doc.data()!
 
   if (req.method === 'PUT') {
+    if (before.status === 'cancelled') return res.status(400).json({ error: 'キャンセル済みの予約は編集できません' })
     const { bandName, date, startTime, endTime } = (req.body ?? {}) as {
       bandName?: string; date?: string; startTime?: string; endTime?: string
     }
@@ -1621,11 +1641,13 @@ async function handleKobuReservationById(req: VercelRequest, res: VercelResponse
     for (const d of existingSnap.docs) {
       if (d.id === id) continue
       const data = d.data()
+      if (data.status === 'cancelled') continue
       if (timesOverlap(finalStartTime, finalEndTime, data.startTime, data.endTime)) {
         return res.status(400).json({ error: `${data.startTime}〜${data.endTime} に既に予約が入っています` })
       }
     }
 
+    update.updatedAt = new Date()
     await docRef.update(update)
     await audit(me, 'kobu_reservation.update', {
       targetType: 'kobu_reservation', targetId: id, targetLabel: before.bandName,
@@ -1635,10 +1657,19 @@ async function handleKobuReservationById(req: VercelRequest, res: VercelResponse
   }
 
   if (req.method === 'DELETE') {
-    await docRef.delete()
-    await audit(me, 'kobu_reservation.delete', {
+    const { reason } = (req.body ?? {}) as { reason?: string }
+    const cancelUpdate = {
+      status: 'cancelled',
+      cancelledAt: new Date(),
+      cancelledByType: 'admin',
+      cancelledById: me.userId,
+      cancelReason: typeof reason === 'string' && reason.trim() ? reason.trim() : null,
+      updatedAt: new Date(),
+    }
+    await docRef.update(cancelUpdate)
+    await audit(me, 'kobu_reservation.cancel', {
       targetType: 'kobu_reservation', targetId: id, targetLabel: before.bandName,
-      details: { bandName: before.bandName, date: before.date, startTime: before.startTime, endTime: before.endTime },
+      details: { bandName: before.bandName, date: before.date, startTime: before.startTime, endTime: before.endTime, after: cancelUpdate },
     })
     return res.status(200).json({ success: true })
   }
@@ -1780,6 +1811,10 @@ async function handleNobuRoomReservationsList(req: VercelRequest, res: VercelRes
       id: r.id, userId: r.userId,
       bandName: r.bandName, date: r.date, startTime: r.startTime, endTime: r.endTime,
       status: r.status, createdAt: r.createdAt?.toMillis?.() ?? null,
+      cancelledAt: r.cancelledAt?.toMillis?.() ?? null,
+      cancelledByType: r.cancelledByType ?? null,
+      cancelledById: r.cancelledById ?? null,
+      cancelReason: r.cancelReason ?? null,
       userDisplayName: userMap[r.userId]?.displayName ?? '',
       userPictureUrl:  userMap[r.userId]?.pictureUrl  ?? null,
     }))
@@ -1805,6 +1840,7 @@ async function handleNobuRoomReservationById(req: VercelRequest, res: VercelResp
   const before = doc.data()!
 
   if (req.method === 'PUT') {
+    if (before.status === 'cancelled') return res.status(400).json({ error: 'キャンセル済みの予約は編集できません' })
     const { bandName, date, startTime, endTime } = (req.body ?? {}) as {
       bandName?: string; date?: string; startTime?: string; endTime?: string
     }
@@ -1835,11 +1871,13 @@ async function handleNobuRoomReservationById(req: VercelRequest, res: VercelResp
     for (const d of existingSnap.docs) {
       if (d.id === id) continue
       const data = d.data()
+      if (data.status === 'cancelled') continue
       if (timesOverlap(finalStartTime, finalEndTime, data.startTime, data.endTime)) {
         return res.status(400).json({ error: `${data.startTime}〜${data.endTime} に既に予約が入っています` })
       }
     }
 
+    update.updatedAt = new Date()
     await docRef.update(update)
     await audit(me, 'nobu_room_reservation.update', {
       targetType: 'nobu_room_reservation', targetId: id, targetLabel: before.bandName,
@@ -1849,10 +1887,19 @@ async function handleNobuRoomReservationById(req: VercelRequest, res: VercelResp
   }
 
   if (req.method === 'DELETE') {
-    await docRef.delete()
-    await audit(me, 'nobu_room_reservation.delete', {
+    const { reason } = (req.body ?? {}) as { reason?: string }
+    const cancelUpdate = {
+      status: 'cancelled',
+      cancelledAt: new Date(),
+      cancelledByType: 'admin',
+      cancelledById: me.userId,
+      cancelReason: typeof reason === 'string' && reason.trim() ? reason.trim() : null,
+      updatedAt: new Date(),
+    }
+    await docRef.update(cancelUpdate)
+    await audit(me, 'nobu_room_reservation.cancel', {
       targetType: 'nobu_room_reservation', targetId: id, targetLabel: before.bandName,
-      details: { bandName: before.bandName, date: before.date, startTime: before.startTime, endTime: before.endTime },
+      details: { bandName: before.bandName, date: before.date, startTime: before.startTime, endTime: before.endTime, after: cancelUpdate },
     })
     return res.status(200).json({ success: true })
   }

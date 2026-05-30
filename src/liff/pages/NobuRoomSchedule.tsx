@@ -559,11 +559,11 @@ export default function NobuRoomSchedule({ profile, initialEdit, onEditHandled, 
         method: 'DELETE',
         headers: { Authorization: `Bearer ${profile.getAccessToken()}` },
       })
-      if (!res.ok) throw new Error((await res.json()).error ?? '削除に失敗しました')
+      if (!res.ok) throw new Error((await res.json()).error ?? 'キャンセルに失敗しました')
       setDetailModal(null)
       refreshWeek(weekStart)
     } catch (err: unknown) {
-      setCancelError(err instanceof Error ? err.message : '削除に失敗しました')
+      setCancelError(err instanceof Error ? err.message : 'キャンセルに失敗しました')
     } finally {
       setCancelling(false)
     }
@@ -918,20 +918,20 @@ export default function NobuRoomSchedule({ profile, initialEdit, onEditHandled, 
                   )}
                   {isBeforeStart && cancelConfirm && (
                     <>
-                      <p className="text-[0.88rem] text-ink text-center py-1 font-semibold">本当に削除しますか？</p>
+                      <p className="text-[0.88rem] text-ink text-center py-1 font-semibold">本当にキャンセルしますか？</p>
                       {cancelError && <div className="banner-error">{cancelError}</div>}
                       <div className="flex gap-2">
                         <button className="btn-secondary flex-1" onClick={() => setCancelConfirm(false)} disabled={cancelling}>
                           キャンセル
                         </button>
                         <button className="btn-danger flex-1" onClick={handleCancel} disabled={cancelling}>
-                          {cancelling ? '削除中...' : 'OK'}
+                          {cancelling ? 'キャンセル中...' : 'OK'}
                         </button>
                       </div>
                     </>
                   )}
 
-                  {/* 次の週も予約（削除確認中は非表示） */}
+                  {/* 次の週も予約（キャンセル確認中は非表示） */}
                   {!cancelConfirm && (
                     <>
                       {!repeatBlocked ? (
@@ -977,7 +977,7 @@ export default function NobuRoomSchedule({ profile, initialEdit, onEditHandled, 
                       disabled={cancelling}
                     >
                       <span className="icon" style={{ fontSize: 16 }}>delete</span>
-                      削除
+                      キャンセル
                     </button>
                   )}
                 </div>

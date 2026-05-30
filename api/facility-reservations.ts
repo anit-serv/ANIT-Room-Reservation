@@ -142,6 +142,7 @@ async function handleCreate(req: VercelRequest, res: VercelResponse) {
     const existingSnap = await db.collection(cfg.collection).where('date', '==', date).get()
     for (const doc of existingSnap.docs) {
       const d = doc.data()
+      if (d.status === 'cancelled') continue
       if (timesOverlap(startTime, endTime, d.startTime, d.endTime))
         return res.status(400).json({ error: `${d.startTime}〜${d.endTime} に既に予約が入っています` })
     }
@@ -187,7 +188,16 @@ async function handleMy(req: VercelRequest, res: VercelResponse) {
       .map((d) => ({ id: d.id, ...d.data() } as any))
       .filter((r) => r.date >= today)
       .sort((a, b) => a.date.localeCompare(b.date) || a.startTime.localeCompare(b.startTime))
-      .map((r) => ({ id: r.id, bandName: r.bandName, date: r.date, startTime: r.startTime, endTime: r.endTime, status: r.status }))
+      .map((r) => ({
+        id: r.id,
+        bandName: r.bandName,
+        date: r.date,
+        startTime: r.startTime,
+        endTime: r.endTime,
+        status: r.status,
+        cancelledAt: r.cancelledAt?.toMillis?.() ?? null,
+        cancelledByType: r.cancelledByType ?? null,
+      }))
     return res.status(200).json({ reservations })
   } catch (err: any) {
     const status = err.message === 'Unauthorized' ? 401 : (err.status ?? 500)
@@ -216,6 +226,7 @@ async function handleAll(req: VercelRequest, res: VercelResponse) {
     const dayMap: Record<string, { id: string; userId: string; bandName: string; startTime: string; endTime: string }[]> = {}
     snap.forEach((doc) => {
       const d = doc.data()
+      if (d.status === 'cancelled') return
       if (!dayMap[d.date]) dayMap[d.date] = []
       dayMap[d.date].push({ id: doc.id, userId: d.userId, bandName: d.bandName, startTime: d.startTime, endTime: d.endTime })
     })
@@ -277,10 +288,17 @@ async function handleDelete(req: VercelRequest, res: VercelResponse, docId: stri
     if (!doc.exists) return res.status(404).json({ error: '予約が見つかりません' })
     const data = doc.data()!
     if (data.userId !== userId) return res.status(403).json({ error: '権限がありません' })
+    if (data.status === 'cancelled') return res.status(200).json({ success: true })
     if (Date.now() >= new Date(`${data.date}T${data.startTime}:00+09:00`).getTime()) {
-      return res.status(400).json({ error: '予約開始時刻を過ぎているため削除できません' })
+      return res.status(400).json({ error: '予約開始時刻を過ぎているためキャンセルできません' })
     }
-    await docRef.delete()
+    await docRef.update({
+      status: 'cancelled',
+      cancelledAt: new Date(),
+      cancelledByType: 'user',
+      cancelledById: userId,
+      updatedAt: new Date(),
+    })
     const profileUpdate: Record<string, any> = {}
     if (name)    profileUpdate.displayName = name
     if (picture) profileUpdate.pictureUrl  = picture
@@ -319,6 +337,7 @@ async function handleModify(req: VercelRequest, res: VercelResponse, docId: stri
     if (!doc.exists) return res.status(404).json({ error: '予約が見つかりません' })
     const data = doc.data()!
     if (data.userId !== userId) return res.status(403).json({ error: '権限がありません' })
+    if (data.status === 'cancelled') return res.status(400).json({ error: 'キャンセル済みの予約は変更できません' })
 
     if (Date.now() >= new Date(`${data.date}T${data.startTime}:00+09:00`).getTime()) {
       return res.status(400).json({ error: '予約開始時刻を過ぎているため変更できません' })
@@ -355,6 +374,7 @@ async function handleModify(req: VercelRequest, res: VercelResponse, docId: stri
     for (const d of existingSnap.docs) {
       if (d.id === docId) continue
       const r = d.data()
+      if (r.status === 'cancelled') continue
       if (timesOverlap(newStart, newEnd, r.startTime, r.endTime))
         return res.status(409).json({ error: `${r.startTime}〜${r.endTime} に既に予約が入っています` })
     }

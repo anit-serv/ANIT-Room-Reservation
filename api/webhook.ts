@@ -403,6 +403,7 @@ async function handleViewMyReservations(event: line.MessageEvent | line.Postback
     // 今日以降の予約のみフィルタリングして日付でソート
     const sortedDocs = snapshot.docs
       .filter((doc) => {
+        if (doc.data().status === 'cancelled') return false;
         const date = doc.data().date || '';
         const datePart = date.split('T')[0]; // "2023-12-20"
         return datePart >= todayStr;
@@ -927,6 +928,7 @@ async function handleViewReservations(event: line.PostbackEvent, data: string) {
 
     snapshot.forEach((doc) => {
       const data = doc.data();
+      if (data.status === 'cancelled') return;
       const timeSlot = data.date.split('T')[1]; // "09:00-10:00"
       const bandName = data.bandName || '(バンド名なし)';
 
@@ -1069,11 +1071,11 @@ async function handleConfirmDelete(event: line.PostbackEvent, data: string) {
     altText: '削除確認',
     template: {
       type: 'confirm',
-      text: `「${bandName}」の登録を削除しますか？`,
+      text: `「${bandName}」の登録をキャンセルしますか？`,
       actions: [
         {
           type: 'postback',
-          label: 'はい、削除する',
+          label: 'はい、キャンセルする',
           data: `action=delete_reservation&docId=${docId}&ts=${confirmTs}`,
         },
         {
@@ -1109,11 +1111,17 @@ async function handleDeleteReservation(event: line.PostbackEvent, data: string) 
   }, { merge: true });
 
   try {
-    await db.collection('reservations').doc(docId!).delete();
+    await db.collection('reservations').doc(docId!).update({
+      status: 'cancelled',
+      cancelledAt: new Date(),
+      cancelledByType: 'user',
+      cancelledById: userId,
+      updatedAt: new Date(),
+    });
 
     return client.replyMessage(event.replyToken, {
       type: 'text',
-      text: '🗑️ 登録を削除しました。',
+      text: '予約をキャンセルしました。',
     });
   } catch (err) {
     console.error(err);
@@ -1124,7 +1132,7 @@ async function handleDeleteReservation(event: line.PostbackEvent, data: string) 
   }
 }
 
-// パターンF2: 削除キャンセル
+  // パターンF2: キャンセル操作の取りやめ
 async function handleCancelDelete(event: line.PostbackEvent, data: string) {
   const params = new URLSearchParams(data);
   const ts = params.get('ts');
@@ -1146,7 +1154,7 @@ async function handleCancelDelete(event: line.PostbackEvent, data: string) {
 
   return client.replyMessage(event.replyToken, {
     type: 'text',
-    text: '削除をキャンセルしました。',
+    text: '予約キャンセルを取りやめました。',
   });
 }
 

@@ -21,7 +21,7 @@ type Reservation = {
   date: string
   startTime?: string
   endTime?: string
-  status: 'pending' | 'confirmed'
+  status: 'pending' | 'confirmed' | 'cancelled'
   order?: number
 }
 
@@ -335,6 +335,7 @@ function UserDetail({
                     ? r.date.split('T')[0]
                     : r.date
                   const isConfirmed = r.status === 'confirmed'
+                  const isCancelled = r.status === 'cancelled'
                   return (
                     <button
                       key={r.id}
@@ -351,9 +352,9 @@ function UserDetail({
                       <div className="flex-1 min-w-0">
                         <div className="flex items-start justify-between gap-2 mb-0.5">
                           <span className="font-bold text-ink truncate">{r.bandName}</span>
-                          <span className={'badge shrink-0 ' + (isConfirmed ? 'badge-confirmed' : 'badge-pending')}>
-                            <span className="icon icon-sm">{isConfirmed ? 'check_circle' : 'hourglass_empty'}</span>
-                            {r.facility === 'nobu' ? (isConfirmed ? `確定 (${r.order ?? '-'})` : '抽選待ち') : '確定'}
+                          <span className={'badge shrink-0 ' + (isCancelled ? 'badge-neutral' : isConfirmed ? 'badge-confirmed' : 'badge-pending')}>
+                            <span className="icon icon-sm">{isCancelled ? 'cancel' : isConfirmed ? 'check_circle' : 'hourglass_empty'}</span>
+                            {isCancelled ? 'キャンセル済み' : r.facility === 'nobu' ? (isConfirmed ? `確定 (${r.order ?? '-'})` : '抽選待ち') : '確定'}
                           </span>
                         </div>
                         <div className="text-[0.78rem] text-ink-sub">

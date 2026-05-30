@@ -18,7 +18,7 @@ type NobuRoomReservation = {
   date: string
   startTime: string
   endTime: string
-  status: 'confirmed'
+  status: 'confirmed' | 'cancelled'
   createdAt: number | null
 }
 
@@ -150,7 +150,7 @@ export default function NobuRoomReservations() {
 
   async function execDelete(r: NobuRoomReservation) {
     const res = await adminFetch(`/api/admin/nobu-room-reservations/${r.id}`, { method: 'DELETE' })
-    if (!res.ok) throw new Error('削除に失敗しました')
+    if (!res.ok) throw new Error('キャンセルに失敗しました')
     setDeleteTarget(null)
     await load({ silent: true })
   }
@@ -236,7 +236,12 @@ export default function NobuRoomReservations() {
                         <td data-label="時間帯">
                           <span className="text-[0.85rem] font-mono">{r.startTime}〜{r.endTime}</span>
                         </td>
-                        <td data-label="バンド名">{r.bandName}</td>
+                        <td data-label="バンド名">
+                          <div className="flex items-center gap-2">
+                            <span>{r.bandName}</span>
+                            {r.status === 'cancelled' && <span className="badge badge-neutral">キャンセル済み</span>}
+                          </div>
+                        </td>
                         <td data-label="登録者">
                           <div className="flex items-center gap-2">
                             {r.userPictureUrl
@@ -247,12 +252,16 @@ export default function NobuRoomReservations() {
                         </td>
                         <td className="cell-actions">
                           <div className="flex gap-1.5">
-                            <button className="btn-icon" onClick={() => setEditing(r)}>
-                              <span className="icon">edit</span>
-                            </button>
-                            <button className="btn-icon-danger" onClick={() => setDeleteTarget(r)}>
-                              <span className="icon">delete</span>
-                            </button>
+                            {r.status !== 'cancelled' && (
+                              <>
+                                <button className="btn-icon" onClick={() => setEditing(r)}>
+                                  <span className="icon">edit</span>
+                                </button>
+                                <button className="btn-icon-danger" onClick={() => setDeleteTarget(r)} title="キャンセル">
+                                  <span className="icon">cancel</span>
+                                </button>
+                              </>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -286,8 +295,9 @@ export default function NobuRoomReservations() {
 
       {deleteTarget && (
         <ConfirmDialog
-          title="予約を削除しますか？"
-          message={`「${deleteTarget.bandName}」(${deleteTarget.date} ${deleteTarget.startTime}〜${deleteTarget.endTime}) を削除します。この操作は取り消せません。`}
+          title="予約をキャンセルしますか？"
+          message={`「${deleteTarget.bandName}」(${deleteTarget.date} ${deleteTarget.startTime}〜${deleteTarget.endTime}) をキャンセルします。予約はキャンセル済みとして履歴に残ります。`}
+          confirmLabel="キャンセルする"
           onClose={() => setDeleteTarget(null)}
           onConfirm={() => execDelete(deleteTarget)}
         />
@@ -315,7 +325,10 @@ function NobuRoomMobileCard({ r, highlighted, rowRef, open, onToggle, onEdit, on
         onClick={onToggle}
       >
         <div className="flex-1 min-w-0">
-          <div className="font-medium text-[0.9rem] truncate">{r.bandName}</div>
+          <div className="flex items-center gap-2">
+            <span className="font-medium text-[0.9rem] truncate">{r.bandName}</span>
+            {r.status === 'cancelled' && <span className="badge badge-neutral shrink-0">キャンセル済み</span>}
+          </div>
           <div className="text-[0.8rem] text-ink-sub mt-0.5">
             {r.date}　{r.startTime}〜{r.endTime}
           </div>
@@ -337,12 +350,16 @@ function NobuRoomMobileCard({ r, highlighted, rowRef, open, onToggle, onEdit, on
               </div>
             </div>
             <div className="flex gap-2 pt-3">
-              <button className="btn-outline py-1.5 text-[0.85rem]" onClick={onEdit}>
-                <span className="icon icon-sm">edit</span> 編集
-              </button>
-              <button className="btn-icon-danger" onClick={onDelete}>
-                <span className="icon">delete</span>
-              </button>
+              {r.status !== 'cancelled' && (
+                <>
+                  <button className="btn-outline py-1.5 text-[0.85rem]" onClick={onEdit}>
+                    <span className="icon icon-sm">edit</span> 編集
+                  </button>
+                  <button className="btn-icon-danger" onClick={onDelete} title="キャンセル">
+                    <span className="icon">cancel</span>
+                  </button>
+                </>
+              )}
             </div>
           </div>
         </div>

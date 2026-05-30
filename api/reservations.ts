@@ -149,7 +149,8 @@ async function handleCreate(req: VercelRequest, res: VercelResponse) {
       .where('date', '>=', `${dateOnly}T00:00`)
       .where('date', '<=', `${dateOnly}T23:59`)
       .get()
-    if (!dupSnap.empty) {
+    const activeDuplicate = dupSnap.docs.some((d) => d.data().status !== 'cancelled')
+    if (activeDuplicate) {
       return res.status(400).json({
         error: `${dateOnly} には「${trimmedBandName}」が既に登録されています（時間枠が違っても同名のバンドは1日1回まで）`,
       })
@@ -224,6 +225,8 @@ async function handleMy(req: VercelRequest, res: VercelResponse) {
       bandName: r.bandName,
       date: r.date,
       status: r.status,
+      cancelledAt: r.cancelledAt?.toMillis?.() ?? null,
+      cancelledByType: r.cancelledByType ?? null,
       ...getReservationAvailability(r.date, settingsByDate[r.date.split('T')[0]]),
     }))
     return res.status(200).json({ reservations })
@@ -248,6 +251,7 @@ async function handleAll(req: VercelRequest, res: VercelResponse) {
     const slotMap: Record<string, { id: string; userId: string; bandName: string; status: string; order?: number }[]> = {}
     snapshot.forEach((doc) => {
       const data = doc.data()
+      if (data.status === 'cancelled') return
       const ts = data.date.split('T')[1]
       if (!slotMap[ts]) slotMap[ts] = []
       slotMap[ts].push({
@@ -280,7 +284,7 @@ async function handleById(req: VercelRequest, res: VercelResponse, docId: string
   return res.status(405).json({ error: 'Method Not Allowed' })
 }
 
-// ─── 予約の削除 ─────────────────────────────────────
+// ─── 予約のキャンセル ───────────────────────────────
 async function handleDelete(req: VercelRequest, res: VercelResponse, docId: string) {
   try {
     const { userId } = await verifyLineToken(req.headers.authorization)
@@ -289,13 +293,19 @@ async function handleDelete(req: VercelRequest, res: VercelResponse, docId: stri
     if (!doc.exists) return res.status(404).json({ error: '予約が見つかりません' })
     const data = doc.data()!
     if (data.userId !== userId) return res.status(403).json({ error: '権限がありません' })
-    if (data.status === 'confirmed') return res.status(400).json({ error: '抽選確定済みは削除できません' })
+    if (data.status === 'cancelled') return res.status(200).json({ success: true })
     const [datePart, timePart] = (data.date as string).split('T')
     const startTime = timePart?.split('-')[0] ?? '00:00'
     if (Date.now() >= new Date(`${datePart}T${startTime}:00+09:00`).getTime()) {
-      return res.status(400).json({ error: '予約開始時刻を過ぎているため削除できません' })
+      return res.status(400).json({ error: '予約開始時刻を過ぎているためキャンセルできません' })
     }
-    await docRef.delete()
+    await docRef.update({
+      status: 'cancelled',
+      cancelledAt: new Date(),
+      cancelledByType: 'user',
+      cancelledById: userId,
+      updatedAt: new Date(),
+    })
     return res.status(200).json({ success: true })
   } catch (err: any) {
     const status = err.message === 'Unauthorized' ? 401 : 500
@@ -316,6 +326,7 @@ async function handleModify(req: VercelRequest, res: VercelResponse, docId: stri
     if (!doc.exists) return res.status(404).json({ error: '予約が見つかりません' })
     const data = doc.data()!
     if (data.userId !== userId) return res.status(403).json({ error: '権限がありません' })
+    if (data.status === 'cancelled') return res.status(400).json({ error: 'キャンセル済みの予約は変更できません' })
 
     const dateOnly = (data.date as string).split('T')[0]
     const startTime = (data.date as string).split('T')[1]?.split('-')[0] ?? '00:00'
@@ -334,7 +345,7 @@ async function handleModify(req: VercelRequest, res: VercelResponse, docId: stri
           .where('date', '>=', `${dateOnly}T00:00`)
           .where('date', '<=', `${dateOnly}T23:59`)
           .get()
-        if (!dupSnap.empty && dupSnap.docs.some((d) => d.id !== docId)) {
+        if (dupSnap.docs.some((d) => d.id !== docId && d.data().status !== 'cancelled')) {
           return res.status(400).json({ error: `${dateOnly} には「${trimmed}」が既に登録されています` })
         }
         updates.bandName = trimmed

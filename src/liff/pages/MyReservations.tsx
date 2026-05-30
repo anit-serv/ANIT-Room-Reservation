@@ -28,7 +28,7 @@ type NobuReservation = {
   id: string
   bandName: string
   date: string       // "YYYY-MM-DDTHH:MM-HH:MM"
-  status: 'pending' | 'confirmed'
+  status: 'pending' | 'confirmed' | 'cancelled'
   facility: 'nobu'
   availabilityStatus?: 'normal' | 'emergency_blocked' | 'slot_mismatch' | 'temporary_open'
   availabilityLabel?: string
@@ -42,7 +42,7 @@ type KobuReservation = {
   date: string       // "YYYY-MM-DD"
   startTime: string
   endTime: string
-  status: 'confirmed'
+  status: 'confirmed' | 'cancelled'
   facility: 'kobu'
 }
 
@@ -52,7 +52,7 @@ type NobuRoomReservation = {
   date: string       // "YYYY-MM-DD"
   startTime: string
   endTime: string
-  status: 'confirmed'
+  status: 'confirmed' | 'cancelled'
   facility: 'nobu-room'
 }
 
@@ -272,9 +272,9 @@ export default function MyReservations({ profile, initialEdit, onEditHandled, on
       })
       if (!res.ok) throw new Error()
       setConfirmTarget(null)
-      setReservations((prev) => prev.filter((x) => x.id !== r.id))
+      setReservations((prev) => prev.map((x) => x.id === r.id ? { ...x, status: 'cancelled' } as Reservation : x))
     } catch {
-      setDeleteError('削除に失敗しました')
+      setDeleteError('キャンセルに失敗しました')
     } finally {
       setDeleting(null)
     }
@@ -428,15 +428,15 @@ export default function MyReservations({ profile, initialEdit, onEditHandled, on
         const isDeleting  = deleting === r.id
         const past        = isPast(r)
         const fc          = facilityConfig(r)
-        const isConfirmed = r.facility === 'nobu' ? r.status === 'confirmed' : true
-        const canDelete   = r.facility === 'nobu' ? !isConfirmed : true
-        const statusBadge = r.facility === 'nobu' && !isConfirmed ? 'badge-pending' : 'badge-confirmed'
-        const statusIcon  = r.facility === 'nobu' && !isConfirmed ? 'hourglass_empty' : 'check_circle'
-        const statusLabel = r.facility === 'nobu' ? (isConfirmed ? '抽選確定' : '抽選待ち') : '確定'
+        const isCancelled = r.status === 'cancelled'
+        const statusBadge = isCancelled ? 'badge-neutral' : r.facility === 'nobu' && r.status === 'pending' ? 'badge-pending' : 'badge-confirmed'
+        const statusIcon  = isCancelled ? 'cancel' : r.facility === 'nobu' && r.status === 'pending' ? 'hourglass_empty' : 'check_circle'
+        const statusLabel = isCancelled ? 'キャンセル済み' : r.facility === 'nobu' ? (r.status === 'confirmed' ? '抽選確定' : '抽選待ち') : '確定'
         const notice      = availabilityNotice(r)
 
         function handleEdit() {
           if (isPast(r)) return
+          if (r.status === 'cancelled') return
           if (r.facility === 'nobu') setModifyingNobu(r as NobuReservation)
           else if (r.facility === 'kobu') onKobuEdit?.(r as KobuReservation)
           else onNobuRoomEdit?.(r as NobuRoomReservation)
@@ -481,16 +481,14 @@ export default function MyReservations({ profile, initialEdit, onEditHandled, on
               )}
             </div>
 
-            {!past && (
+            {!past && !isCancelled && (
               <div className="flex flex-col gap-1 shrink-0">
                 <button className="btn-icon" onClick={handleEdit} disabled={isDeleting} title="変更">
                   <span className="icon" style={{ fontSize: 20 }}>edit</span>
                 </button>
-                {canDelete && (
-                  <button className="btn-icon-danger" onClick={() => { if (isPast(r)) return; setConfirmTarget(r); setDeleteError(null) }} disabled={isDeleting} title="削除">
-                    <span className="icon" style={{ fontSize: 20 }}>{isDeleting ? 'hourglass_empty' : 'delete'}</span>
-                  </button>
-                )}
+                <button className="btn-icon-danger" onClick={() => { if (isPast(r)) return; setConfirmTarget(r); setDeleteError(null) }} disabled={isDeleting} title="キャンセル">
+                  <span className="icon" style={{ fontSize: 20 }}>{isDeleting ? 'hourglass_empty' : 'cancel'}</span>
+                </button>
               </div>
             )}
           </div>
@@ -527,16 +525,16 @@ export default function MyReservations({ profile, initialEdit, onEditHandled, on
         />
       )}
 
-      {/* 削除確認モーダル */}
+      {/* キャンセル確認モーダル */}
       {confirmTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/50" onClick={() => { if (!deleting) { setConfirmTarget(null) } }} />
           <div className="relative bg-surface rounded-2xl shadow-[var(--shadow-modal)] w-full max-w-[320px] p-6">
-            <p className="text-base font-bold text-ink mb-1.5">予約を削除しますか？</p>
+            <p className="text-base font-bold text-ink mb-1.5">予約をキャンセルしますか？</p>
             <p className="text-[0.85rem] text-ink-sub mb-4">
               「{confirmTarget.bandName}」の
               {confirmTarget.facility === 'nobu' ? '農部生協' : confirmTarget.facility === 'kobu' ? '工部室' : '農部室'}
-              の予約を削除します。
+              の予約をキャンセルします。履歴にはキャンセル済みとして残ります。
             </p>
             {deleteError && <div className="banner-error">{deleteError}</div>}
             <div className="flex gap-2">
@@ -544,7 +542,7 @@ export default function MyReservations({ profile, initialEdit, onEditHandled, on
                 キャンセル
               </button>
               <button className="btn-danger flex-1" onClick={() => handleDelete(confirmTarget)} disabled={!!deleting}>
-                {deleting ? '削除中...' : '削除'}
+                {deleting ? 'キャンセル中...' : 'キャンセルする'}
               </button>
             </div>
           </div>
