@@ -376,7 +376,7 @@ export default function Settings() {
   )
 
   return (
-    <div>
+    <div className="pb-80">
       <h1 className="text-2xl font-bold mb-6">設定 - 農部生協</h1>
 
       {message && <div className="banner-error">{message.text}</div>}

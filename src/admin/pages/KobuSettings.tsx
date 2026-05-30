@@ -329,7 +329,7 @@ export default function KobuSettings() {
   )
 
   return (
-    <div>
+    <div className="pb-80">
       <h1 className="text-2xl font-bold mb-6">設定 - 工部室</h1>
 
       {message && <div className="banner-error">{message.text}</div>}

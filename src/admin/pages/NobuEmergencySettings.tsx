@@ -285,7 +285,7 @@ export default function NobuEmergencySettings() {
   )
 
   return (
-    <div>
+    <div className="pb-80">
       <h1 className="text-2xl font-bold mb-6">緊急対応 - 農部生協</h1>
 
       {message && <div className="banner-error">{message}</div>}

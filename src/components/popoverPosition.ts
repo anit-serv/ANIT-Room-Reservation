@@ -12,7 +12,7 @@ type Options = {
 
 export function getCalendarPopoverPosition(anchor: HTMLElement, options: Options = {}): PopoverPosition {
   const width = options.width ?? 252
-  const height = options.height ?? 318
+  const height = options.height ?? 292
   const gap = options.gap ?? 6
   const margin = options.margin ?? 8
   const rect = anchor.getBoundingClientRect()

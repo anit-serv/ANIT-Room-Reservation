@@ -35,17 +35,21 @@ export default function DatePicker({
   const triggerRef = useRef<HTMLButtonElement>(null)
 
   function handleOpen() {
-    if (!open && triggerRef.current) {
-      const trigger = triggerRef.current
-      const rect = trigger.getBoundingClientRect()
-      const calH = 318
-      const needed = rect.bottom + 4 + calH + 8 - window.innerHeight
-      if (needed > 0) {
-        window.scrollBy({ top: needed, behavior: 'instant' })
-      }
+    if (open) { setOpen(false); return }
+    if (!triggerRef.current) return
+    const trigger = triggerRef.current
+    const rect = trigger.getBoundingClientRect()
+    const needed = rect.bottom + 4 + 292 + 8 - window.innerHeight
+    const openCalendar = () => {
       setPos(getCalendarPopoverPosition(trigger, { gap: 4 }))
+      setOpen(true)
     }
-    setOpen((o) => !o)
+    if (needed > 0) {
+      window.scrollBy({ top: needed, behavior: 'instant' })
+      requestAnimationFrame(openCalendar)
+    } else {
+      openCalendar()
+    }
   }
 
   return (
