@@ -239,6 +239,11 @@ async function handleMy(req: VercelRequest, res: VercelResponse) {
 // ─── 指定日の全予約 ─────────────────────────────────
 async function handleAll(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method Not Allowed' })
+  try {
+    await verifyLineToken(req.headers.authorization)
+  } catch {
+    return res.status(401).json({ error: 'Unauthorized' })
+  }
   const date = req.query.date as string
   if (!date) return res.status(400).json({ error: 'date は必須です' })
 

@@ -340,7 +340,9 @@ export default function NobuRoomSchedule({ profile, initialEdit, initialFocus, o
     if (!force && weekCache[start] !== undefined) return
     if (!silent) { setLoading(true); setError(null) }
     try {
-      const res = await fetch(`/api/nobu-room-reservations/all?weekStart=${start}`)
+      const res = await fetch(`/api/nobu-room-reservations/all?weekStart=${start}`, {
+        headers: { Authorization: `Bearer ${profile.getAccessToken()}` },
+      })
       if (!res.ok) throw new Error()
       const data = await res.json()
       const dayMapData = data.dayMap ?? {}

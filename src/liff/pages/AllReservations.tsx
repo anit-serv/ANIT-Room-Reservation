@@ -76,7 +76,8 @@ export default function AllReservations({ profile, initialFocus, onFocusHandled,
     if (cached) {
       setSlotMap(cached)
       setLoading(false)
-      fetch(`/api/reservations/all?date=${date}`)
+      const authHeader = profile ? { Authorization: `Bearer ${profile.getAccessToken()}` } : {}
+      fetch(`/api/reservations/all?date=${date}`, { headers: authHeader })
         .then(r => r.ok ? r.json() : null)
         .then(data => {
           if (data && currentDateRef.current === date) {
@@ -92,7 +93,8 @@ export default function AllReservations({ profile, initialFocus, onFocusHandled,
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch(`/api/reservations/all?date=${date}`)
+      const authHeader = profile ? { Authorization: `Bearer ${profile.getAccessToken()}` } : {}
+      const res = await fetch(`/api/reservations/all?date=${date}`, { headers: authHeader })
       if (!res.ok) throw new Error()
       const data = await res.json()
       const sm = data.slotMap ?? {}
