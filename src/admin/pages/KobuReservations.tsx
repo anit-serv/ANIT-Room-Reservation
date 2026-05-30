@@ -181,19 +181,44 @@ export default function KobuReservations() {
       {error && <div className="banner-error">{error}</div>}
 
       {loading ? (
-        <div className="bg-surface border border-line rounded-xl overflow-hidden shadow-[var(--shadow-card-sm)]">
-          {[0, 1, 2, 3, 4].map((i) => (
-            <div key={i} className="flex gap-4 px-4 py-3 border-b border-line items-center last:border-b-0">
-              <Skeleton width="100px" height="38px" />
-              <Skeleton width="120px" height="20px" />
-              <div className="flex items-center gap-2 flex-1">
-                <Skeleton width={24} height={24} circle />
-                <Skeleton width="80px" height="14px" />
+        <>
+          {/* Desktop skeleton (lg+) */}
+          <div className="hidden lg:flex flex-col gap-4">
+            <div className="bg-surface border border-line rounded-xl overflow-hidden shadow-[var(--shadow-card-sm)]">
+              <div className="flex items-center justify-between px-5 py-3 bg-bg border-b border-line">
+                <Skeleton width="160px" height="15px" />
+                <Skeleton width="24px" height="13px" />
               </div>
-              <Skeleton width="76px" height="32px" />
+              {[0,1,2,3,4].map((i) => (
+                <div key={i} className="flex items-center gap-4 px-4 py-3 border-b border-line last:border-b-0" style={{ minHeight: 52 }}>
+                  <Skeleton width="180px" height="34px" />
+                  <Skeleton className="flex-1" height="17px" />
+                  <div className="flex items-center gap-2" style={{ width: 220 }}>
+                    <Skeleton width={22} height={22} circle />
+                    <Skeleton width="110px" height="13px" />
+                  </div>
+                  <Skeleton width="88px" height="32px" />
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
+          </div>
+
+          {/* Mobile skeleton (< lg) */}
+          <div className="lg:hidden bg-surface border border-line rounded-xl overflow-hidden shadow-[var(--shadow-card-sm)]">
+            <div className="bg-bg px-4 py-2 border-b border-line">
+              <Skeleton width="150px" height="13px" />
+            </div>
+            {[0,1,2,3,4].map((i) => (
+              <div key={i} className="flex items-center gap-3 px-4 py-3 border-b border-line last:border-b-0">
+                <div className="flex-1">
+                  <Skeleton width="55%" height="15px" className="mb-1.5" />
+                  <Skeleton width="40%" height="12px" />
+                </div>
+                <Skeleton width="32px" height="32px" />
+              </div>
+            ))}
+          </div>
+        </>
       ) : reservations.length === 0 ? (
         <div className="empty-state">
           <span className="icon icon-xl text-ink-pale">event_busy</span>

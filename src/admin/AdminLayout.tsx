@@ -171,15 +171,19 @@ export default function AdminLayout() {
   if (!me) return (
     <div className="flex min-h-dvh max-md:flex-col">
       <aside className={SIDEBAR_CLS}>
-        <Skeleton width="60%" height="20px" className="mx-3 mt-2 mb-4" />
-        {[0, 1, 2, 3, 4, 5].map((i) => (
-          <Skeleton key={i} width="100%" height="40px" className="mb-1" />
-        ))}
+        {/* タイトル (デスクトップのみ) */}
+        <Skeleton width="110px" height="18px" className="mx-3 mt-2 mb-4 max-md:hidden" />
+        {/* ナビ: デスクトップ=縦列 / モバイル=横スクロール行 */}
+        <div className="flex flex-col gap-1 flex-1 max-md:flex-row max-md:gap-1.5 max-md:overflow-hidden">
+          {[0,1,2,3,4,5].map((i) => (
+            <Skeleton key={i} height="38px" className="w-full max-md:w-24 max-md:shrink-0" />
+          ))}
+        </div>
       </aside>
       <main className={MAIN_CLS}>
         <Skeleton width="200px" height="28px" className="mb-6" />
-        <Skeleton width="100%" height="120px" className="mb-4" />
-        <Skeleton width="100%" height="300px" />
+        <Skeleton width="100%" height="100px" className="mb-4" />
+        <Skeleton width="100%" height="280px" />
       </main>
     </div>
   )

@@ -330,52 +330,58 @@ function EmptyState({ icon, text }: { icon: string; text: string }) {
 }
 
 function DashboardSkeleton() {
-  const STATS_GRID4 = 'grid grid-cols-4 gap-3 mb-3 max-md:grid-cols-2'
-  const STATS_GRID2 = 'grid grid-cols-2 gap-3 mb-3 max-md:grid-cols-2 lg:grid-cols-4'
   const StatSkel = () => (
     <div className="flex items-center gap-3 p-4 bg-surface border border-line rounded-xl shadow-[var(--shadow-card-sm)]">
-      <Skeleton width={32} height={32} circle />
+      <Skeleton width={28} height={28} circle />
       <div className="flex-1">
-        <Skeleton width="60%" height="12px" className="mb-1.5" />
-        <Skeleton width="40%" height="24px" />
+        <Skeleton width="55%" height="11px" className="mb-1.5" />
+        <Skeleton width="35%" height="22px" />
       </div>
+    </div>
+  )
+  const FacilityLabelSkel = () => (
+    <Skeleton width="72px" height="11px" className="mb-1.5 mt-1" />
+  )
+  const CardSkel = () => (
+    <div className="bg-surface border border-line rounded-xl overflow-hidden shadow-[var(--shadow-card-sm)]">
+      <div className="px-4 py-3 border-b border-line">
+        <Skeleton width="140px" height="18px" />
+      </div>
+      {[0, 1, 2, 3].map((j) => (
+        <div key={j} className="flex items-center gap-3 px-4 py-3 border-b border-line last:border-b-0">
+          <div className="flex flex-col items-center gap-0.5 shrink-0">
+            <Skeleton width={36} height={36} style={{ borderRadius: 12 }} />
+            <Skeleton width={28} height={8} />
+          </div>
+          <div className="flex-1">
+            <Skeleton width="60%" height="14px" className="mb-1" />
+            <Skeleton width="45%" height="11px" />
+          </div>
+        </div>
+      ))}
     </div>
   )
   return (
     <div>
-      <div className="flex justify-between mb-6">
+      <div className="flex items-baseline justify-between mb-6">
         <Skeleton width="180px" height="28px" />
-        <Skeleton width="200px" height="20px" />
+        <Skeleton width="150px" height="16px" />
       </div>
-      <Skeleton width="80px" height="12px" className="mb-1.5" />
-      <div className="grid grid-cols-3 gap-3 mb-3 max-md:grid-cols-3">{[0,1,2].map((i) => <StatSkel key={i} />)}</div>
-      <Skeleton width="60px" height="12px" className="mb-1.5" />
-      <div className={STATS_GRID2}>{[0,1].map((i) => <StatSkel key={i} />)}</div>
-      <Skeleton width="60px" height="12px" className="mb-1.5" />
-      <div className={STATS_GRID2}>{[0,1].map((i) => <StatSkel key={i} />)}</div>
-      <Skeleton width="80px" height="12px" className="mb-1.5" />
-      <div className={`${STATS_GRID2} mb-5`}>{[0,1].map((i) => <StatSkel key={i} />)}</div>
-      <div className="grid grid-cols-2 gap-4 max-md:grid-cols-1">
-        {[0, 1].map((i) => (
-          <div key={i} className="bg-surface border border-line rounded-xl overflow-hidden shadow-[var(--shadow-card-sm)]">
-            <div className="flex justify-between items-center px-4 py-3 border-b border-line">
-              <Skeleton width="160px" height="20px" />
-              <Skeleton width="80px" height="14px" />
-            </div>
-            {[0, 1, 2, 3].map((j) => (
-              <div key={j} className="flex items-center gap-3 px-4 py-3 border-b border-line last:border-b-0">
-                <div className="flex flex-col items-center gap-0.5 shrink-0">
-                  <Skeleton width={36} height={36} style={{ borderRadius: 12 }} />
-                  <Skeleton width={28} height={8} />
-                </div>
-                <div className="flex-1">
-                  <Skeleton width="65%" height="14px" className="mb-1" />
-                  <Skeleton width="50%" height="11px" />
-                </div>
-              </div>
-            ))}
-          </div>
-        ))}
+      <div className={DASHBOARD_GRID}>
+        <div>
+          <FacilityLabelSkel />
+          <div className={STATS_GRID3}>{[0,1,2].map((i) => <StatSkel key={i} />)}</div>
+          <FacilityLabelSkel />
+          <div className={STATS_GRID2}>{[0,1].map((i) => <StatSkel key={i} />)}</div>
+          <FacilityLabelSkel />
+          <div className={STATS_GRID2}>{[0,1].map((i) => <StatSkel key={i} />)}</div>
+          <FacilityLabelSkel />
+          <div className={STATS_GRID2 + ' mb-5'}>{[0,1].map((i) => <StatSkel key={i} />)}</div>
+        </div>
+        <div className="grid gap-4 max-lg:grid-cols-2 max-md:grid-cols-1">
+          <CardSkel />
+          <CardSkel />
+        </div>
       </div>
     </div>
   )

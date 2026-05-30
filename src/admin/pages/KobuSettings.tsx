@@ -250,12 +250,38 @@ export default function KobuSettings() {
   if (!current) return (
     <div>
       <Skeleton width="200px" height="28px" className="mb-6" />
-      {[0, 1, 2, 3, 4].map((i) => (
-        <div key={i} className="admin-card">
-          <Skeleton width="40%" height="20px" className="mb-3" />
-          <Skeleton width="100%" height="60px" />
+      {/* 利用可能曜日 */}
+      <div className="admin-card">
+        <Skeleton width="110px" height="18px" className="mb-3" />
+        <div className="flex gap-2">
+          {[0,1,2,3,4,5,6].map((i) => <Skeleton key={i} width={48} height={48} circle />)}
         </div>
-      ))}
+      </div>
+      {/* 追加日・除外日 (lg で2列) */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {[0,1].map((i) => (
+          <div key={i} className="admin-card">
+            <Skeleton width="52px" height="18px" className="mb-3" />
+            <Skeleton width="100%" height="72px" />
+          </div>
+        ))}
+      </div>
+      {/* 営業時間枠 */}
+      <div className="admin-card">
+        <Skeleton width="90px" height="18px" className="mb-3" />
+        <Skeleton width="100%" height="80px" />
+      </div>
+      {/* 時間枠の例外設定 */}
+      <div className="admin-card">
+        <Skeleton width="150px" height="18px" className="mb-3" />
+        <Skeleton width="100%" height="60px" />
+      </div>
+      {/* 適用日 */}
+      <div className="admin-card">
+        <Skeleton width="52px" height="18px" className="mb-3" />
+        <Skeleton width="160px" height="40px" />
+      </div>
+      <Skeleton width="200px" height="42px" style={{ borderRadius: 12 }} />
     </div>
   )
 

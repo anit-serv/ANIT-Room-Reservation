@@ -105,17 +105,31 @@ export default function Users() {
       {error && <div className="banner-error">{error}</div>}
 
       {loading ? (
-        <div className="bg-surface border border-line rounded-xl overflow-hidden shadow-[var(--shadow-card-sm)]">
-          {[0, 1, 2, 3, 4].map((i) => (
-            <div key={i} className="flex gap-3 px-4 py-3 border-b border-line items-center last:border-b-0">
-              <Skeleton width={32} height={32} circle />
-              <Skeleton width="40%" height="16px" />
-              <Skeleton width="80px" height="14px" className="ml-auto" />
-              <Skeleton width="80px" height="22px" style={{ borderRadius: 20 }} />
-              <Skeleton width="56px" height="28px" />
-            </div>
-          ))}
-        </div>
+        <>
+          {/* Desktop (md+): avatar | 名前 | 最終予約 | ステータス | chevron */}
+          <div className="hidden md:block bg-surface border border-line rounded-xl overflow-hidden shadow-[var(--shadow-card-sm)]">
+            {[0,1,2,3,4].map((i) => (
+              <div key={i} className="flex items-center gap-3 px-4 py-3 border-b border-line last:border-b-0">
+                <Skeleton width={32} height={32} circle />
+                <Skeleton className="flex-1" height="15px" />
+                <Skeleton width="80px" height="13px" />
+                <Skeleton width="72px" height="22px" style={{ borderRadius: 20 }} />
+                <Skeleton width="16px" height="16px" />
+              </div>
+            ))}
+          </div>
+          {/* Mobile (< md): avatar | 名前 | ステータス | chevron */}
+          <div className="md:hidden bg-surface border border-line rounded-xl overflow-hidden shadow-[var(--shadow-card-sm)]">
+            {[0,1,2,3,4].map((i) => (
+              <div key={i} className="flex items-center gap-3 px-4 py-3 border-b border-line last:border-b-0">
+                <Skeleton width={32} height={32} circle />
+                <Skeleton className="flex-1" height="15px" />
+                <Skeleton width="62px" height="22px" style={{ borderRadius: 20 }} />
+                <Skeleton width="16px" height="16px" />
+              </div>
+            ))}
+          </div>
+        </>
       ) : filtered.length === 0 ? (
         <div className="empty-state">
           <span className="icon icon-xl text-ink-pale">group_off</span>

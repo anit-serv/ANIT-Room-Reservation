@@ -139,23 +139,41 @@ export default function Admins() {
 
   if (loading) return (
     <div>
-      <Skeleton width="180px" height="28px" className="mb-6" />
+      <Skeleton width="160px" height="28px" className="mb-6" />
+      {/* 招待カード */}
       <div className="admin-card">
-        <Skeleton width="60%" height="20px" className="mb-2" />
-        <Skeleton width="90%" height="14px" className="mb-4" />
-        <Skeleton width="160px" height="36px" />
+        <div className="flex items-center justify-between mb-3">
+          <Skeleton width="150px" height="18px" />
+          <Skeleton width="148px" height="36px" />
+        </div>
+        <Skeleton width="90%" height="13px" />
       </div>
+      {/* 管理者リスト */}
       <div className="bg-surface border border-line rounded-xl overflow-hidden shadow-[var(--shadow-card-sm)]">
         <div className="px-5 py-4 border-b border-line">
-          <Skeleton width="200px" height="20px" />
+          <Skeleton width="190px" height="18px" />
         </div>
-        {[0, 1, 2].map((i) => (
-          <div key={i} className="flex gap-3 px-4 py-3 border-b border-line items-center last:border-b-0">
-            <Skeleton width="40%" height="16px" />
-            <Skeleton width="80px" height="14px" className="ml-auto" />
-            <Skeleton width="32px" height="32px" />
-          </div>
-        ))}
+        {/* Desktop (md+): avatar | 名前+バッジ | 登録日 | 操作 */}
+        <div className="hidden md:block">
+          {[0,1,2].map((i) => (
+            <div key={i} className="flex items-center gap-3 px-4 py-3 border-b border-line last:border-b-0">
+              <Skeleton width={32} height={32} circle />
+              <Skeleton className="flex-1" height="15px" />
+              <Skeleton width="80px" height="13px" />
+              <Skeleton width="32px" height="32px" />
+            </div>
+          ))}
+        </div>
+        {/* Mobile (< md): accordion rows */}
+        <div className="md:hidden">
+          {[0,1,2].map((i) => (
+            <div key={i} className="flex items-center gap-3 px-4 py-3 border-b border-line last:border-b-0">
+              <Skeleton width={32} height={32} circle />
+              <Skeleton className="flex-1" height="15px" />
+              <Skeleton width="24px" height="24px" />
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   )
