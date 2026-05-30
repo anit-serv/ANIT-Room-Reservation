@@ -219,7 +219,7 @@ export default function Dashboard() {
           </div>
         </div>
 
-        <div className="grid gap-4 max-lg:grid-cols-2 max-md:grid-cols-1">
+        <div className="grid gap-4">
         {/* 直近の予約（全施設） */}
         <div className="bg-surface border border-line rounded-xl overflow-hidden shadow-[var(--shadow-card-sm)]">
           <div className={SECTION_HEADER}>
@@ -378,7 +378,7 @@ function DashboardSkeleton() {
           <FacilityLabelSkel />
           <div className={STATS_GRID2 + ' mb-5'}>{[0,1].map((i) => <StatSkel key={i} />)}</div>
         </div>
-        <div className="grid gap-4 max-lg:grid-cols-2 max-md:grid-cols-1">
+        <div className="grid gap-4">
           <CardSkel />
           <CardSkel />
         </div>

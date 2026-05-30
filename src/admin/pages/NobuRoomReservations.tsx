@@ -169,7 +169,7 @@ export default function NobuRoomReservations() {
       <div className="admin-card">
         <div className="filter-row">
           <DatePicker value={dateFilter} onChange={setDateFilter} clearable />
-          <input type="text" className="text-input flex-1" placeholder="バンド名で検索"
+          <input type="text" className="text-input flex-1 max-lg:basis-full" placeholder="バンド名で検索"
             value={search} onChange={(e) => setSearch(e.target.value)} />
           <button className="btn-outline w-auto px-3 py-2"
             onClick={() => { setDateFilter(''); setSearch('') }}>

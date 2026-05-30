@@ -36,7 +36,14 @@ export default function DatePicker({
 
   function handleOpen() {
     if (!open && triggerRef.current) {
-      setPos(getCalendarPopoverPosition(triggerRef.current, { gap: 4 }))
+      const trigger = triggerRef.current
+      const rect = trigger.getBoundingClientRect()
+      const calH = 318
+      const needed = rect.bottom + 4 + calH + 8 - window.innerHeight
+      if (needed > 0) {
+        window.scrollBy({ top: needed, behavior: 'instant' })
+      }
+      setPos(getCalendarPopoverPosition(trigger, { gap: 4 }))
     }
     setOpen((o) => !o)
   }

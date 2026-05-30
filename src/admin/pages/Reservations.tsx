@@ -174,7 +174,7 @@ export default function Reservations() {
             <option value="confirmed">抽選確定</option>
             <option value="cancelled">キャンセル済み</option>
           </select>
-          <input type="text" className="text-input flex-1" placeholder="バンド名で検索" value={search} onChange={(e) => setSearch(e.target.value)} />
+          <input type="text" className="text-input flex-1 max-lg:basis-full" placeholder="バンド名で検索" value={search} onChange={(e) => setSearch(e.target.value)} />
           <button className="btn-outline w-auto px-3 py-2"
             onClick={() => { setDateFilter(''); setStatusFilter(''); setSearch('') }}>
             クリア
