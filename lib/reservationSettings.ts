@@ -282,9 +282,9 @@ export async function resolveFacilitySettingsForDate(
   date: string,
   defaults: ReservationSettingsCore,
 ): Promise<ReservationSettingsVersion> {
-  const [versions] = await Promise.all([
-    listFacilitySettingsVersions(db, settingDocId, { maxEffectiveFrom: date }),
-  ])
+  // 工部室・農部室には dayOverride（緊急対応）を設ける予定がないため取得しない。
+  // 農部生協用の resolveReservationSettingsForDate とは意図的に異なる。
+  const versions = await listFacilitySettingsVersions(db, settingDocId, { maxEffectiveFrom: date })
   const latest = versions[versions.length - 1]
   return latest ?? { ...defaults, effectiveFrom: BASE_EFFECTIVE_FROM }
 }

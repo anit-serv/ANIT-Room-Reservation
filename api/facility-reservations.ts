@@ -114,6 +114,7 @@ async function handleCreate(req: VercelRequest, res: VercelResponse) {
     const excludedDates: string[] = settings.excludedDates
     const dateObj   = new Date(date + 'T00:00:00Z')
     const dayOfWeek = dateObj.getUTCDay()
+    // 施設（工部室・農部室）には dayOverride が存在しないため、標準の曜日・追加日・除外日のみチェック
     const isAvailable = (availableDays.includes(dayOfWeek) || extraDates.includes(date)) && !excludedDates.includes(date)
     if (!isAvailable)
       return res.status(400).json({ error: `この日は${cfg.label}を予約できません` })
@@ -139,14 +140,6 @@ async function handleCreate(req: VercelRequest, res: VercelResponse) {
       return res.status(400).json({ error: `予約可能時間は ${slotStr} です` })
     }
 
-    const existingSnap = await db.collection(cfg.collection).where('date', '==', date).get()
-    for (const doc of existingSnap.docs) {
-      const d = doc.data()
-      if (d.status === 'cancelled') continue
-      if (timesOverlap(startTime, endTime, d.startTime, d.endTime))
-        return res.status(400).json({ error: `${d.startTime}〜${d.endTime} に既に予約が入っています` })
-    }
-
     const userRef = db.collection('users').doc(userId)
     const userUpdate: Record<string, any> = { lastReservedAt: new Date() }
     if (name)    userUpdate.displayName = name
@@ -154,13 +147,29 @@ async function handleCreate(req: VercelRequest, res: VercelResponse) {
     if (!userDoc.exists) userUpdate.banned = false
     await userRef.set(userUpdate, { merge: true })
 
-    await db.collection(cfg.collection).add({
-      userId,
-      bandName: bandName.trim(),
-      date, startTime, endTime,
-      status: 'confirmed',
-      favoriteId: favoriteId ?? null,
-      createdAt: new Date(),
+    // 重複チェックと予約書き込みをトランザクションで原子的に実行（二重予約防止）
+    const newDocRef = db.collection(cfg.collection).doc()
+    await db.runTransaction(async (tx) => {
+      const existingSnap = await tx.get(
+        db.collection(cfg.collection).where('date', '==', date)
+      )
+      for (const doc of existingSnap.docs) {
+        const d = doc.data()
+        if (d.status === 'cancelled') continue
+        if (timesOverlap(startTime, endTime, d.startTime, d.endTime))
+          throw Object.assign(
+            new Error(`${d.startTime}〜${d.endTime} に既に予約が入っています`),
+            { status: 400 }
+          )
+      }
+      tx.set(newDocRef, {
+        userId,
+        bandName: bandName.trim(),
+        date, startTime, endTime,
+        status: 'confirmed',
+        favoriteId: favoriteId ?? null,
+        createdAt: new Date(),
+      })
     })
     if (favoriteId) {
       const favoriteRef = db.collection('favorites').doc(favoriteId)
@@ -376,19 +385,27 @@ async function handleModify(req: VercelRequest, res: VercelResponse, docId: stri
         return res.status(400).json({ error: `終了時刻は ${slotEnd} より後にはできません` })
     }
 
-    const existingSnap = await db.collection(cfg.collection).where('date', '==', data.date).get()
-    for (const d of existingSnap.docs) {
-      if (d.id === docId) continue
-      const r = d.data()
-      if (r.status === 'cancelled') continue
-      if (timesOverlap(newStart, newEnd, r.startTime, r.endTime))
-        return res.status(409).json({ error: `${r.startTime}〜${r.endTime} に既に予約が入っています` })
-    }
-
     if (newStart !== data.startTime) updates.startTime = newStart
     if (newEnd   !== data.endTime)   updates.endTime   = newEnd
     updates.updatedAt = new Date()
-    await docRef.update(updates)
+
+    // 重複チェックと更新をトランザクションで原子的に実行（二重予約防止）
+    await db.runTransaction(async (tx) => {
+      const existingSnap = await tx.get(
+        db.collection(cfg.collection).where('date', '==', data.date)
+      )
+      for (const d of existingSnap.docs) {
+        if (d.id === docId) continue
+        const r = d.data()
+        if (r.status === 'cancelled') continue
+        if (timesOverlap(newStart, newEnd, r.startTime, r.endTime))
+          throw Object.assign(
+            new Error(`${r.startTime}〜${r.endTime} に既に予約が入っています`),
+            { status: 409 }
+          )
+      }
+      tx.update(docRef, updates)
+    })
     const profileUpdate: Record<string, any> = {}
     if (name)    profileUpdate.displayName = name
     if (picture) profileUpdate.pictureUrl  = picture
