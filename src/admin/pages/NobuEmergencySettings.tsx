@@ -154,6 +154,7 @@ export default function NobuEmergencySettings() {
 
   function isAllowedDateForType(date: string, type: 'blocked' | 'opened' | null = emergencyType): boolean {
     if (!type) return true
+    if (!date || date <= todayJST()) return false
     const option = emergencyDates.find((entry) => entry.value === date)
     if (!option) return false
     return type === 'blocked' ? option.canBlock : option.canOpen
@@ -162,7 +163,9 @@ export default function NobuEmergencySettings() {
   function selectEmergencyType(type: 'blocked' | 'opened') {
     setEmergencyType(type)
     if (!isAllowedDateForType(emergencyDate, type)) {
-      const nextDate = emergencyDates.find((entry) => type === 'blocked' ? entry.canBlock : entry.canOpen)?.value
+      const nextDate = emergencyDates.find(
+        (entry) => entry.value > todayJST() && (type === 'blocked' ? entry.canBlock : entry.canOpen)
+      )?.value
       if (nextDate) setEmergencyDate(nextDate)
     }
   }
