@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import liff from '@line/liff'
 import ReservationForm from './pages/ReservationForm'
 import AllReservations from './pages/AllReservations'
@@ -63,6 +63,11 @@ function App() {
   const [nobuRoomFocusTarget,setNobuRoomFocusTarget]= useState<KobuEditTarget | null>(null)
   const [bookingActive,      setBookingActive]      = useState(false)
   const [pendingNav,         setPendingNav]         = useState<PendingNav | null>(null)
+  const mainRef = useRef<HTMLElement>(null)
+
+  useEffect(() => {
+    mainRef.current?.scrollTo({ top: 0, behavior: 'instant' })
+  }, [mainTab, nobuSub])
 
   function handleTabClick(id: MainTab) {
     if (id === mainTab) return
@@ -202,7 +207,7 @@ function App() {
         ))}
       </nav>
 
-      <main className="flex-1 min-h-0 p-4 overflow-y-auto flex flex-col">
+      <main ref={mainRef} className="flex-1 min-h-0 p-4 overflow-y-auto flex flex-col">
         {mainTab === 'nobu' && (
           <>
             <NobuSubNav active={nobuSub} onChange={handleNobuSubChange} />

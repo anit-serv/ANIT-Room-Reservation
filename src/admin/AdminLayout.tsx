@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { getAdminToken, clearAdminToken, adminFetch } from './auth'
 import Skeleton from '../components/Skeleton'
@@ -84,7 +84,7 @@ export default function AdminLayout() {
     }
   }
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const previous = previousLocation.current
     previousLocation.current = { pathname: location.pathname, search: location.search }
 
@@ -95,7 +95,7 @@ export default function AdminLayout() {
 
     if (hasReservationFocus || hadReservationFocus) return
     if (!previous || previous.pathname !== location.pathname) {
-      window.scrollTo({ top: 0, left: 0, behavior: 'auto' })
+      window.scrollTo({ top: 0, left: 0, behavior: 'instant' })
     }
   }, [location.pathname, location.search])
 
