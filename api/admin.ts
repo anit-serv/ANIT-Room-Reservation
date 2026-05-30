@@ -77,6 +77,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // 認証系（無認証アクセス可能）
   if (path === 'auth/start')    return handleAuthStart(req, res)
   if (path === 'auth/callback') return handleAuthCallback(req, res)
+  if (path === 'auth/exchange') return handleAuthExchange(req, res)
   if (path === 'auth/me')       return handleAuthMe(req, res)
 
   // 設定
@@ -157,6 +158,45 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (path === 'dashboard') return handleDashboard(req, res)
 
   return res.status(404).json({ error: 'Not Found' })
+}
+
+// ─── 一時認証コードを Firestore に保存してリダイレクト ──────
+async function redirectWithAuthCode(
+  res: VercelResponse,
+  loginUrl: string,
+  accessToken: string,
+): Promise<VercelResponse> {
+  const code = crypto.randomBytes(16).toString('hex')
+  await db.collection('auth_codes').doc(code).set({
+    accessToken,
+    expiresAt: Date.now() + 60_000,
+  })
+  return res.redirect(302, `${loginUrl}?code=${encodeURIComponent(code)}`)
+}
+
+// ─── 一時コードとトークンを交換 ────────────────────────────
+async function handleAuthExchange(req: VercelRequest, res: VercelResponse) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method Not Allowed' })
+  const code = req.query.code as string | undefined
+  if (!code || !/^[0-9a-f]{32}$/.test(code)) {
+    return res.status(400).json({ error: 'Invalid code' })
+  }
+  try {
+    const docRef = db.collection('auth_codes').doc(code)
+    const doc = await docRef.get()
+    if (!doc.exists) {
+      return res.status(401).json({ error: 'Invalid or expired code' })
+    }
+    const data = doc.data()!
+    if (data.expiresAt < Date.now()) {
+      await docRef.delete()
+      return res.status(401).json({ error: 'Code expired' })
+    }
+    await docRef.delete()
+    return res.status(200).json({ token: data.accessToken })
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message })
+  }
 }
 
 // ─── LINE Login OAuth 開始 ──────────────────────────────
@@ -271,7 +311,7 @@ async function handleAuthCallback(req: VercelRequest, res: VercelResponse) {
           'admin.add',
           { targetType: 'admin', targetId: userId, targetLabel: displayName }
         )
-        return res.redirect(302, `${loginUrl}?token=${encodeURIComponent(accessToken)}`)
+        return redirectWithAuthCode(res, loginUrl, accessToken)
       }
       // 招待トークンが無効でも、既存管理者なら通常ログインさせる
     }
@@ -280,7 +320,7 @@ async function handleAuthCallback(req: VercelRequest, res: VercelResponse) {
     if (!adminDoc.exists) {
       return res.redirect(302, `${loginUrl}?error=not_admin`)
     }
-    return res.redirect(302, `${loginUrl}?token=${encodeURIComponent(accessToken)}`)
+    return redirectWithAuthCode(res, loginUrl, accessToken)
   } catch (err) {
     console.error('OAuth callback error:', err)
     return res.redirect(302, `${loginUrl}?error=invalid`)
