@@ -32,6 +32,12 @@ function todayJST(): string {
   return new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10)
 }
 
+function tomorrowJST(): string {
+  const d = new Date(Date.now() + 9 * 60 * 60 * 1000)
+  d.setUTCDate(d.getUTCDate() + 1)
+  return d.toISOString().slice(0, 10)
+}
+
 function maxEmergencyDate(): string {
   const d = new Date(Date.now() + 9 * 60 * 60 * 1000)
   d.setUTCDate(d.getUTCDate() + 7)
@@ -51,7 +57,7 @@ export default function NobuEmergencySettings() {
   const [dayOverrides, setDayOverrides] = useState<DayOverride[]>(cached?.dayOverrides ?? [])
   const [defaultSlots, setDefaultSlots] = useState<TimeSlot[]>(cached?.defaultSlots ?? [])
   const [emergencyDates, setEmergencyDates] = useState<EmergencyDateOption[]>(cached?.emergencyDates ?? [])
-  const [emergencyDate, setEmergencyDate] = useState(todayJST())
+  const [emergencyDate, setEmergencyDate] = useState(tomorrowJST())
   const [emergencyType, setEmergencyType] = useState<'blocked' | 'opened' | null>(null)
   const [emergencyReason, setEmergencyReason] = useState('')
   const [emergencyUseCustomSlots, setEmergencyUseCustomSlots] = useState(false)
@@ -166,8 +172,8 @@ export default function NobuEmergencySettings() {
       setMessage({ type: 'error', text: '日付を指定してください' })
       return
     }
-    if (emergencyDate < todayJST() || emergencyDate > maxEmergencyDate()) {
-      setMessage({ type: 'error', text: `緊急対応は ${todayJST()} 〜 ${maxEmergencyDate()} の範囲で指定してください` })
+    if (emergencyDate < tomorrowJST() || emergencyDate > maxEmergencyDate()) {
+      setMessage({ type: 'error', text: `緊急対応は ${tomorrowJST()} 〜 ${maxEmergencyDate()} の範囲で指定してください` })
       return
     }
     if (!emergencyType) {
@@ -302,7 +308,7 @@ export default function NobuEmergencySettings() {
             <DatePicker
               value={emergencyDate}
               onChange={setEmergencyDate}
-              min={todayJST()}
+              min={tomorrowJST()}
               maxDate={maxEmergencyDate()}
               getDayClass={(date) => {
                 const opt = emergencyDates.find(e => e.value === date)
