@@ -129,7 +129,7 @@ export default function NobuEmergencySettings() {
         setEmergencyUseCustomSlots(!!data.override.timeSlots?.length)
         setEmergencySlots(data.override.timeSlots ?? [])
       } else {
-        setEmergencyType(null)
+        // emergencyType はユーザーの選択を保持する（リセットしない）
         setEmergencyReason('')
         setEmergencyUseCustomSlots(false)
         setEmergencySlots([])
@@ -311,21 +311,22 @@ export default function NobuEmergencySettings() {
               min={tomorrowJST()}
               maxDate={maxEmergencyDate()}
               getDayClass={(date) => {
+                if (date <= todayJST()) return 'text-ink-pale cursor-not-allowed opacity-40'
                 const opt = emergencyDates.find(e => e.value === date)
-                if (!opt) return 'text-ink-pale cursor-not-allowed opacity-40'
-                if (emergencyType) {
-                  const allowed = emergencyType === 'blocked' ? opt.canBlock : opt.canOpen
-                  return allowed
-                    ? (emergencyType === 'blocked'
-                        ? 'text-warn hover:bg-warn-light cursor-pointer font-medium'
-                        : 'text-brand hover:bg-brand-light cursor-pointer font-medium')
-                    : 'text-ink-pale cursor-not-allowed opacity-40'
+                if (!opt || (!opt.canBlock && !opt.canOpen)) return 'text-ink-pale cursor-not-allowed opacity-40'
+                const compatible = !emergencyType
+                  || (emergencyType === 'blocked' ? opt.canBlock : opt.canOpen)
+                if (opt.canBlock) {
+                  return compatible
+                    ? 'text-warn hover:bg-warn-light cursor-pointer font-medium'
+                    : 'text-warn opacity-40 cursor-not-allowed'
                 }
-                if (!opt.canBlock && !opt.canOpen) return 'text-ink-pale cursor-not-allowed opacity-40'
-                if (opt.canBlock) return 'text-warn hover:bg-warn-light cursor-pointer font-medium'
-                return 'text-brand hover:bg-brand-light cursor-pointer font-medium'
+                return compatible
+                  ? 'text-brand hover:bg-brand-light cursor-pointer font-medium'
+                  : 'text-brand opacity-40 cursor-not-allowed'
               }}
               isDateDisabled={(date) => {
+                if (date <= todayJST()) return true
                 const opt = emergencyDates.find(e => e.value === date)
                 if (!opt) return true
                 if (emergencyType) return emergencyType === 'blocked' ? !opt.canBlock : !opt.canOpen
