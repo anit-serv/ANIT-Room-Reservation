@@ -18,9 +18,11 @@ type SettingsCore = {
   perDaySchedule: PerDaySchedule
 }
 
+type ScheduledChange = SettingsCore & { effectiveFrom: string; lotteryTime?: string }
+
 type SettingsResponse = SettingsCore & {
-  nextChange: (SettingsCore & { effectiveFrom: string }) | null
-  scheduledChanges?: (SettingsCore & { effectiveFrom: string })[]
+  nextChange: ScheduledChange | null
+  scheduledChanges?: ScheduledChange[]
   lotteryTime: string
 }
 
@@ -127,8 +129,9 @@ export default function Settings() {
 
   const scheduledChanges = current?.scheduledChanges ?? (current?.nextChange ? [current.nextChange] : [])
 
-  function loadScheduledForEdit(change: SettingsCore & { effectiveFrom: string }) {
+  function loadScheduledForEdit(change: ScheduledChange) {
     applyToForm(change)
+    setLotteryTime(change.lotteryTime ?? current?.lotteryTime ?? '21:00')
     setEffectiveFrom(change.effectiveFrom)
     setEditingScheduled(true)
     setEditingScheduledDate(change.effectiveFrom)
@@ -138,6 +141,7 @@ export default function Settings() {
   function cancelEditScheduled() {
     if (!current) return
     applyToForm(current)
+    setLotteryTime(current.lotteryTime ?? '21:00')
     setEffectiveFrom(minEffectiveDate())
     setEditingScheduled(false)
     setEditingScheduledDate(null)
@@ -244,27 +248,14 @@ export default function Settings() {
 
     setSaving(true)
     try {
-      const [res, lotteryRes] = await Promise.all([
-        adminFetch('/api/admin/settings', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ availableDays, timeSlots, extraDates, excludedDates, perDaySchedule, effectiveFrom: finalEffective }),
-        }),
-        adminFetch('/api/admin/settings/lottery-time', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ lotteryTime }),
-        }),
-      ])
-      if (!res.ok) throw new Error((await res.json()).error ?? '保存に失敗しました')
-      const lotteryJson = await lotteryRes.json()
-      if (!lotteryRes.ok) throw new Error(lotteryJson.error ?? '抽選時刻の保存に失敗しました')
+      const res = await adminFetch('/api/admin/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ availableDays, timeSlots, extraDates, excludedDates, perDaySchedule, effectiveFrom: finalEffective, lotteryTime }),
+      })
       const result = await res.json()
-      showToast(
-        lotteryJson.cronWarning
-          ? `⚠️ cron-job.org: ${lotteryJson.cronWarning}`
-          : `設定を保存しました（${result.effectiveFrom} から適用予定）`
-      )
+      if (!res.ok) throw new Error(result.error ?? '保存に失敗しました')
+      showToast(`設定を保存しました（${result.effectiveFrom} から適用予定）`)
       setEditingScheduled(false)
       setEditingScheduledDate(null)
       setStep('editing')
@@ -406,6 +397,8 @@ export default function Settings() {
                   <div className="text-[0.9rem] text-ink-sub">
                     適用日: <strong>{change.effectiveFrom}</strong>
                     {' / '}
+                    抽選: <strong>{change.lotteryTime ?? '—'}</strong>
+                    {' / '}
                     曜日: <strong>{change.availableDays.map((d) => WEEK_DAYS[d]).join('・') || 'なし'}</strong>
                     {' / '}
                     追加日: <strong>{change.extraDates?.length ?? 0}件</strong>
@@ -441,7 +434,7 @@ export default function Settings() {
       <div className="admin-card">
         <h2 className="text-base font-bold mb-1">抽選時刻</h2>
         <p className="text-[0.85rem] text-ink-sub mb-3">
-          変更すると cron-job.org のスケジュールも自動で更新されます。
+          下の「適用日」から反映されます（適用日当日に cron-job.org のスケジュールも自動更新）。
         </p>
         <input
           type="time"

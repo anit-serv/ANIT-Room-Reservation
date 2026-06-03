@@ -24,7 +24,11 @@ export type ReservationSettings = ReservationSettingsCore & {
 
 export type ReservationSettingsVersion = ReservationSettingsCore & {
   effectiveFrom: string
+  /** このバージョンが適用される日以降の抽選時刻（HH:MM）。未設定なら base 値にフォールバック */
+  lotteryTime?: string
 }
+
+const LOTTERY_TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/
 
 export type ReservationDayOverride = {
   date: string
@@ -115,9 +119,14 @@ export function isTimeSlotAvailableBySettings(dateTime: string, settings: Reserv
 
 function normalizeVersion(data: any): ReservationSettingsVersion | null {
   if (!data?.effectiveFrom || typeof data.effectiveFrom !== 'string') return null
+  const lotteryTime =
+    typeof data.lotteryTime === 'string' && LOTTERY_TIME_RE.test(data.lotteryTime)
+      ? data.lotteryTime
+      : undefined
   return {
     ...normalizeReservationSettingsCore(data),
     effectiveFrom: data.effectiveFrom,
+    ...(lotteryTime ? { lotteryTime } : {}),
   }
 }
 
@@ -241,7 +250,7 @@ export async function resolveReservationSettingsForDate(
 
   return {
     ...latest,
-    lotteryTime: base.lotteryTime,
+    lotteryTime: latest.lotteryTime ?? base.lotteryTime,
     dayOverride,
   }
 }
@@ -316,7 +325,7 @@ export async function resolveReservationSettingsForDates(
     const candidates = allVersions.filter((version) => version.effectiveFrom <= date)
     const latest = candidates[candidates.length - 1]
     result[date] = latest
-      ? { ...latest, lotteryTime: base.lotteryTime, dayOverride: overridesByDate[date] }
+      ? { ...latest, lotteryTime: latest.lotteryTime ?? base.lotteryTime, dayOverride: overridesByDate[date] }
       : { ...base, dayOverride: overridesByDate[date] }
   }
   return result

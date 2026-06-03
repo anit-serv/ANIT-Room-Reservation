@@ -1,5 +1,7 @@
 import { VercelRequest, VercelResponse } from '@vercel/node';
 import * as admin from 'firebase-admin';
+import { applyLotteryCronSchedule } from '../lib/cronSchedule';
+import { resolveReservationSettingsForDate, todayJST } from '../lib/reservationSettings';
 import 'dotenv/config';
 
 // ---------------------------------------------------------
@@ -34,6 +36,35 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     (key === cronSecret)
   if (!isAuthorized) {
     return res.status(401).json({ status: 'error', message: 'Unauthorized' });
+  }
+
+  // ---------------------------------------------------------
+  // タスク: 抽選時刻の日次リコンサイラ
+  //   毎朝、今日有効な抽選時刻に cron-job.org のスケジュールを一致させる。
+  //   冪等（appliedLotteryTime と一致すれば何もしない）で自己修復的。
+  // ---------------------------------------------------------
+  if (req.query.task === 'apply-lottery-time') {
+    try {
+      const settings = await resolveReservationSettingsForDate(db, todayJST());
+      const target = settings.lotteryTime;
+      const ref = db.collection('settings').doc('reservation');
+      const snap = await ref.get();
+      const applied = snap.data()?.appliedLotteryTime;
+
+      if (applied === target) {
+        return res.status(200).json({ status: 'skipped', lotteryTime: target });
+      }
+
+      const result = await applyLotteryCronSchedule(target);
+      if (result.warning) {
+        return res.status(200).json({ status: 'warning', lotteryTime: target, cronWarning: result.warning });
+      }
+      await ref.set({ appliedLotteryTime: target }, { merge: true });
+      return res.status(200).json({ status: 'success', lotteryTime: target });
+    } catch (error: any) {
+      console.error(error);
+      return res.status(500).json({ status: 'error', error: error.message });
+    }
   }
 
   try {

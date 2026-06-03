@@ -3,6 +3,7 @@ import * as admin from 'firebase-admin'
 import * as crypto from 'crypto'
 import axios from 'axios'
 import { verifyAdmin } from '../lib/verifyAdmin'
+import { applyLotteryCronSchedule } from '../lib/cronSchedule'
 import {
   addDaysJST,
   getPendingReservationSettingsChange,
@@ -379,6 +380,7 @@ function timesOverlap(startA: string, endA: string, startB: string, endB: string
 }
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
+const LOTTERY_TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/
 const WEEK_DAYS = ['日', '月', '火', '水', '木', '金', '土']
 
 type DateOption = { label: string; value: string }
@@ -586,10 +588,13 @@ async function handleSettings(req: VercelRequest, res: VercelResponse) {
     const validated = validateSettings(req.body)
     if (typeof validated === 'string') return res.status(400).json({ error: validated })
 
-    const { effectiveFrom } = (req.body ?? {}) as { effectiveFrom?: string }
+    const { effectiveFrom, lotteryTime } = (req.body ?? {}) as { effectiveFrom?: string; lotteryTime?: string }
 
     if (!effectiveFrom || !isValidDate(effectiveFrom)) {
       return res.status(400).json({ error: '適用日を指定してください' })
+    }
+    if (!lotteryTime || !LOTTERY_TIME_RE.test(lotteryTime) || lotteryTime < '01:00') {
+      return res.status(400).json({ error: '抽選時刻は01:00〜23:59で指定してください' })
     }
 
     // 現在の予約可能期間（7日後まで）と競合させないため、
@@ -601,14 +606,18 @@ async function handleSettings(req: VercelRequest, res: VercelResponse) {
       })
     }
 
+    // 抽選時刻も各バージョンに含めて保存する（適用日方式）。
+    // cron-job.org のスケジュールは適用日当日に /api/data-organize?task=apply-lottery-time
+    // のリコンサイラが反映する。
     await docRef.collection('versions').doc(effectiveFrom).set({
       ...validated,
+      lotteryTime,
       effectiveFrom,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       updatedBy: me.userId,
     })
     await docRef.set({ nextChange: admin.firestore.FieldValue.delete() }, { merge: true })
-    await audit(me, 'settings.schedule', { targetType: 'settings', details: { ...validated, effectiveFrom } })
+    await audit(me, 'settings.schedule', { targetType: 'settings', details: { ...validated, lotteryTime, effectiveFrom } })
     return res.status(200).json({ applied: 'scheduled', effectiveFrom })
   }
 
@@ -900,7 +909,9 @@ async function handleSettingsDayOverrideByDate(req: VercelRequest, res: VercelRe
   })
 }
 
-// ─── 抽選時刻の即時更新 ───────────────────────────────
+// ─── 抽選時刻の即時更新（緊急用） ─────────────────────
+// 通常の変更は handleSettings（適用日方式）で行う。これはミス修正など
+// 「今すぐ」反映したい場合の緊急上書き：base 値を即書き換え、cron-job.org も即PATCHする。
 async function handleSettingsLotteryTime(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'PUT') return res.status(405).json({ error: 'Method Not Allowed' })
   let me: AuditActor
@@ -912,40 +923,18 @@ async function handleSettingsLotteryTime(req: VercelRequest, res: VercelResponse
   }
 
   const { lotteryTime } = (req.body ?? {}) as { lotteryTime?: string }
-  if (!lotteryTime || !/^([01]\d|2[0-3]):[0-5]\d$/.test(lotteryTime) || lotteryTime < '01:00') {
+  if (!lotteryTime || !LOTTERY_TIME_RE.test(lotteryTime) || lotteryTime < '01:00') {
     return res.status(400).json({ error: '抽選時刻は01:00〜23:59で指定してください' })
   }
 
-  await db.collection('settings').doc('reservation').set({ lotteryTime }, { merge: true })
+  // appliedLotteryTime も更新し、リコンサイラが冗長な再PATCHをしないようにする
+  await db.collection('settings').doc('reservation').set({ lotteryTime, appliedLotteryTime: lotteryTime }, { merge: true })
+  await audit(me, 'settings.lotteryTime.immediate', { targetType: 'settings', details: { lotteryTime } })
 
-  // cron-job.org スケジュール更新（抽選ジョブ: 5分前 / 通知ジョブ: 抽選時刻）
-  const apiKey        = process.env.CRONJOB_ORG_API_KEY
-  const lotteryJobId  = process.env.CRONJOB_ORG_LOTTERY_JOB_ID
-  const notifyJobId   = process.env.CRONJOB_ORG_NOTIFY_JOB_ID
-  if (apiKey && (lotteryJobId || notifyJobId)) {
-    const [h, m] = lotteryTime.split(':').map(Number)
-    const lotteryMinutes = h * 60 + m
-
-    // 抽選ジョブ: 5分前
-    const lotteryJobMinutes = lotteryMinutes - 5
-    const lotteryJobH = Math.floor(lotteryJobMinutes / 60)
-    const lotteryJobM = lotteryJobMinutes % 60
-
-    const headers = { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' }
-    const makeSchedule = (jh: number, jm: number) => ({
-      job: { schedule: { timezone: 'Asia/Tokyo', expiresAt: 0, hours: [jh], minutes: [jm], mdays: [-1], months: [-1], wdays: [-1] } }
-    })
-
-    try {
-      await Promise.all([
-        lotteryJobId && axios.patch(`https://api.cron-job.org/jobs/${lotteryJobId}`, makeSchedule(lotteryJobH, lotteryJobM), { headers }),
-        notifyJobId  && axios.patch(`https://api.cron-job.org/jobs/${notifyJobId}`,  makeSchedule(h, m),                    { headers }),
-      ])
-    } catch (err: any) {
-      return res.status(200).json({ success: true, lotteryTime, cronWarning: 'cron-job.orgの更新に失敗しました: ' + err.message })
-    }
+  const result = await applyLotteryCronSchedule(lotteryTime)
+  if (result.warning) {
+    return res.status(200).json({ success: true, lotteryTime, cronWarning: result.warning })
   }
-
   return res.status(200).json({ success: true, lotteryTime })
 }
 
