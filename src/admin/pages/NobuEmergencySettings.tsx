@@ -25,6 +25,23 @@ type EmergencyDateOption = {
   openReason?: string
 }
 
+type LotteryDateOption = {
+  label: string
+  value: string
+  isReservable: boolean
+  currentLotteryTime: string
+  hasOverride: boolean
+  editable: boolean
+  minTime: string
+  maxTime: string
+  note?: string
+}
+
+type LotteryOverride = {
+  date: string
+  lotteryTime: string
+}
+
 type SettingsResponse = {
   timeSlots: TimeSlot[]
 }
@@ -50,6 +67,8 @@ type EmergencyCache = {
   dayOverrides: DayOverride[]
   defaultSlots: TimeSlot[]
   emergencyDates: EmergencyDateOption[]
+  lotteryOverrides?: LotteryOverride[]
+  lotteryDateOptions?: LotteryDateOption[]
 }
 
 export default function NobuEmergencySettings() {
@@ -66,6 +85,13 @@ export default function NobuEmergencySettings() {
   const [emergencyCount, setEmergencyCount] = useState<number | null>(null)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
+  // 抽選時刻の緊急対応（予約不可/開放とは独立）
+  const [lotteryOverrides, setLotteryOverrides] = useState<LotteryOverride[]>(cached?.lotteryOverrides ?? [])
+  const [lotteryDateOptions, setLotteryDateOptions] = useState<LotteryDateOption[]>(cached?.lotteryDateOptions ?? [])
+  const [lotteryDate, setLotteryDate] = useState('')
+  const [lotteryTimeInput, setLotteryTimeInput] = useState('')
+  const [lotterySaving, setLotterySaving] = useState(false)
+  const [lotteryMessage, setLotteryMessage] = useState<string | null>(null)
   const { showToast } = useToast()
   const [confirmAction, setConfirmAction] = useState<{
     title: string
@@ -82,15 +108,47 @@ export default function NobuEmergencySettings() {
     if (emergencyDate) loadEmergencyDateInfo(emergencyDate)
   }, [emergencyDate])
 
+  // 抽選時刻: 対象日を選んだら初期値を「既存上書き or 現在の有効値」にセット（最小時刻でクランプ）
+  useEffect(() => {
+    if (!lotteryDate) return
+    const opt = lotteryDateOptions.find((o) => o.value === lotteryDate)
+    if (!opt) return
+    const existing = lotteryOverrides.find((o) => o.date === lotteryDate)?.lotteryTime
+    let t = existing ?? opt.currentLotteryTime
+    if (t < opt.minTime) t = opt.minTime
+    setLotteryTimeInput(t)
+  }, [lotteryDate, lotteryDateOptions, lotteryOverrides])
+
   async function loadInitial() {
     if (!getPageCache<EmergencyCache>(EMERGENCY_CACHE_KEY)) setLoading(true)
-    const [slots, dayOverrideData] = await Promise.all([loadSettings(), loadDayOverrides()])
+    const [slots, dayOverrideData, lotteryData] = await Promise.all([
+      loadSettings(),
+      loadDayOverrides(),
+      loadLotteryOverrides(),
+    ])
     setPageCache<EmergencyCache>(EMERGENCY_CACHE_KEY, {
       defaultSlots: slots ?? defaultSlots,
       dayOverrides: dayOverrideData?.overrides ?? dayOverrides,
       emergencyDates: dayOverrideData?.emergencyDates ?? emergencyDates,
+      lotteryOverrides: lotteryData?.overrides ?? lotteryOverrides,
+      lotteryDateOptions: lotteryData?.dateOptions ?? lotteryDateOptions,
     })
     setLoading(false)
+  }
+
+  async function loadLotteryOverrides() {
+    try {
+      const res = await adminFetch('/api/admin/settings/lottery-overrides')
+      if (res.ok) {
+        const data = await res.json()
+        const overrides = (data.overrides ?? []) as LotteryOverride[]
+        const dateOptions = (data.dateOptions ?? []) as LotteryDateOption[]
+        setLotteryOverrides(overrides)
+        setLotteryDateOptions(dateOptions)
+        return { overrides, dateOptions }
+      }
+    } catch { /* ignore */ }
+    return null
   }
 
   async function loadSettings() {
@@ -272,6 +330,55 @@ export default function NobuEmergencySettings() {
           if (date === emergencyDate) await loadEmergencyDateInfo(date)
         } finally {
           setSaving(false)
+        }
+      },
+    })
+  }
+
+  const selLotteryOpt = lotteryDateOptions.find((o) => o.value === lotteryDate)
+
+  async function saveLotteryOverride() {
+    setLotteryMessage(null)
+    if (!lotteryDate) { setLotteryMessage('対象日を選択してください'); return }
+    const opt = lotteryDateOptions.find((o) => o.value === lotteryDate)
+    if (!opt || !opt.editable) { setLotteryMessage(opt?.note ?? 'この日は抽選時刻を変更できません'); return }
+    if (!lotteryTimeInput || lotteryTimeInput < opt.minTime || lotteryTimeInput > opt.maxTime) {
+      setLotteryMessage(`指定できる抽選時刻は ${opt.minTime}〜${opt.maxTime} です`); return
+    }
+    setLotterySaving(true)
+    try {
+      const res = await adminFetch(`/api/admin/settings/lottery-overrides/${encodeURIComponent(lotteryDate)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lotteryTime: lotteryTimeInput }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error ?? '保存に失敗しました')
+      showToast(data.cronWarning ? `⚠️ ${data.cronWarning}` : `${lotteryDate} の抽選時刻を ${lotteryTimeInput} に変更しました`)
+      await loadLotteryOverrides()
+    } catch (err: any) {
+      setLotteryMessage(err.message)
+    } finally {
+      setLotterySaving(false)
+    }
+  }
+
+  function deleteLotteryOverride(date: string) {
+    setConfirmAction({
+      title: '抽選時刻の緊急対応を解除しますか？',
+      message: `${date} の抽選時刻を通常設定に戻します。`,
+      confirmLabel: '解除',
+      onConfirm: async () => {
+        setLotterySaving(true)
+        try {
+          const res = await adminFetch(`/api/admin/settings/lottery-overrides/${encodeURIComponent(date)}`, { method: 'DELETE' })
+          const data = await res.json().catch(() => ({}))
+          if (!res.ok) throw new Error(data.error ?? '解除に失敗しました')
+          showToast(data.cronWarning ? `⚠️ ${data.cronWarning}` : `${date} の抽選時刻を通常設定に戻しました`)
+          setConfirmAction(null)
+          await loadLotteryOverrides()
+        } finally {
+          setLotterySaving(false)
         }
       },
     })
@@ -483,6 +590,109 @@ export default function NobuEmergencySettings() {
                     ) : null}
                   </div>
                   <button className="btn-icon-danger shrink-0" onClick={() => deleteDayOverride(override.date)} disabled={saving} aria-label={`${override.date}の緊急対応を解除`}>
+                    <span className="icon">delete</span>
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="admin-card">
+        <div className="flex items-start justify-between gap-3 flex-wrap mb-3">
+          <div>
+            <h2 className="text-base font-bold mb-1">抽選時刻の緊急対応</h2>
+            <p className="text-[0.85rem] text-ink-sub">
+              当日〜7日後の予約可能日について、その日だけ抽選時刻を変更します。当日分は即時に反映されます（cron-job.org も自動更新）。
+            </p>
+          </div>
+          <span className="badge badge-warn">
+            <span className="icon icon-sm">bolt</span>
+            即時反映
+          </span>
+        </div>
+
+        {lotteryMessage && <div className="banner-error">{lotteryMessage}</div>}
+
+        <div className="grid grid-cols-1 lg:grid-cols-[270px_1fr] gap-4 mb-4">
+          <div className="form-row mb-0">
+            <label>対象日</label>
+            <DatePicker
+              value={lotteryDate}
+              onChange={setLotteryDate}
+              min={todayJST()}
+              maxDate={maxEmergencyDate()}
+              getDayClass={(date) => {
+                const o = lotteryDateOptions.find((e) => e.value === date)
+                return o?.editable
+                  ? 'text-brand hover:bg-brand-light cursor-pointer font-medium'
+                  : 'text-ink-pale cursor-not-allowed opacity-40'
+              }}
+              getSelectedClass={() => 'bg-brand text-white font-bold cursor-pointer'}
+              isDateDisabled={(date) => !lotteryDateOptions.find((e) => e.value === date)?.editable}
+              className="justify-start whitespace-nowrap"
+            />
+            <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1.5 text-[0.75rem] text-ink-sub">
+              <span className="flex items-center gap-1">
+                <span className="inline-block w-2 h-2 rounded-full bg-brand" />
+                変更できる日（{lotteryDateOptions.filter((d) => d.editable).length}日）
+              </span>
+            </div>
+          </div>
+
+          <div className="form-row mb-0">
+            <label>抽選時刻</label>
+            {!lotteryDate ? (
+              <p className="text-[0.82rem] text-ink-sub">対象日を選択してください</p>
+            ) : selLotteryOpt?.editable ? (
+              <>
+                <input
+                  type="time"
+                  className="text-input w-auto"
+                  min={selLotteryOpt.minTime}
+                  max={selLotteryOpt.maxTime}
+                  value={lotteryTimeInput}
+                  onChange={(e) => setLotteryTimeInput(e.target.value)}
+                />
+                <p className="text-[0.78rem] text-ink-sub mt-1.5">
+                  現在の抽選時刻: <strong className="text-ink">{selLotteryOpt.currentLotteryTime}</strong>
+                  {selLotteryOpt.note ? <><br />{selLotteryOpt.note}</> : null}
+                </p>
+              </>
+            ) : (
+              <p className="text-[0.82rem] text-warn">
+                <span className="icon icon-sm align-middle">warning</span>
+                {' '}{selLotteryOpt?.note ?? 'この日は抽選時刻を変更できません'}
+              </p>
+            )}
+          </div>
+        </div>
+
+        <div className="flex gap-2 flex-wrap mb-4">
+          <button className="btn-primary w-auto px-5" onClick={saveLotteryOverride} disabled={lotterySaving || !selLotteryOpt?.editable}>
+            {lotterySaving ? '保存中...' : '抽選時刻を変更'}
+          </button>
+          {lotteryOverrides.some((o) => o.date === lotteryDate) && (
+            <button className="btn-outline w-auto px-5" onClick={() => deleteLotteryOverride(lotteryDate)} disabled={lotterySaving}>
+              この日の変更を解除
+            </button>
+          )}
+        </div>
+
+        <div className="border-t border-line pt-3">
+          <h3 className="text-[0.9rem] font-semibold mb-2">登録済みの抽選時刻変更</h3>
+          {lotteryOverrides.length === 0 ? (
+            <p className="text-[0.85rem] text-ink-pale">登録済みの抽選時刻変更はありません</p>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {lotteryOverrides.map((o) => (
+                <div key={o.date} className="flex items-center justify-between gap-3 rounded-lg border border-line bg-bg px-3 py-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <strong>{o.date}</strong>
+                    <span className="badge badge-warn">抽選 {o.lotteryTime}</span>
+                  </div>
+                  <button className="btn-icon-danger shrink-0" onClick={() => deleteLotteryOverride(o.date)} disabled={lotterySaving} aria-label={`${o.date}の抽選時刻変更を解除`}>
                     <span className="icon">delete</span>
                   </button>
                 </div>

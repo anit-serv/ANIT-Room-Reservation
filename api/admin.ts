@@ -11,6 +11,7 @@ import {
   listPendingFacilitySettingsChanges,
   listPendingReservationSettingsChanges,
   listReservationDayOverrides,
+  listReservationLotteryOverrides,
   isDateAvailableBySettings,
   isTimeSlotAvailableBySettings,
   pickTimeSlotsForDate,
@@ -90,6 +91,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (segments[0] === 'settings' && segments[1] === 'day-overrides') {
     if (segments.length === 2) return handleSettingsDayOverrides(req, res)
     if (segments.length === 3) return handleSettingsDayOverrideByDate(req, res, segments[2])
+  }
+  if (segments[0] === 'settings' && segments[1] === 'lottery-overrides') {
+    if (segments.length === 2) return handleSettingsLotteryOverrides(req, res)
+    if (segments.length === 3) return handleSettingsLotteryOverrideByDate(req, res, segments[2])
   }
 
   // 予約管理
@@ -936,6 +941,162 @@ async function handleSettingsLotteryTime(req: VercelRequest, res: VercelResponse
     return res.status(200).json({ success: true, lotteryTime, cronWarning: result.warning })
   }
   return res.status(200).json({ success: true, lotteryTime })
+}
+
+// ─── 抽選時刻の日付別緊急対応（予約不可/開放とは独立） ───
+type LotteryDateOption = DateOption & {
+  isReservable: boolean
+  currentLotteryTime: string
+  hasOverride: boolean
+  editable: boolean
+  minTime: string
+  maxTime: string
+  note?: string
+}
+
+function jstNowMinutes(): number {
+  const now = new Date(Date.now() + 9 * 60 * 60 * 1000)
+  return now.getUTCHours() * 60 + now.getUTCMinutes()
+}
+
+function formatHHMM(totalMin: number): string {
+  const h = Math.floor(totalMin / 60)
+  const m = totalMin % 60
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
+}
+
+// 当日〜+7日の各日について、抽選時刻を変更できるか・最小指定時刻などを算出する。
+async function buildLotteryOverrideDateOptions(): Promise<LotteryDateOption[]> {
+  const today = todayJST()
+  const dates = Array.from({ length: 8 }, (_, i) => addDaysJST(i))
+  const [settingsByDate, overrides] = await Promise.all([
+    resolveReservationSettingsForDates(db, dates),
+    listReservationLotteryOverrides(db, { minDate: today, maxDate: addDaysJST(7) }),
+  ])
+  const overrideDates = new Set(overrides.map((o) => o.date))
+  const nowMin = jstNowMinutes()
+  const minLottery = toMinutes('01:00')
+  const maxLottery = toMinutes('23:59')
+
+  return dates.map((date) => {
+    const settings = settingsByDate[date]
+    const isReservable =
+      isDateAvailableBySettings(date, settings) && pickTimeSlotsForDate(date, settings).length > 0
+    const currentLotteryTime = settings.lotteryTime
+    let editable = isReservable
+    let minTime = '01:00'
+    const maxTime = '23:59'
+    let note: string | undefined
+
+    if (!isReservable) {
+      editable = false
+      note = '予約可能な日ではないため抽選時刻は変更できません'
+    } else if (date === today) {
+      const oldLockout = toMinutes(currentLotteryTime) - 10
+      if (nowMin >= oldLockout) {
+        // 旧抽選の10分前を過ぎている＝遅延不可かつ新ロックアウトも過去になるため、本日は変更不可
+        editable = false
+        note = '抽選時刻の10分前を過ぎているため、本日の抽選時刻は変更できません'
+      } else {
+        const earliest = Math.max(nowMin + 10, minLottery) // T-10 >= now かつ 01:00以降
+        if (earliest > maxLottery) {
+          editable = false
+          note = '本日はこれ以上抽選時刻を指定できる時間帯がありません'
+        } else {
+          minTime = formatHHMM(earliest)
+          note = `本日は ${minTime} 以降（現在時刻の10分後以降）で指定できます`
+        }
+      }
+    }
+
+    return {
+      ...formatDateOption(date),
+      isReservable,
+      currentLotteryTime,
+      hasOverride: overrideDates.has(date),
+      editable,
+      minTime,
+      maxTime,
+      note,
+    }
+  })
+}
+
+// 当日の抽選時刻上書き/解除後、cron-job.org を現在の有効値へ即時再同期する。
+async function reapplyTodayLotteryCron(date: string): Promise<string | undefined> {
+  if (date !== todayJST()) return undefined
+  const settings = await resolveReservationSettingsForDate(db, todayJST())
+  const result = await applyLotteryCronSchedule(settings.lotteryTime)
+  if (result.warning) return result.warning
+  await db.collection('settings').doc('reservation').set({ appliedLotteryTime: settings.lotteryTime }, { merge: true })
+  return undefined
+}
+
+async function handleSettingsLotteryOverrides(req: VercelRequest, res: VercelResponse) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method Not Allowed' })
+  try {
+    await verifyAdmin(req.headers.authorization)
+  } catch (err: any) {
+    const status = err.message === 'Forbidden' ? 403 : 401
+    return res.status(status).json({ error: err.message })
+  }
+
+  const [overrides, dateOptions] = await Promise.all([
+    listReservationLotteryOverrides(db, { minDate: todayJST(), maxDate: addDaysJST(7) }),
+    buildLotteryOverrideDateOptions(),
+  ])
+  return res.status(200).json({ overrides, dateOptions })
+}
+
+async function handleSettingsLotteryOverrideByDate(req: VercelRequest, res: VercelResponse, date: string) {
+  let me: AuditActor
+  try {
+    me = await verifyAdmin(req.headers.authorization)
+  } catch (err: any) {
+    const status = err.message === 'Forbidden' ? 403 : 401
+    return res.status(status).json({ error: err.message })
+  }
+
+  if (!isValidDate(date)) return res.status(400).json({ error: '日付の形式が不正です' })
+  if (date < todayJST() || date > addDaysJST(7)) {
+    return res.status(400).json({ error: `抽選時刻の緊急対応は ${todayJST()}〜${addDaysJST(7)} の範囲で指定してください` })
+  }
+
+  const docRef = db.collection('settings').doc('reservation').collection('lotteryOverrides').doc(date)
+
+  if (req.method === 'DELETE') {
+    await docRef.delete()
+    await audit(me, 'settings.lotteryOverride.delete', { targetType: 'settings', targetId: date, details: { date } })
+    const cronWarning = await reapplyTodayLotteryCron(date)
+    return res.status(200).json({ success: true, ...(cronWarning ? { cronWarning } : {}) })
+  }
+
+  if (req.method !== 'PUT') return res.status(405).json({ error: 'Method Not Allowed' })
+
+  const { lotteryTime } = (req.body ?? {}) as { lotteryTime?: string }
+  if (!lotteryTime || !LOTTERY_TIME_RE.test(lotteryTime) || lotteryTime < '01:00') {
+    return res.status(400).json({ error: '抽選時刻は01:00〜23:59で指定してください' })
+  }
+
+  // サーバ側で最新の制約を再計算して検証（GET時点との時間経過に対応）
+  const option = (await buildLotteryOverrideDateOptions()).find((o) => o.value === date)
+  if (!option) {
+    return res.status(400).json({ error: `抽選時刻の緊急対応は ${todayJST()}〜${addDaysJST(7)} を指定してください` })
+  }
+  if (!option.editable) {
+    return res.status(400).json({ error: option.note ?? 'この日は抽選時刻を変更できません' })
+  }
+  if (lotteryTime < option.minTime || lotteryTime > option.maxTime) {
+    return res.status(400).json({ error: `指定できる抽選時刻は ${option.minTime}〜${option.maxTime} です` })
+  }
+
+  await docRef.set(
+    { date, lotteryTime, updatedAt: admin.firestore.FieldValue.serverTimestamp(), updatedBy: me.userId },
+    { merge: true },
+  )
+  await audit(me, 'settings.lotteryOverride.set', { targetType: 'settings', targetId: date, details: { date, lotteryTime } })
+  const cronWarning = await reapplyTodayLotteryCron(date)
+  return res.status(200).json({ success: true, lotteryTime, ...(cronWarning ? { cronWarning } : {}) })
 }
 
 // ─── 予約一覧（フィルタ可） ────────────────────────────

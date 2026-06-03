@@ -6,7 +6,7 @@ import FavoritePicker, { type Favorite } from '../../components/FavoritePicker'
 
 type Props = { profile: LiffProfile; onBookingActive?: (active: boolean) => void }
 type TimeSlot  = { label: string; value: string }
-type DateEntry = { label: string; value: string; timeSlots: TimeSlot[] }
+type DateEntry = { label: string; value: string; timeSlots: TimeSlot[]; lotteryTime?: string }
 
 export default function ReservationForm({ profile, onBookingActive }: Props) {
   const [bandName,          setBandName]          = useState('')
@@ -118,6 +118,7 @@ export default function ReservationForm({ profile, onBookingActive }: Props) {
 
   const dateLabel = dates.find((d) => d.value === selectedDate)?.label ?? ''
   const timeLabel = timeSlots.find((t) => t.value === selectedTime)?.label ?? ''
+  const lotteryTime = selectedDateEntry?.lotteryTime ?? ''
 
   if (loadingSettings) {
     return (
@@ -137,7 +138,7 @@ export default function ReservationForm({ profile, onBookingActive }: Props) {
     const isAlreadyFav = !!selectedFavId || favorites.some(f => f.name === bandName.trim())
     return (
       <div>
-        <Summary bandName={bandName} dateLabel={dateLabel} timeLabel={timeLabel} />
+        <Summary bandName={bandName} dateLabel={dateLabel} timeLabel={timeLabel} lotteryTime={lotteryTime} />
         {!isAlreadyFav && !favSaved && (
           <button
             className="flex items-center gap-1.5 text-[0.85rem] text-ink-sub border border-line rounded-xl px-4 py-2.5 mb-3 w-full hover:bg-[#f8f8f8] transition"
@@ -257,12 +258,13 @@ function SelectButton({
   )
 }
 
-function Summary({ bandName, dateLabel, timeLabel }: { bandName: string; dateLabel: string; timeLabel: string }) {
+function Summary({ bandName, dateLabel, timeLabel, lotteryTime }: { bandName: string; dateLabel: string; timeLabel: string; lotteryTime?: string }) {
   return (
     <div className="bg-surface border border-line rounded-xl p-4 mb-3 shadow-[var(--shadow-card-sm)]">
       <SummaryRow label="バンド名" value={bandName} />
       <SummaryRow label="日付" value={dateLabel} />
       <SummaryRow label="時間帯" value={timeLabel} />
+      {lotteryTime && <SummaryRow label="抽選時刻" value={lotteryTime} />}
     </div>
   )
 }

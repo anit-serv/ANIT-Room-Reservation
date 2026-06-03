@@ -199,6 +199,47 @@ export async function listReservationDayOverrides(
     .sort((a, b) => a.date.localeCompare(b.date))
 }
 
+// ─── 抽選時刻の日付別緊急上書き（dayOverrides とは独立） ───
+export type ReservationLotteryOverride = { date: string; lotteryTime: string }
+
+function normalizeLotteryOverride(data: any): ReservationLotteryOverride | null {
+  if (!data?.date || typeof data.date !== 'string') return null
+  if (typeof data.lotteryTime !== 'string' || !LOTTERY_TIME_RE.test(data.lotteryTime)) return null
+  return { date: data.date, lotteryTime: data.lotteryTime }
+}
+
+export async function getReservationLotteryOverride(
+  db: Firestore,
+  date: string,
+): Promise<ReservationLotteryOverride | null> {
+  const doc = await db
+    .collection('settings')
+    .doc('reservation')
+    .collection('lotteryOverrides')
+    .doc(date)
+    .get()
+  return doc.exists ? normalizeLotteryOverride(doc.data()) : null
+}
+
+export async function listReservationLotteryOverrides(
+  db: Firestore,
+  options: { minDate?: string; maxDate?: string } = {},
+): Promise<ReservationLotteryOverride[]> {
+  let query: FirebaseFirestore.Query = db
+    .collection('settings')
+    .doc('reservation')
+    .collection('lotteryOverrides')
+
+  if (options.minDate) query = query.where('date', '>=', options.minDate)
+  if (options.maxDate) query = query.where('date', '<=', options.maxDate)
+
+  const snap = await query.get()
+  return snap.docs
+    .map((doc) => normalizeLotteryOverride(doc.data()))
+    .filter((o): o is ReservationLotteryOverride => o !== null)
+    .sort((a, b) => a.date.localeCompare(b.date))
+}
+
 export async function getPendingReservationSettingsChange(
   db: Firestore,
   fromDate = addDaysJST(1),
@@ -232,10 +273,11 @@ export async function resolveReservationSettingsForDate(
   date: string,
 ): Promise<ReservationSettings> {
   const docRef = db.collection('settings').doc('reservation')
-  const [doc, versions, dayOverride] = await Promise.all([
+  const [doc, versions, dayOverride, lotteryOverride] = await Promise.all([
     docRef.get(),
     listReservationSettingsVersions(db, { maxEffectiveFrom: date }),
     getReservationDayOverride(db, date),
+    getReservationLotteryOverride(db, date),
   ])
   const data = doc.exists ? doc.data() : {}
   const base = normalizeReservationSettings(data, BASE_EFFECTIVE_FROM)
@@ -246,11 +288,13 @@ export async function resolveReservationSettingsForDate(
 
   const sortedApplicable = applicable.sort(compareEffectiveFrom)
   const latest = sortedApplicable[sortedApplicable.length - 1]
-  if (!latest) return { ...base, dayOverride }
+  // 抽選時刻の優先順位: 日付別緊急上書き > 適用中バージョン > base
+  const lotteryTime = lotteryOverride?.lotteryTime ?? latest?.lotteryTime ?? base.lotteryTime
+  if (!latest) return { ...base, lotteryTime, dayOverride }
 
   return {
     ...latest,
-    lotteryTime: latest.lotteryTime ?? base.lotteryTime,
+    lotteryTime,
     dayOverride,
   }
 }
@@ -307,10 +351,11 @@ export async function resolveReservationSettingsForDates(
   const sortedDates = [...dates].sort()
   const maxDate = sortedDates[sortedDates.length - 1]
   const docRef = db.collection('settings').doc('reservation')
-  const [doc, versions, overrideEntries] = await Promise.all([
+  const [doc, versions, overrideEntries, lotteryOverrideEntries] = await Promise.all([
     docRef.get(),
     listReservationSettingsVersions(db, { maxEffectiveFrom: maxDate }),
     Promise.all(sortedDates.map(async (date) => [date, await getReservationDayOverride(db, date)] as const)),
+    Promise.all(sortedDates.map(async (date) => [date, await getReservationLotteryOverride(db, date)] as const)),
   ])
   const data = doc.exists ? doc.data() : {}
   const base = normalizeReservationSettings(data, BASE_EFFECTIVE_FROM)
@@ -321,12 +366,15 @@ export async function resolveReservationSettingsForDates(
 
   const result: Record<string, ReservationSettings> = {}
   const overridesByDate = Object.fromEntries(overrideEntries)
+  const lotteryOverridesByDate = Object.fromEntries(lotteryOverrideEntries)
   for (const date of sortedDates) {
     const candidates = allVersions.filter((version) => version.effectiveFrom <= date)
     const latest = candidates[candidates.length - 1]
+    // 抽選時刻の優先順位: 日付別緊急上書き > 適用中バージョン > base
+    const lotteryTime = lotteryOverridesByDate[date]?.lotteryTime ?? latest?.lotteryTime ?? base.lotteryTime
     result[date] = latest
-      ? { ...latest, lotteryTime: latest.lotteryTime ?? base.lotteryTime, dayOverride: overridesByDate[date] }
-      : { ...base, dayOverride: overridesByDate[date] }
+      ? { ...latest, lotteryTime, dayOverride: overridesByDate[date] }
+      : { ...base, lotteryTime, dayOverride: overridesByDate[date] }
   }
   return result
 }
