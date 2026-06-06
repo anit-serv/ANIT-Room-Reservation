@@ -239,8 +239,9 @@ async function handleMy(req: VercelRequest, res: VercelResponse) {
 // ─── 指定日の全予約 ─────────────────────────────────
 async function handleAll(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method Not Allowed' })
+  let requesterId: string
   try {
-    await verifyLineToken(req.headers.authorization)
+    requesterId = (await verifyLineToken(req.headers.authorization)).userId
   } catch {
     return res.status(401).json({ error: 'Unauthorized' })
   }
@@ -259,9 +260,11 @@ async function handleAll(req: VercelRequest, res: VercelResponse) {
       if (data.status === 'cancelled') return
       const ts = data.date.split('T')[1]
       if (!slotMap[ts]) slotMap[ts] = []
+      // 他人の userId は漏洩防止のため返さない。呼び出し元自身の予約だけ userId を含め、
+      // フロント（AllReservations）の isOwn 判定が成立するようにする。
       slotMap[ts].push({
         id:       doc.id,
-        userId:   data.userId,
+        userId:   data.userId === requesterId ? data.userId : '',
         bandName: data.bandName ?? '(バンド名なし)',
         status:   data.status,
         order:    data.order,

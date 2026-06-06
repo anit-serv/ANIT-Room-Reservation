@@ -217,8 +217,9 @@ async function handleMy(req: VercelRequest, res: VercelResponse) {
 // ─── 週単位の全予約（スケジュールUI用） ─────────────────
 async function handleAll(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method Not Allowed' })
+  let requesterId: string
   try {
-    await verifyLineToken(req.headers.authorization)
+    requesterId = (await verifyLineToken(req.headers.authorization)).userId
   } catch {
     return res.status(401).json({ error: 'Unauthorized' })
   }
@@ -237,13 +238,15 @@ async function handleAll(req: VercelRequest, res: VercelResponse) {
       .where('date', '<=', weekEnd)
       .get()
 
-    const dayMap: Record<string, { id: string; bandName: string; startTime: string; endTime: string }[]> = {}
+    const dayMap: Record<string, { id: string; userId: string; bandName: string; startTime: string; endTime: string }[]> = {}
     snap.forEach((doc) => {
       const d = doc.data()
       if (d.status === 'cancelled') return
       if (!dayMap[d.date]) dayMap[d.date] = []
-      // userId は呼び出し元のスケジュールUIで使用しないため含めない
-      dayMap[d.date].push({ id: doc.id, bandName: d.bandName, startTime: d.startTime, endTime: d.endTime })
+      // 他人の userId は漏洩防止のため返さない。呼び出し元自身の予約だけ userId を含め、
+      // フロント（KobuSchedule/NobuRoomSchedule）の isOwn 判定（編集・削除・次の週も予約）が成立するようにする。
+      const own = d.userId === requesterId
+      dayMap[d.date].push({ id: doc.id, userId: own ? d.userId : '', bandName: d.bandName, startTime: d.startTime, endTime: d.endTime })
     })
     for (const day of Object.values(dayMap)) day.sort((a, b) => a.startTime.localeCompare(b.startTime))
     return res.status(200).json({ dayMap, weekStart, weekEnd })
