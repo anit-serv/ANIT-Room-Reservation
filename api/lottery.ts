@@ -147,28 +147,33 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const shuffledDocs = [...shuffleArray([...hamoaniDocs]), ...shuffleArray([...otherDocs])];
 
       const rankedList: string[] = [];
+      const hamoaniBands: string[] = [];
 
       shuffledDocs.forEach((doc, index) => {
         const rank = index + 1;
         const data = doc.data();
         const bandName = data.bandName || 'バンド名なし';
-        
+
         // 予約データに抽選結果を記録（ステータスは変更しない）
         const ref = db.collection('reservations').doc(doc.id);
-        batch.update(ref, { 
+        batch.update(ref, {
           lotteryRank: rank,
           lotteryTotal: docs.length,
           lotteryDate: targetDateStr // いつ抽選されたかも記録
         });
 
         rankedList.push(bandName);
+        if (data.hamoani === true) hamoaniBands.push(bandName);
         processedCount++;
       });
 
       // 集計結果データを作成
+      // ※ order はバンド名の突合に使われる（update-reservation-status.ts）ため、
+      //   表示用の装飾（「（ハモアニ）」等）は含めず、hamoaniBands で別管理する。
       dailyResultData.results[timeSlot] = {
         count: docs.length,
-        order: rankedList
+        order: rankedList,
+        hamoaniBands
       };
     }
 

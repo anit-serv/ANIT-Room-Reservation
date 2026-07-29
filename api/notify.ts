@@ -93,12 +93,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     for (const timeSlot of sortedTimeSlots) {
       const slotData = results[timeSlot];
       const bands: string[] = slotData.order || [];
-      
+      const hamoaniBands: string[] = slotData.hamoaniBands || [];
+
       if (bands.length > 0) {
         hasContent = true;
         message += `【${timeSlot}】\n`;
         bands.forEach((bandName, index) => {
-          message += `${index + 1}. ${bandName}\n`;
+          const displayName = hamoaniBands.includes(bandName) ? `${bandName}（ハモアニ）` : bandName;
+          message += `${index + 1}. ${displayName}\n`;
         });
         message += `\n`;
       }
