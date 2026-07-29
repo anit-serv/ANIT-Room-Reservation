@@ -269,7 +269,7 @@ export default function Dashboard() {
                     {r.facility === 'nobu' && (
                       <span className={'badge shrink-0 ' + (r.status === 'confirmed' ? 'badge-confirmed' : 'badge-pending')}>
                         <span className="icon icon-sm">{r.status === 'confirmed' ? 'check_circle' : 'hourglass_empty'}</span>
-                        {r.status === 'confirmed' ? `確定 (${typeof r.order === 'number' ? r.order + 1 : '-'})` : '抽選待ち'}
+                        {r.status === 'confirmed' ? `確定 (${typeof r.order === 'number' ? r.order : '-'})` : '抽選待ち'}
                       </span>
                     )}
                   </button>

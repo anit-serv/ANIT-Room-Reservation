@@ -389,7 +389,7 @@ function statusLabel(status: Reservation['status']) {
 }
 
 function displayOrder(order?: number) {
-  return typeof order === 'number' ? order + 1 : '-'
+  return typeof order === 'number' ? order : '-'
 }
 
 function ReservationMobileCard({
