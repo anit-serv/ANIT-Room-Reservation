@@ -34,6 +34,13 @@ function formatDateHeading(date: string): string {
   return `${date} (${weekdays[new Date(year, month - 1, day).getDay()]})`
 }
 
+// 直近1週間の範囲を判定するための「今日+N日」（JST）
+function addDaysJST(days: number): string {
+  const d = new Date(Date.now() + 9 * 60 * 60 * 1000)
+  d.setUTCDate(d.getUTCDate() + days)
+  return d.toISOString().slice(0, 10)
+}
+
 export default function KobuReservations() {
   const [searchParams, setSearchParams] = useSearchParams()
   const focusId = searchParams.get('focus')
@@ -45,6 +52,9 @@ export default function KobuReservations() {
 
   const initialCacheKey = reservationsCacheKey('', '')
   const cachedReservations = getPageCache<KobuReservation[]>(initialCacheKey)
+  // キャッシュが残っている（＝直前まで見ていた）場合は自動スクロールしない
+  const hadCacheOnMountRef = useRef(!!cachedReservations)
+  const autoScrolledRef = useRef(false)
   const [reservations, setReservations] = useState<KobuReservation[]>(cachedReservations ?? [])
   const [loading, setLoading]           = useState(!cachedReservations)
   const [error, setError]               = useState<string | null>(null)
@@ -106,6 +116,12 @@ export default function KobuReservations() {
       window.scrollTo({ top: Math.max(0, top), behavior: 'smooth' })
     }
 
+    function scrollElementToTop(el: HTMLElement) {
+      const rect = el.getBoundingClientRect()
+      const top = window.scrollY + rect.top - 12
+      window.scrollTo({ top: Math.max(0, top), behavior: 'smooth' })
+    }
+
     if (focusId) {
       let attempts = 0
       const tryScroll = () => {
@@ -145,8 +161,25 @@ export default function KobuReservations() {
       if (!heading) return
       scrollElementToCenter(heading)
       setSearchParams({}, { replace: true })
+      return
     }
-  }, [focusId, dateFocus, reservations, setSearchParams])
+
+    // 初回（キャッシュなし）表示時のみ、直近1週間の中で最も遅い日付が先頭にくるよう自動スクロール
+    if (!hadCacheOnMountRef.current && !autoScrolledRef.current && !dateFilter && !search) {
+      autoScrolledRef.current = true
+      const limit = addDaysJST(7)
+      const dates: string[] = []
+      for (const r of reservations) {
+        if (dates[dates.length - 1] !== r.date) dates.push(r.date)
+      }
+      const target = dates.find((d) => d <= limit) ?? dates[dates.length - 1]
+      if (target) {
+        const isDesktop = window.matchMedia('(min-width: 1024px)').matches
+        const heading = (isDesktop ? desktopDateRefs.current : mobileDateRefs.current)[target]
+        if (heading) scrollElementToTop(heading)
+      }
+    }
+  }, [focusId, dateFocus, reservations, setSearchParams, dateFilter, search])
 
   async function execDelete(r: KobuReservation) {
     const res = await adminFetch(`/api/admin/kobu-reservations/${r.id}`, { method: 'DELETE' })

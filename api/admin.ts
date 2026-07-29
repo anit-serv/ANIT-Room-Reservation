@@ -1872,7 +1872,7 @@ async function handleKobuReservationsList(req: VercelRequest, res: VercelRespons
     }
     docs.sort((a: any, b: any) =>
       a.date !== b.date
-        ? (a.date ?? '').localeCompare(b.date ?? '')
+        ? (b.date ?? '').localeCompare(a.date ?? '')
         : (a.startTime ?? '').localeCompare(b.startTime ?? '')
     )
 
@@ -2102,7 +2102,7 @@ async function handleNobuRoomReservationsList(req: VercelRequest, res: VercelRes
     }
     docs.sort((a: any, b: any) =>
       a.date !== b.date
-        ? (a.date ?? '').localeCompare(b.date ?? '')
+        ? (b.date ?? '').localeCompare(a.date ?? '')
         : (a.startTime ?? '').localeCompare(b.startTime ?? '')
     )
 
