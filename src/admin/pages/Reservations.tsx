@@ -325,9 +325,15 @@ export default function Reservations() {
 
         {/* Mobile accordion */}
         <div className="lg:hidden bg-surface border border-line rounded-xl overflow-hidden shadow-[var(--shadow-card-sm)]">
-          {reservationGroups.map((group) => (
+          {reservationGroups.map((group, i) => (
             <div key={group.date}>
-              <div ref={(el) => { mobileDateRefs.current[group.date] = el }} className="bg-bg px-4 py-2 text-[0.82rem] font-bold text-ink-sub border-b border-line">
+              <div
+                ref={(el) => { mobileDateRefs.current[group.date] = el }}
+                className={
+                  'bg-bg px-4 py-2 text-[0.82rem] font-bold text-ink-sub border-b border-line ' +
+                  (i > 0 ? 'border-t' : '')
+                }
+              >
                 {formatDateHeading(group.date)}
               </div>
               {group.items.map((r) => (
