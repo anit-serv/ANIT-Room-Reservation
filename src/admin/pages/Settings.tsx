@@ -24,6 +24,8 @@ type SettingsResponse = SettingsCore & {
   nextChange: ScheduledChange | null
   scheduledChanges?: ScheduledChange[]
   lotteryTime: string
+  hamoaniStartDate?: string | null
+  hamoaniEndDate?: string | null
 }
 
 const WEEK_DAYS = ['日', '月', '火', '水', '木', '金', '土']
@@ -62,6 +64,12 @@ export default function Settings() {
   const [presets, setPresets]             = useState<TimeSlotPreset[]>([])
   const [cancelTarget, setCancelTarget]   = useState<string | null>(null)
   const [lotteryTime, setLotteryTime] = useState(cached?.lotteryTime ?? '21:00')
+  const [hamoaniStartDate, setHamoaniStartDate] = useState<string>(cached?.hamoaniStartDate ?? '')
+  const [hamoaniEndDate,   setHamoaniEndDate]   = useState<string>(cached?.hamoaniEndDate ?? '')
+  const [savedHamoaniStartDate, setSavedHamoaniStartDate] = useState<string>(cached?.hamoaniStartDate ?? '')
+  const [savedHamoaniEndDate,   setSavedHamoaniEndDate]   = useState<string>(cached?.hamoaniEndDate ?? '')
+  const [savingHamoani, setSavingHamoani] = useState(false)
+  const [hamoaniMessage, setHamoaniMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const { showToast } = useToast()
 
   useEffect(() => { load(); loadPresets() }, [])
@@ -124,6 +132,10 @@ export default function Settings() {
     setCurrent(data)
     setPageCache<SettingsResponse>(SETTINGS_CACHE_KEY, data)
     setLotteryTime(data.lotteryTime ?? '21:00')
+    const hStart = data.hamoaniStartDate ?? ''
+    const hEnd   = data.hamoaniEndDate ?? ''
+    setHamoaniStartDate(hStart); setHamoaniEndDate(hEnd)
+    setSavedHamoaniStartDate(hStart); setSavedHamoaniEndDate(hEnd)
     if (!editingScheduled) applyToForm(data)
   }
 
@@ -265,6 +277,42 @@ export default function Settings() {
       setStep('editing')
     } finally {
       setSaving(false)
+    }
+  }
+
+  const hamoaniDirty = hamoaniStartDate !== savedHamoaniStartDate || hamoaniEndDate !== savedHamoaniEndDate
+  const hamoaniRangeInvalid = !!hamoaniStartDate && !!hamoaniEndDate && hamoaniStartDate > hamoaniEndDate
+  const hamoaniIncomplete = (!!hamoaniStartDate && !hamoaniEndDate) || (!hamoaniStartDate && !!hamoaniEndDate)
+
+  async function saveHamoaniPeriod() {
+    setHamoaniMessage(null)
+    if (hamoaniIncomplete) {
+      setHamoaniMessage({ type: 'error', text: '開始日・終了日は両方とも指定してください（両方空なら無効化されます）' })
+      return
+    }
+    if (hamoaniRangeInvalid) {
+      setHamoaniMessage({ type: 'error', text: '開始日は終了日より前（または同じ日）にしてください' })
+      return
+    }
+    setSavingHamoani(true)
+    try {
+      const res = await adminFetch('/api/admin/settings/hamoani-period', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          hamoaniStartDate: hamoaniStartDate || null,
+          hamoaniEndDate: hamoaniEndDate || null,
+        }),
+      })
+      const result = await res.json()
+      if (!res.ok) throw new Error(result.error ?? '保存に失敗しました')
+      setSavedHamoaniStartDate(result.hamoaniStartDate ?? '')
+      setSavedHamoaniEndDate(result.hamoaniEndDate ?? '')
+      showToast(result.hamoaniStartDate ? 'ハモアニ期間を保存しました' : 'ハモアニ期間を無効化しました')
+    } catch (err: any) {
+      setHamoaniMessage({ type: 'error', text: err.message })
+    } finally {
+      setSavingHamoani(false)
     }
   }
 
@@ -453,6 +501,46 @@ export default function Settings() {
           <p className="mt-2 text-[0.82rem] text-ink-sub">
             {computeLockoutTime(lotteryTime)}（10分前）〜{lotteryTime} の間、当日・翌日の登録が制限されます
           </p>
+        )}
+      </div>
+
+      {/* ハモアニ期間（適用日方式ではなく即時反映。毎年夏休み前後などに自由に設定する運用） */}
+      <div className="admin-card">
+        <h2 className="text-base font-bold mb-1">ハモアニ期間</h2>
+        <p className="text-[0.85rem] text-ink-sub mb-3">
+          この期間中に登録された「ハモアニ」チェック付きの予約は、抽選で常に優先（上位）になります。
+          保存すると即座に反映されます（適用日の指定は不要です）。開始日・終了日を両方空にすると無効化されます。
+        </p>
+        <div className="flex items-center gap-3 flex-wrap">
+          <div>
+            <label className="block text-[0.8rem] text-ink-sub mb-1">開始日</label>
+            <DatePicker value={hamoaniStartDate} onChange={setHamoaniStartDate} clearable />
+          </div>
+          <div>
+            <label className="block text-[0.8rem] text-ink-sub mb-1">終了日</label>
+            <DatePicker value={hamoaniEndDate} onChange={setHamoaniEndDate} min={hamoaniStartDate || undefined} clearable />
+          </div>
+          <button
+            className="btn-primary w-auto px-4 self-end"
+            onClick={saveHamoaniPeriod}
+            disabled={savingHamoani || !hamoaniDirty}
+          >
+            {savingHamoani ? '保存中...' : '保存'}
+          </button>
+        </div>
+        {hamoaniMessage && (
+          <p className={`mt-2 text-[0.85rem] ${hamoaniMessage.type === 'error' ? 'text-danger' : 'text-ink-sub'}`}>
+            {hamoaniMessage.type === 'error' && <span className="icon icon-sm align-middle">error</span>}
+            {' '}{hamoaniMessage.text}
+          </p>
+        )}
+        {!hamoaniMessage && savedHamoaniStartDate && savedHamoaniEndDate && (
+          <p className="mt-2 text-[0.82rem] text-ink-sub">
+            現在有効: <strong className="text-ink">{savedHamoaniStartDate} 〜 {savedHamoaniEndDate}</strong>
+          </p>
+        )}
+        {!hamoaniMessage && (!savedHamoaniStartDate || !savedHamoaniEndDate) && (
+          <p className="mt-2 text-[0.82rem] text-ink-pale">現在は無効です</p>
         )}
       </div>
 

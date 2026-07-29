@@ -3,6 +3,7 @@ import * as admin from 'firebase-admin'
 import {
   DEFAULT_TIME_SLOTS,
   isDateAvailableBySettings,
+  isHamoaniActive,
   pickTimeSlotsForDate,
   resolveReservationSettingsForDate,
   resolveReservationSettingsForDates,
@@ -26,7 +27,10 @@ const db = admin.firestore()
 
 const WEEK_DAYS = ['日', '月', '火', '水', '木', '金', '土']
 
-type DateEntry = { label: string; value: string; timeSlots: TimeSlot[]; effectiveFrom: string; lotteryTime: string }
+type DateEntry = {
+  label: string; value: string; timeSlots: TimeSlot[]; effectiveFrom: string; lotteryTime: string
+  hamoaniActive: boolean
+}
 
 // 今日から7日後まで（8日分）を見て、availableDays に該当 + extraDates - excludedDates の日付を集める
 // forView=false（登録用）: 今日は常に除外、抽選10分前以降は翌日も除外
@@ -70,6 +74,7 @@ async function buildDateList(forView: boolean): Promise<DateEntry[]> {
       timeSlots: pickTimeSlotsForDate(dateStr, settings),
       effectiveFrom: settings.effectiveFrom,
       lotteryTime: settings.lotteryTime,
+      hamoaniActive: isHamoaniActive(settings, dateStr),
     })
   }
   return results

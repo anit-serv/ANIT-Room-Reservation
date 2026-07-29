@@ -18,6 +18,7 @@ type Reservation = {
   date: string
   status: 'pending' | 'confirmed' | 'cancelled'
   order?: number
+  hamoani?: boolean
   createdAt: number | null
 }
 
@@ -276,7 +277,12 @@ export default function Reservations() {
                         <div className="text-[0.8rem] text-ink-sub">{timePart}</div>
                       </div>
                     </td>
-                    <td data-label="バンド名">{r.bandName}</td>
+                    <td data-label="バンド名">
+                      <div className="flex items-center gap-1.5">
+                        <span>{r.bandName}</span>
+                        {r.hamoani && <span className="badge badge-confirmed shrink-0">ハモアニ</span>}
+                      </div>
+                    </td>
                     <td data-label="登録者">
                       <div className="flex items-center gap-2">
                         {r.userPictureUrl
@@ -410,7 +416,10 @@ function ReservationMobileCard({
       >
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between gap-2">
-            <span className="font-medium text-[0.9rem] truncate">{r.bandName}</span>
+            <span className="flex items-center gap-1.5 min-w-0">
+              <span className="font-medium text-[0.9rem] truncate">{r.bandName}</span>
+              {r.hamoani && <span className="badge badge-confirmed shrink-0">ハモアニ</span>}
+            </span>
             <span className={'badge shrink-0 ' + statusBadgeClass(r.status)}>
               <span className="icon icon-sm">{statusIcon(r.status)}</span>
               {statusLabel(r.status)}

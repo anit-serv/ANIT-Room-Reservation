@@ -139,10 +139,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     };
 
     for (const [timeSlot, docs] of Object.entries(groupedByTimeSlot)) {
-      
-      // ★ シャッフル実行
-      const shuffledDocs = shuffleArray([...docs]);
-      
+
+      // ★ ハモアニ優先抽選: チェック済みバンドが常に上位（1位〜）になるよう、
+      // 「ハモアニ」と「非ハモアニ」を別々にシャッフルしてから連結する。
+      const hamoaniDocs = docs.filter((doc) => doc.data().hamoani === true);
+      const otherDocs = docs.filter((doc) => doc.data().hamoani !== true);
+      const shuffledDocs = [...shuffleArray([...hamoaniDocs]), ...shuffleArray([...otherDocs])];
+
       const rankedList: string[] = [];
 
       shuffledDocs.forEach((doc, index) => {

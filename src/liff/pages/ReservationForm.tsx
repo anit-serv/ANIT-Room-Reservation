@@ -6,13 +6,14 @@ import FavoritePicker, { type Favorite } from '../../components/FavoritePicker'
 
 type Props = { profile: LiffProfile; onBookingActive?: (active: boolean) => void }
 type TimeSlot  = { label: string; value: string }
-type DateEntry = { label: string; value: string; timeSlots: TimeSlot[]; lotteryTime?: string }
+type DateEntry = { label: string; value: string; timeSlots: TimeSlot[]; lotteryTime?: string; hamoaniActive?: boolean }
 
 export default function ReservationForm({ profile, onBookingActive }: Props) {
   const [bandName,          setBandName]          = useState('')
   const [dates,             setDates]             = useState<DateEntry[]>([])
   const [selectedDate,      setSelectedDate]      = useState('')
   const [selectedTime,      setSelectedTime]      = useState('')
+  const [hamoani,           setHamoani]           = useState(false)
   const [submitting,        setSubmitting]        = useState(false)
   const [done,              setDone]              = useState(false)
   const [loadingSettings,   setLoadingSettings]   = useState(true)
@@ -47,6 +48,7 @@ export default function ReservationForm({ profile, onBookingActive }: Props) {
     setSelectedDate(value)
     const newEntry = dates.find((d) => d.value === value)
     if (!newEntry) return
+    if (!newEntry.hamoaniActive) setHamoani(false)
     if (newEntry.timeSlots.some((t) => t.value === selectedTime)) return
     // お気に入りの優先時間枠を適用
     if (preferredTimeSlot && newEntry.timeSlots.some((t) => t.value === preferredTimeSlot)) {
@@ -99,6 +101,7 @@ export default function ReservationForm({ profile, onBookingActive }: Props) {
           bandName: bandName.trim(),
           date: `${selectedDate}T${selectedTime}`,
           ...(selectedFavId ? { favoriteId: selectedFavId } : {}),
+          ...(selectedDateEntry?.hamoaniActive ? { hamoani } : {}),
         }),
       })
       if (!res.ok) throw new Error((await res.json()).error ?? '登録に失敗しました')
@@ -113,7 +116,7 @@ export default function ReservationForm({ profile, onBookingActive }: Props) {
 
   function reset() {
     setBandName(''); setSelectedDate(''); setSelectedTime(''); setDone(false); setError(null)
-    setSelectedFavId(null); setPreferredTimeSlot(null); setFavSaved(false)
+    setSelectedFavId(null); setPreferredTimeSlot(null); setFavSaved(false); setHamoani(false)
   }
 
   const dateLabel = dates.find((d) => d.value === selectedDate)?.label ?? ''
@@ -138,7 +141,13 @@ export default function ReservationForm({ profile, onBookingActive }: Props) {
     const isAlreadyFav = !!selectedFavId || favorites.some(f => f.name === bandName.trim())
     return (
       <div>
-        <Summary bandName={bandName} dateLabel={dateLabel} timeLabel={timeLabel} lotteryTime={lotteryTime} />
+        <Summary
+          bandName={bandName}
+          dateLabel={dateLabel}
+          timeLabel={timeLabel}
+          lotteryTime={lotteryTime}
+          hamoani={selectedDateEntry?.hamoaniActive ? hamoani : undefined}
+        />
         {!isAlreadyFav && !favSaved && (
           <button
             className="flex items-center gap-1.5 text-[0.85rem] text-ink-sub border border-line rounded-xl px-4 py-2.5 mb-3 w-full hover:bg-[#f8f8f8] transition"
@@ -203,11 +212,31 @@ export default function ReservationForm({ profile, onBookingActive }: Props) {
         </div>
       </SectionCard>
 
+      {selectedDateEntry?.hamoaniActive && (
+        <div className="bg-surface border border-line rounded-xl p-4 mb-3 shadow-[var(--shadow-card-sm)]">
+          <label className="flex items-start gap-2.5 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              className="mt-0.5 w-[18px] h-[18px] accent-brand shrink-0"
+              checked={hamoani}
+              onChange={(e) => setHamoani(e.target.checked)}
+            />
+            <span>
+              <span className="block text-[0.95rem] font-semibold text-ink">ハモアニ</span>
+              <span className="block text-[0.8rem] text-ink-sub mt-0.5">
+                チェックすると、この予約は抽選で優先されます（期間限定）
+              </span>
+            </span>
+          </label>
+        </div>
+      )}
+
       {canSubmit && (
         <div className="bg-brand-light border-[1.5px] border-brand rounded-xl p-4 mb-3">
           <SummaryRow label="バンド名" value={bandName} />
           <SummaryRow label="日付" value={dateLabel} />
           <SummaryRow label="時間帯" value={timeLabel} />
+          {selectedDateEntry?.hamoaniActive && <SummaryRow label="ハモアニ" value={hamoani ? '有効' : '無効'} />}
         </div>
       )}
 
@@ -258,13 +287,16 @@ function SelectButton({
   )
 }
 
-function Summary({ bandName, dateLabel, timeLabel, lotteryTime }: { bandName: string; dateLabel: string; timeLabel: string; lotteryTime?: string }) {
+function Summary({ bandName, dateLabel, timeLabel, lotteryTime, hamoani }: {
+  bandName: string; dateLabel: string; timeLabel: string; lotteryTime?: string; hamoani?: boolean
+}) {
   return (
     <div className="bg-surface border border-line rounded-xl p-4 mb-3 shadow-[var(--shadow-card-sm)]">
       <SummaryRow label="バンド名" value={bandName} />
       <SummaryRow label="日付" value={dateLabel} />
       <SummaryRow label="時間帯" value={timeLabel} />
       {lotteryTime && <SummaryRow label="抽選時刻" value={lotteryTime} />}
+      {hamoani !== undefined && <SummaryRow label="ハモアニ" value={hamoani ? '有効' : '無効'} />}
     </div>
   )
 }

@@ -20,6 +20,10 @@ export type ReservationSettings = ReservationSettingsCore & {
   effectiveFrom: string
   lotteryTime: string
   dayOverride?: ReservationDayOverride | null
+  /** ハモアニ優先抽選の有効期間（開始日）。null なら無効 */
+  hamoaniStartDate: string | null
+  /** ハモアニ優先抽選の有効期間（終了日、当日を含む）。null なら無効 */
+  hamoaniEndDate: string | null
 }
 
 export type ReservationSettingsVersion = ReservationSettingsCore & {
@@ -80,12 +84,25 @@ export function normalizeReservationSettingsCore(data: any): ReservationSettings
   }
 }
 
+const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/
+
 export function normalizeReservationSettings(data: any, effectiveFrom = BASE_EFFECTIVE_FROM): ReservationSettings {
   return {
     ...normalizeReservationSettingsCore(data),
     effectiveFrom,
     lotteryTime: data?.lotteryTime ?? DEFAULT_LOTTERY_TIME,
+    hamoaniStartDate: typeof data?.hamoaniStartDate === 'string' && DATE_ONLY_RE.test(data.hamoaniStartDate) ? data.hamoaniStartDate : null,
+    hamoaniEndDate: typeof data?.hamoaniEndDate === 'string' && DATE_ONLY_RE.test(data.hamoaniEndDate) ? data.hamoaniEndDate : null,
   }
+}
+
+/** 指定日がハモアニ優先抽選の有効期間内かどうか（開始日・終了日を含む） */
+export function isHamoaniActive(
+  settings: { hamoaniStartDate?: string | null; hamoaniEndDate?: string | null },
+  date: string,
+): boolean {
+  if (!settings.hamoaniStartDate || !settings.hamoaniEndDate) return false
+  return date >= settings.hamoaniStartDate && date <= settings.hamoaniEndDate
 }
 
 export function pickTimeSlotsForDate(date: string, settings: ReservationSettingsCore): TimeSlot[] {
@@ -290,12 +307,16 @@ export async function resolveReservationSettingsForDate(
   const latest = sortedApplicable[sortedApplicable.length - 1]
   // 抽選時刻の優先順位: 日付別緊急上書き > 適用中バージョン > base
   const lotteryTime = lotteryOverride?.lotteryTime ?? latest?.lotteryTime ?? base.lotteryTime
+  // ハモアニ期間はバージョン管理せず base の値をそのまま使う（管理画面から自由に即時変更する運用のため）
+  const { hamoaniStartDate, hamoaniEndDate } = base
   if (!latest) return { ...base, lotteryTime, dayOverride }
 
   return {
     ...latest,
     lotteryTime,
     dayOverride,
+    hamoaniStartDate,
+    hamoaniEndDate,
   }
 }
 
@@ -373,7 +394,7 @@ export async function resolveReservationSettingsForDates(
     // 抽選時刻の優先順位: 日付別緊急上書き > 適用中バージョン > base
     const lotteryTime = lotteryOverridesByDate[date]?.lotteryTime ?? latest?.lotteryTime ?? base.lotteryTime
     result[date] = latest
-      ? { ...latest, lotteryTime, dayOverride: overridesByDate[date] }
+      ? { ...latest, lotteryTime, dayOverride: overridesByDate[date], hamoaniStartDate: base.hamoaniStartDate, hamoaniEndDate: base.hamoaniEndDate }
       : { ...base, lotteryTime, dayOverride: overridesByDate[date] }
   }
   return result

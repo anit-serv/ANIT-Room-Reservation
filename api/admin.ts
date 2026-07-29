@@ -86,6 +86,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (path === 'settings')              return handleSettings(req, res)
   if (path === 'settings/scheduled')    return handleSettingsScheduled(req, res)
   if (path === 'settings/lottery-time') return handleSettingsLotteryTime(req, res)
+  if (path === 'settings/hamoani-period') return handleSettingsHamoaniPeriod(req, res)
   if (path === 'settings/time-slots')   return handleSettingsTimeSlots(req, res)
   if (path === 'settings/available-dates') return handleSettingsAvailableDates(req, res)
   if (segments[0] === 'settings' && segments[1] === 'day-overrides') {
@@ -586,6 +587,8 @@ async function handleSettings(req: VercelRequest, res: VercelResponse) {
       nextChange:     pendingChange,
       scheduledChanges,
       lotteryTime:    data.lotteryTime,
+      hamoaniStartDate: data.hamoaniStartDate,
+      hamoaniEndDate:   data.hamoaniEndDate,
     })
   }
 
@@ -941,6 +944,58 @@ async function handleSettingsLotteryTime(req: VercelRequest, res: VercelResponse
     return res.status(200).json({ success: true, lotteryTime, cronWarning: result.warning })
   }
   return res.status(200).json({ success: true, lotteryTime })
+}
+
+// ─── ハモアニ優先抽選の有効期間（自由に即時変更、毎年夏休み前後などに設定する想定） ───
+// lotteryTime のような「適用日方式」のスケジューリングは行わず、base 値を直接読み書きする。
+async function handleSettingsHamoaniPeriod(req: VercelRequest, res: VercelResponse) {
+  let me: AuditActor
+  try {
+    me = await verifyAdmin(req.headers.authorization)
+  } catch (err: any) {
+    const status = err.message === 'Forbidden' ? 403 : 401
+    return res.status(status).json({ error: err.message })
+  }
+
+  const docRef = db.collection('settings').doc('reservation')
+
+  if (req.method === 'GET') {
+    const doc = await docRef.get()
+    const data = doc.exists ? doc.data() : {}
+    return res.status(200).json({
+      hamoaniStartDate: typeof data?.hamoaniStartDate === 'string' ? data.hamoaniStartDate : null,
+      hamoaniEndDate:   typeof data?.hamoaniEndDate === 'string' ? data.hamoaniEndDate : null,
+    })
+  }
+
+  if (req.method === 'PUT') {
+    const { hamoaniStartDate, hamoaniEndDate } = (req.body ?? {}) as {
+      hamoaniStartDate?: string | null; hamoaniEndDate?: string | null
+    }
+
+    // 両方 null/未指定なら「無効化」として扱う
+    if (!hamoaniStartDate && !hamoaniEndDate) {
+      await docRef.set({
+        hamoaniStartDate: admin.firestore.FieldValue.delete(),
+        hamoaniEndDate: admin.firestore.FieldValue.delete(),
+      }, { merge: true })
+      await audit(me, 'settings.hamoaniPeriod.clear', { targetType: 'settings' })
+      return res.status(200).json({ success: true, hamoaniStartDate: null, hamoaniEndDate: null })
+    }
+
+    if (!hamoaniStartDate || !DATE_RE.test(hamoaniStartDate) || !hamoaniEndDate || !DATE_RE.test(hamoaniEndDate)) {
+      return res.status(400).json({ error: '開始日・終了日を両方とも YYYY-MM-DD 形式で指定してください' })
+    }
+    if (hamoaniStartDate > hamoaniEndDate) {
+      return res.status(400).json({ error: '開始日は終了日より前（または同じ日）にしてください' })
+    }
+
+    await docRef.set({ hamoaniStartDate, hamoaniEndDate }, { merge: true })
+    await audit(me, 'settings.hamoaniPeriod.set', { targetType: 'settings', details: { hamoaniStartDate, hamoaniEndDate } })
+    return res.status(200).json({ success: true, hamoaniStartDate, hamoaniEndDate })
+  }
+
+  return res.status(405).json({ error: 'Method Not Allowed' })
 }
 
 // ─── 抽選時刻の日付別緊急対応（予約不可/開放とは独立） ───

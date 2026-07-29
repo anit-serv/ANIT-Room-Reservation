@@ -3,6 +3,7 @@ import * as admin from 'firebase-admin'
 import { verifyLineToken } from '../lib/verifyLineToken'
 import {
   isDateAvailableBySettings,
+  isHamoaniActive,
   isTimeSlotAvailableBySettings,
   pickTimeSlotsForDate,
   resolveReservationSettingsForDates,
@@ -114,7 +115,9 @@ async function handleCreate(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method Not Allowed' })
   try {
     const { userId, name, picture } = await verifyLineToken(req.headers.authorization)
-    const { bandName, date, favoriteId } = req.body as { bandName: string; date: string; favoriteId?: string }
+    const { bandName, date, favoriteId, hamoani } = req.body as {
+      bandName: string; date: string; favoriteId?: string; hamoani?: boolean
+    }
     if (!bandName || !date) return res.status(400).json({ error: 'bandName と date は必須です' })
     const [datePart, timePart] = date.split('T')
     const startTime = timePart?.split('-')[0] ?? '00:00'
@@ -131,6 +134,9 @@ async function handleCreate(req: VercelRequest, res: VercelResponse) {
     if (userDoc.exists && userDoc.data()?.banned === true) {
       return res.status(403).json({ error: '予約機能の利用が停止されています' })
     }
+
+    // クライアントの申告は信用せず、その日がハモアニ有効期間内かをサーバー側で再判定する
+    const finalHamoani = hamoani === true && isHamoaniActive(settings, datePart)
 
     if (!isTimeSlotAvailableBySettings(date, settings)) {
       const slotStr = pickTimeSlotsForDate(datePart, settings).map((s) => s.value.replace('-', '〜')).join(' / ')
@@ -189,6 +195,7 @@ async function handleCreate(req: VercelRequest, res: VercelResponse) {
       date,
       status: 'pending',
       favoriteId: favoriteId ?? null,
+      hamoani: finalHamoani,
       createdAt: new Date(),
     })
 
@@ -227,6 +234,7 @@ async function handleMy(req: VercelRequest, res: VercelResponse) {
       status: r.status,
       cancelledAt: r.cancelledAt?.toMillis?.() ?? null,
       cancelledByType: r.cancelledByType ?? null,
+      hamoani: r.hamoani === true,
       ...getReservationAvailability(r.date, settingsByDate[r.date.split('T')[0]]),
     }))
     return res.status(200).json({ reservations })
@@ -254,7 +262,7 @@ async function handleAll(req: VercelRequest, res: VercelResponse) {
       .where('date', '<=', `${date}T23:59`)
       .get()
 
-    const slotMap: Record<string, { id: string; userId: string; bandName: string; status: string; order?: number }[]> = {}
+    const slotMap: Record<string, { id: string; userId: string; bandName: string; status: string; order?: number; hamoani?: boolean }[]> = {}
     snapshot.forEach((doc) => {
       const data = doc.data()
       if (data.status === 'cancelled') return
@@ -268,6 +276,7 @@ async function handleAll(req: VercelRequest, res: VercelResponse) {
         bandName: data.bandName ?? '(バンド名なし)',
         status:   data.status,
         order:    data.order,
+        hamoani:  data.hamoani === true,
       })
     })
 

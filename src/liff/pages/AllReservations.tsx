@@ -8,7 +8,7 @@ function slotCacheKey(date: string) { return `liff:nobu-slots:${date}` }
 
 type TimeSlot    = { label: string; value: string }
 type DateEntry   = { label: string; value: string; timeSlots: TimeSlot[]; lotteryTime?: string }
-type SlotEntry   = { id: string; userId: string; bandName: string; status: string; order?: number }
+type SlotEntry   = { id: string; userId: string; bandName: string; status: string; order?: number; hamoani?: boolean }
 type TimeSlotMap = { [timeSlot: string]: SlotEntry[] }
 type DetailModal = { entry: SlotEntry; date: string; timeSlot: string }
 
@@ -192,7 +192,12 @@ export default function AllReservations({ profile, initialFocus, onFocusHandled,
                   ) : (
                     <div className="w-1.5 h-1.5 rounded-full bg-ink-pale flex-shrink-0" />
                   )}
-                  <span className="text-[0.9rem] text-ink font-medium flex-1">{entry.bandName}</span>
+                  <span className="text-[0.9rem] text-ink font-medium flex-1 truncate">{entry.bandName}</span>
+                  {entry.hamoani && (
+                    <span className="text-[0.7rem] font-semibold text-brand bg-brand-light px-1.5 py-0.5 rounded-full shrink-0">
+                      ハモアニ
+                    </span>
+                  )}
                   {isOwn(entry) && <span className="icon icon-sm text-ink-pale">chevron_right</span>}
                 </button>
               ))}
@@ -222,6 +227,11 @@ export default function AllReservations({ profile, initialFocus, onFocusHandled,
               <div className="flex items-center gap-2.5">
                 <span className="icon text-brand" style={{ fontSize: 20 }}>groups</span>
                 <span className="text-[0.95rem] font-semibold text-ink">{detailModal.entry.bandName}</span>
+                {detailModal.entry.hamoani && (
+                  <span className="text-[0.7rem] font-semibold text-brand bg-brand-light px-1.5 py-0.5 rounded-full shrink-0">
+                    ハモアニ
+                  </span>
+                )}
               </div>
               <div className="flex items-center gap-2.5">
                 <span className="icon text-ink-pale" style={{ fontSize: 20 }}>calendar_today</span>
