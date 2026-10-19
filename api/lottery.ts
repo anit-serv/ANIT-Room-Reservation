@@ -5,6 +5,7 @@ import {
   resolveReservationSettingsForDate,
 } from '../lib/reservationSettings';
 import 'dotenv/config';
+import { lotteryTargetDate } from '../lib/lotteryOperation';
 
 // ---------------------------------------------------------
 // 1. 設定・初期化
@@ -51,12 +52,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // -----------------------------------------------------
     // ★ 日付計算ロジック (ここが重要)
     // -----------------------------------------------------
-    // VercelはUTC(世界標準時)なので、JST(日本時間)に変換して計算する
-    const now = new Date();
-    const jstOffset = 9 * 60 * 60 * 1000;
-    const nowJST = new Date(now.getTime() + jstOffset);
-
-    let targetDateJST: Date;
     let targetDateStr: string;
 
     // force=true で date パラメータが指定されている場合、その日付を使用
@@ -69,13 +64,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           message: 'Invalid date format. Use YYYY-MM-DD.' 
         });
       }
-      targetDateJST = new Date(y, m - 1, d);
       targetDateStr = date;
     } else {
-      // 通常は翌日を計算
-      targetDateJST = new Date(nowJST);
-      targetDateJST.setDate(targetDateJST.getDate() + 1);
-      targetDateStr = `${targetDateJST.getFullYear()}-${('0' + (targetDateJST.getMonth() + 1)).slice(-2)}-${('0' + targetDateJST.getDate()).slice(-2)}`;
+      const scheduledDate = await lotteryTargetDate(db);
+      if (!scheduledDate) return res.status(200).json({ status: 'skipped', message: 'No lottery scheduled today.' });
+      targetDateStr = scheduledDate;
     }
 
     // 翌日が登録可能日かチェック（force=true の場合はスキップ）
@@ -91,104 +84,62 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     console.log(`Running lottery for target date: ${targetDateStr}`);
+    const resultRef = db.collection('lottery_results').doc(targetDateStr);
+    if (!forceExecute && (await resultRef.get()).exists) {
+      return res.status(200).json({ status: 'skipped', message: 'Lottery already completed.', targetDate: targetDateStr });
+    }
 
-    // -----------------------------------------------------
-    // 1. 翌日の「pending」予約だけを取得
-    // -----------------------------------------------------
-    // date文字列は "2023-12-21T10:00-12:00" のような形式なので文字列比較で範囲検索
-    const snapshot = await db.collection('reservations')
+    // 受付終了後の予約をトランザクション内で読み、キャンセルや同時実行と競合させない。
+    const pendingQuery = db.collection('reservations')
       .where('status', '==', 'pending')
       .where('date', '>=', `${targetDateStr}T00:00`)
-      .where('date', '<=', `${targetDateStr}T23:59`)
-      .get();
+      .where('date', '<=', `${targetDateStr}T23:59`);
 
-    if (snapshot.empty) {
-      return res.status(200).json({ 
-        status: 'success', 
-        message: `No pending reservations found for ${targetDateStr}.` 
+    const outcome = await db.runTransaction(async (tx) => {
+      if (!forceExecute && (await tx.get(resultRef)).exists) return { status: 'already', processed: 0 };
+      const snapshot = await tx.get(pendingQuery);
+      if (snapshot.empty) return { status: 'empty', processed: 0 };
+
+      const grouped: Record<string, FirebaseFirestore.QueryDocumentSnapshot[]> = {};
+      snapshot.forEach((doc) => {
+        const timeSlot = doc.data().date.split('T')[1];
+        (grouped[timeSlot] ??= []).push(doc);
       });
-    }
-
-    // -----------------------------------------------------
-    // 2. 時間帯ごとにグループ分け
-    // -----------------------------------------------------
-    // { "10:00-12:00": [予約A, 予約B...], "14:00-16:00": [予約C...] }
-    const groupedByTimeSlot: { [timeSlot: string]: FirebaseFirestore.QueryDocumentSnapshot[] } = {};
-
-    snapshot.forEach((doc) => {
-      const data = doc.data();
-      const [datePart, timePart] = data.date.split('T'); // datePartはtargetDateStrと同じはず
-
-      if (!groupedByTimeSlot[timePart]) {
-        groupedByTimeSlot[timePart] = [];
-      }
-      groupedByTimeSlot[timePart].push(doc);
-    });
-
-    // -----------------------------------------------------
-    // 3. 抽選(順位決め)と結果保存
-    // -----------------------------------------------------
-    const batch = db.batch();
-    let processedCount = 0;
-
-    // 結果保存用のデータ構造
-    const dailyResultData: any = {
-      updatedAt: new Date(),
-      targetDate: targetDateStr,
-      results: {} // "10:00-12:00": { count: 3, order: [...] }
-    };
-
-    for (const [timeSlot, docs] of Object.entries(groupedByTimeSlot)) {
-
-      // ★ ハモアニ優先抽選: チェック済みバンドが常に上位（1位〜）になるよう、
-      // 「ハモアニ」と「非ハモアニ」を別々にシャッフルしてから連結する。
-      const hamoaniDocs = docs.filter((doc) => doc.data().hamoani === true);
-      const otherDocs = docs.filter((doc) => doc.data().hamoani !== true);
-      const shuffledDocs = [...shuffleArray([...hamoaniDocs]), ...shuffleArray([...otherDocs])];
-
-      const rankedList: string[] = [];
-      const hamoaniBands: string[] = [];
-
-      shuffledDocs.forEach((doc, index) => {
-        const rank = index + 1;
-        const data = doc.data();
-        const bandName = data.bandName || 'バンド名なし';
-
-        // 予約データに抽選結果を記録（ステータスは変更しない）
-        const ref = db.collection('reservations').doc(doc.id);
-        batch.update(ref, {
-          lotteryRank: rank,
-          lotteryTotal: docs.length,
-          lotteryDate: targetDateStr // いつ抽選されたかも記録
+      const resultData: any = { updatedAt: new Date(), targetDate: targetDateStr, results: {} };
+      let processed = 0;
+      for (const [timeSlot, docs] of Object.entries(grouped)) {
+        const priority = docs.filter((doc) => doc.data().hamoani === true);
+        const ordinary = docs.filter((doc) => doc.data().hamoani !== true);
+        const ranked = [...shuffleArray([...priority]), ...shuffleArray([...ordinary])];
+        const order: string[] = [];
+        const hamoaniBands: string[] = [];
+        ranked.forEach((doc, index) => {
+          const data = doc.data();
+          const bandName = data.bandName || 'バンド名なし';
+          tx.update(doc.ref, {
+            lotteryRank: index + 1,
+            lotteryTotal: ranked.length,
+            lotteryDate: targetDateStr,
+            status: 'confirmed',
+            order: index + 1,
+          });
+          order.push(bandName);
+          if (data.hamoani === true) hamoaniBands.push(bandName);
+          processed++;
         });
-
-        rankedList.push(bandName);
-        if (data.hamoani === true) hamoaniBands.push(bandName);
-        processedCount++;
-      });
-
-      // 集計結果データを作成
-      // ※ order はバンド名の突合に使われる（update-reservation-status.ts）ため、
-      //   表示用の装飾（「（ハモアニ）」等）は含めず、hamoaniBands で別管理する。
-      dailyResultData.results[timeSlot] = {
-        count: docs.length,
-        order: rankedList,
-        hamoaniBands
-      };
-    }
-
-    // ★ "lottery_results" に保存 (IDは日付文字列)
-    const resultRef = db.collection('lottery_results').doc(targetDateStr);
-    batch.set(resultRef, dailyResultData, { merge: true });
-
-    // 4. 書き込み実行
-    await batch.commit();
+        resultData.results[timeSlot] = { count: ranked.length, order, hamoaniBands };
+      }
+      tx.set(resultRef, resultData);
+      return { status: 'success', processed };
+    });
+    if (outcome.status === 'already') return res.status(200).json({ status: 'skipped', message: 'Lottery already completed.', targetDate: targetDateStr });
+    if (outcome.status === 'empty') return res.status(200).json({ status: 'success', message: `No pending reservations found for ${targetDateStr}.` });
 
     return res.status(200).json({
       status: 'success',
       targetDate: targetDateStr,
-      processed: processedCount,
-      message: 'Lottery completed for tomorrow.',
+      processed: outcome.processed,
+      message: 'Lottery completed.',
     });
 
   } catch (error: any) {

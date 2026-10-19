@@ -2,6 +2,7 @@ import { VercelRequest, VercelResponse } from '@vercel/node';
 import * as admin from 'firebase-admin';
 import { updateReservationStatus } from '../lib/update-reservation-status';
 import 'dotenv/config';
+import { lotteryTargetDate } from '../lib/lotteryOperation';
 
 // ---------------------------------------------------------
 // 1. 設定・初期化
@@ -39,16 +40,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (date && typeof date === 'string') {
       targetDateStr = date;
     } else {
-      const now = new Date();
-      const jstOffset = 9 * 60 * 60 * 1000;
-      const nowJST = new Date(now.getTime() + jstOffset);
-      const targetDateJST = new Date(nowJST);
-      targetDateJST.setDate(targetDateJST.getDate() + 1); // 翌日
-      
-      const y = targetDateJST.getFullYear();
-      const m = ('0' + (targetDateJST.getMonth() + 1)).slice(-2);
-      const d = ('0' + targetDateJST.getDate()).slice(-2);
-      targetDateStr = `${y}-${m}-${d}`;
+      const scheduledDate = await lotteryTargetDate(db);
+      if (!scheduledDate) return res.status(200).json({ status: 'skipped', message: 'No lottery scheduled today.' });
+      targetDateStr = scheduledDate;
     }
 
     console.log(`Updating reservation status for: ${targetDateStr}`);

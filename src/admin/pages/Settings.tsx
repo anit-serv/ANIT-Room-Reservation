@@ -24,6 +24,8 @@ type SettingsResponse = SettingsCore & {
   nextChange: ScheduledChange | null
   scheduledChanges?: ScheduledChange[]
   lotteryTime: string
+  lotteryMode: 'previous-day' | 'same-day'
+  notifyTime: string
   hamoaniStartDate?: string | null
   hamoaniEndDate?: string | null
 }
@@ -64,6 +66,10 @@ export default function Settings() {
   const [presets, setPresets]             = useState<TimeSlotPreset[]>([])
   const [cancelTarget, setCancelTarget]   = useState<string | null>(null)
   const [lotteryTime, setLotteryTime] = useState(cached?.lotteryTime ?? '21:00')
+  const [lotteryMode, setLotteryMode] = useState<'previous-day' | 'same-day'>(cached?.lotteryMode ?? 'previous-day')
+  const [operationLotteryTime, setOperationLotteryTime] = useState(cached?.lotteryTime ?? '21:00')
+  const [notifyTime, setNotifyTime] = useState(cached?.notifyTime ?? cached?.lotteryTime ?? '21:00')
+  const [operationSaving, setOperationSaving] = useState(false)
   const [hamoaniStartDate, setHamoaniStartDate] = useState<string>(cached?.hamoaniStartDate ?? '')
   const [hamoaniEndDate,   setHamoaniEndDate]   = useState<string>(cached?.hamoaniEndDate ?? '')
   const [savedHamoaniStartDate, setSavedHamoaniStartDate] = useState<string>(cached?.hamoaniStartDate ?? '')
@@ -132,6 +138,9 @@ export default function Settings() {
     setCurrent(data)
     setPageCache<SettingsResponse>(SETTINGS_CACHE_KEY, data)
     setLotteryTime(data.lotteryTime ?? '21:00')
+    setLotteryMode(data.lotteryMode ?? 'previous-day')
+    setOperationLotteryTime(data.lotteryTime ?? '21:00')
+    setNotifyTime(data.notifyTime ?? data.lotteryTime ?? '21:00')
     const hStart = data.hamoaniStartDate ?? ''
     const hEnd   = data.hamoaniEndDate ?? ''
     setHamoaniStartDate(hStart); setHamoaniEndDate(hEnd)
@@ -172,7 +181,7 @@ export default function Settings() {
     return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`
   }
 
-  const lotteryTimeInvalid = !lotteryTime || lotteryTime < '01:00'
+  const lotteryTimeInvalid = !lotteryTime || lotteryTime < '03:00' || lotteryTime > (current?.notifyTime ?? '23:59')
 
   const isDirty = useMemo(() => {
     if (!current) return false
@@ -213,7 +222,7 @@ export default function Settings() {
   function goToConfirm() {
     setMessage(null)
     if (lotteryTimeInvalid) {
-      setMessage({ type: 'error', text: '抽選時刻は01:00以降を指定してください' })
+      setMessage({ type: 'error', text: '適用予定の抽選時刻は03:00以降、通知時刻以前に設定してください' })
       return
     }
     if (availableDays.length === 0 && extraDates.length === 0) {
@@ -244,6 +253,25 @@ export default function Settings() {
       return
     }
     setStep('confirming')
+  }
+
+  async function saveLotteryOperation() {
+    setOperationSaving(true)
+    try {
+      const res = await adminFetch('/api/admin/settings/lottery-operation', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lotteryMode, lotteryTime: operationLotteryTime, notifyTime }),
+      })
+      const result = await res.json()
+      if (!res.ok) throw new Error(result.error ?? '保存に失敗しました')
+      showToast(result.cronWarning ? `保存しました。${result.cronWarning}` : '抽選運用設定を保存しました')
+      await load()
+    } catch (err: any) {
+      setMessage({ type: 'error', text: err.message })
+    } finally {
+      setOperationSaving(false)
+    }
   }
 
   async function save() {
@@ -478,16 +506,40 @@ export default function Settings() {
         </div>
       )}
 
+      <div className="admin-card">
+        <h2 className="text-base font-bold mb-1">抽選の運用</h2>
+        <p className="text-[0.85rem] text-ink-sub mb-3">当日モードでも予約受付は前日中に終了します。この設定は保存すると即時反映されます。</p>
+        <div className="flex gap-3 flex-wrap items-end">
+          <div>
+            <label className="block text-[0.8rem] text-ink-sub mb-1">抽選日</label>
+            <select className="text-input" value={lotteryMode} onChange={(e) => setLotteryMode(e.target.value as 'previous-day' | 'same-day')}>
+              <option value="previous-day">利用日の前日</option>
+              <option value="same-day">利用日当日</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-[0.8rem] text-ink-sub mb-1">抽選時刻</label>
+            <input type="time" className="text-input" min="01:00" max="23:59" value={operationLotteryTime} onChange={(e) => setOperationLotteryTime(e.target.value)} />
+          </div>
+          <div>
+            <label className="block text-[0.8rem] text-ink-sub mb-1">通知時刻</label>
+            <input type="time" className="text-input" min="00:00" max="23:59" value={notifyTime} onChange={(e) => setNotifyTime(e.target.value)} />
+          </div>
+          <button className="btn-primary w-auto px-5" onClick={saveLotteryOperation} disabled={operationSaving || isDirty} title={isDirty ? '通常設定の未保存変更を先に保存してください' : undefined}>{operationSaving ? '保存中...' : '運用設定を保存'}</button>
+        </div>
+        <p className="mt-2 text-[0.82rem] text-ink-sub">通知時刻は抽選時刻以降。当日モードの抽選は最初の利用枠より前に設定してください。</p>
+      </div>
+
       {/* 抽選時刻 */}
       <div className="admin-card">
-        <h2 className="text-base font-bold mb-1">抽選時刻</h2>
+        <h2 className="text-base font-bold mb-1">抽選時刻（通常設定）</h2>
         <p className="text-[0.85rem] text-ink-sub mb-3">
           下の「適用日」から反映されます（適用日当日に cron-job.org のスケジュールも自動更新）。
         </p>
         <input
           type="time"
           className="text-input w-auto"
-          min="01:00"
+          min="03:00"
           max="23:59"
           value={lotteryTime}
           onChange={(e) => setLotteryTime(e.target.value)}
@@ -495,11 +547,13 @@ export default function Settings() {
         {lotteryTimeInvalid ? (
           <p className="mt-2 text-danger text-[0.85rem]">
             <span className="icon icon-sm align-middle">error</span>
-            {' '}抽選時刻は01:00以降を指定してください
+            {' '}適用予定の抽選時刻は03:00以降、通知時刻以前に設定してください
           </p>
         ) : (
           <p className="mt-2 text-[0.82rem] text-ink-sub">
-            {computeLockoutTime(lotteryTime)}（10分前）〜{lotteryTime} の間、当日・翌日の登録が制限されます
+            {current?.lotteryMode === 'same-day'
+              ? '当日モードの受付は利用日前日の23:59で終了します'
+              : `${computeLockoutTime(lotteryTime)}（10分前）に翌日分の受付を終了します`}
           </p>
         )}
       </div>

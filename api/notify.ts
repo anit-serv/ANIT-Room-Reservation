@@ -1,7 +1,7 @@
 import { VercelRequest, VercelResponse } from '@vercel/node';
 import * as admin from 'firebase-admin';
 import axios from 'axios'; // BAND APIを叩くために必要
-import { updateReservationStatus } from '../lib/update-reservation-status';
+import { lotteryTargetDate } from '../lib/lotteryOperation';
 import 'dotenv/config';
 
 // ---------------------------------------------------------
@@ -41,16 +41,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (date && typeof date === 'string') {
       targetDateStr = date;
     } else {
-      const now = new Date();
-      const jstOffset = 9 * 60 * 60 * 1000;
-      const nowJST = new Date(now.getTime() + jstOffset);
-      const targetDateJST = new Date(nowJST);
-      targetDateJST.setDate(targetDateJST.getDate() + 1); // 翌日
-      
-      const y = targetDateJST.getFullYear();
-      const m = ('0' + (targetDateJST.getMonth() + 1)).slice(-2);
-      const d = ('0' + targetDateJST.getDate()).slice(-2);
-      targetDateStr = `${y}-${m}-${d}`;
+      const scheduledDate = await lotteryTargetDate(db);
+      if (!scheduledDate) return res.status(200).json({ status: 'skipped', message: 'No lottery scheduled today.' });
+      targetDateStr = scheduledDate;
     }
 
     console.log(`Checking lottery results for: ${targetDateStr}`);
@@ -59,10 +52,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const resultDoc = await db.collection('lottery_results').doc(targetDateStr).get();
 
     if (!resultDoc.exists) {
-      return res.status(200).json({ 
-        status: 'skipped', 
-        message: `No lottery results found for ${targetDateStr}.` 
+      const pending = await db.collection('reservations')
+        .where('status', '==', 'pending')
+        .where('date', '>=', `${targetDateStr}T00:00`)
+        .where('date', '<=', `${targetDateStr}T23:59`)
+        .limit(1).get();
+      return res.status(pending.empty ? 200 : 503).json({
+        status: pending.empty ? 'skipped' : 'error',
+        message: pending.empty ? 'No reservations to notify.' : `Lottery results missing for ${targetDateStr}.`,
       });
+    }
+    if (resultDoc.data()?.notificationSentAt) {
+      return res.status(200).json({ status: 'skipped', message: 'Notification already sent.' });
     }
 
     const data = resultDoc.data();
@@ -73,10 +74,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(200).json({ status: 'skipped', message: 'No entries found.' });
     }
 
-    // 3. 抽選された予約の状態を更新（status: 'pending' → 'confirmed'）
-    const updatedCount = await updateReservationStatus(targetDateStr, db);
-
-    // 4. 投稿メッセージを作成
+    // 3. 投稿メッセージを作成（確定は抽選実行時に済ませる）
     const timeSlots = Object.keys(results);
     const displayDate = targetDateStr.replace(/-/g, '/').slice(5); // 12/21
     const weekDays = ['日', '月', '火', '水', '木', '金', '土'];
@@ -136,11 +134,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (response.data?.result_code !== 1) {
       throw new Error(`BAND API returned error: ${JSON.stringify(response.data)}`);
     }
+    await resultDoc.ref.update({ notificationSentAt: admin.firestore.FieldValue.serverTimestamp() });
 
     return res.status(200).json({
       status: 'success',
       message: 'Posted to BAND successfully.',
-      updatedReservations: updatedCount,
       content: message
     });
 

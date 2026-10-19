@@ -604,7 +604,7 @@ export default function NobuEmergencySettings() {
           <div>
             <h2 className="text-base font-bold mb-1">抽選時刻の緊急対応</h2>
             <p className="text-[0.85rem] text-ink-sub">
-              当日〜7日後の予約可能日について、その日だけ抽選時刻を変更します。当日分は即時に反映されます（cron-job.org も自動更新）。
+              当日〜7日後の予約可能日について、その日だけ抽選時刻を変更します。抽選対象日の変更はジョブ時刻にも即時反映されます。
             </p>
           </div>
           <span className="badge badge-warn">

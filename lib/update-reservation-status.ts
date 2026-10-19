@@ -53,7 +53,7 @@ export async function updateReservationStatus(
         const bandName = docData.bandName || '';
         
         // 抽選結果に含まれているバンドなら確定状態に更新
-        if (bands.includes(bandName) && docData.status !== 'confirmed') {
+        if (bands.includes(bandName) && docData.status === 'pending') {
           const bandIndex = bands.indexOf(bandName);
           await db.collection('reservations').doc(doc.id).update({
             status: 'confirmed',

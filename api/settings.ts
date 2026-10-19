@@ -12,6 +12,7 @@ import {
   type TimeSlot,
 } from '../lib/reservationSettings'
 import 'dotenv/config'
+import { reservationDeadline } from '../lib/lotteryOperation'
 
 const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n')
 if (!admin.apps.length) {
@@ -33,8 +34,8 @@ type DateEntry = {
 }
 
 // 今日から7日後まで（8日分）を見て、availableDays に該当 + extraDates - excludedDates の日付を集める
-// forView=false（登録用）: 今日は常に除外、抽選10分前以降は翌日も除外
-// forView=true（全登録表示用）: 抽選10分前以降は今日のみ除外、翌日は含む
+// forView=false（登録用）はモード別の受付締切を適用する。
+// forView=true（全登録表示用）は抽選後も当日を表示する。
 async function buildDateList(forView: boolean): Promise<DateEntry[]> {
   const nowJST = new Date(Date.now() + 9 * 60 * 60 * 1000)
   const candidateDates = Array.from({ length: 8 }, (_, i) => {
@@ -44,25 +45,11 @@ async function buildDateList(forView: boolean): Promise<DateEntry[]> {
     return d.toISOString().slice(0, 10)
   })
   const settingsByDate = await resolveReservationSettingsForDates(db, candidateDates)
-  const currentSettings = settingsByDate[todayJST()] ?? Object.values(settingsByDate)[0]
-  const lotteryTime = currentSettings?.lotteryTime ?? '21:00'
-  const [lh, lm] = lotteryTime.split(':').map(Number)
-  const lockoutMinutes = lh * 60 + lm - 10
-
-  const nowMinutes = nowJST.getUTCHours() * 60 + nowJST.getUTCMinutes()
-  const afterLotteryPrep = nowMinutes >= lockoutMinutes
-
-  // 今日(i=0)・翌日(i=1)の制約
-  const todayStr = todayJST()
-  const tomorrowDate = new Date(nowJST); tomorrowDate.setUTCDate(nowJST.getUTCDate() + 1)
-  const tomorrowStr = tomorrowDate.toISOString().slice(0, 10)
-
   const results: DateEntry[] = []
   for (const dateStr of candidateDates) {
     const settings = settingsByDate[dateStr] as ReservationSettings | undefined
     if (!settings || !isDateAvailableBySettings(dateStr, settings)) continue
-    if (dateStr === todayStr && (afterLotteryPrep || !forView)) continue
-    if (dateStr === tomorrowStr && afterLotteryPrep && !forView) continue
+    if (!forView && Date.now() >= reservationDeadline(dateStr, settings.lotteryMode, settings.lotteryTime).getTime()) continue
 
     const dObj = new Date(dateStr + 'T00:00:00Z')
     const m = dObj.getUTCMonth() + 1

@@ -4,9 +4,12 @@ import * as crypto from 'crypto'
 import axios from 'axios'
 import { verifyAdmin } from '../lib/verifyAdmin'
 import { applyLotteryCronSchedule } from '../lib/cronSchedule'
+import { lotteryTargetDate, reservationDeadline } from '../lib/lotteryOperation'
 import {
   addDaysJST,
+  BASE_EFFECTIVE_FROM,
   getPendingReservationSettingsChange,
+  getReservationLotteryOverride,
   listFacilitySettingsVersions,
   listPendingFacilitySettingsChanges,
   listPendingReservationSettingsChanges,
@@ -86,6 +89,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (path === 'settings')              return handleSettings(req, res)
   if (path === 'settings/scheduled')    return handleSettingsScheduled(req, res)
   if (path === 'settings/lottery-time') return handleSettingsLotteryTime(req, res)
+  if (path === 'settings/lottery-operation') return handleSettingsLotteryOperation(req, res)
   if (path === 'settings/hamoani-period') return handleSettingsHamoaniPeriod(req, res)
   if (path === 'settings/time-slots')   return handleSettingsTimeSlots(req, res)
   if (path === 'settings/available-dates') return handleSettingsAvailableDates(req, res)
@@ -587,6 +591,8 @@ async function handleSettings(req: VercelRequest, res: VercelResponse) {
       nextChange:     pendingChange,
       scheduledChanges,
       lotteryTime:    data.lotteryTime,
+      lotteryMode:    data.lotteryMode,
+      notifyTime:     data.notifyTime,
       hamoaniStartDate: data.hamoaniStartDate,
       hamoaniEndDate:   data.hamoaniEndDate,
     })
@@ -603,6 +609,24 @@ async function handleSettings(req: VercelRequest, res: VercelResponse) {
     }
     if (!lotteryTime || !LOTTERY_TIME_RE.test(lotteryTime) || lotteryTime < '01:00') {
       return res.status(400).json({ error: '抽選時刻は01:00〜23:59で指定してください' })
+    }
+    if (lotteryTime < '03:00') {
+      return res.status(400).json({ error: '適用予定の抽選時刻は03:00以降にしてください（日次ジョブ更新後）' })
+    }
+    const currentOperation = await resolveReservationSettingsForDate(db, todayJST())
+    if (lotteryTime > currentOperation.notifyTime) {
+      return res.status(400).json({ error: '抽選時刻は通知時刻以前にしてください' })
+    }
+    if (currentOperation.lotteryMode === 'same-day') {
+      const allSlots = [
+        ...validated.timeSlots,
+        ...Object.values(validated.perDaySchedule.byWeekday ?? {}).flat(),
+        ...Object.values(validated.perDaySchedule.byDate ?? {}).flat(),
+      ]
+      const starts = allSlots.map((slot) => slot.value.split('-')[0]).filter(Boolean)
+      if (starts.length && lotteryTime >= starts.sort()[0]) {
+        return res.status(400).json({ error: '当日モードの抽選時刻は最初の利用枠より前にしてください' })
+      }
     }
 
     // 現在の予約可能期間（7日後まで）と競合させないため、
@@ -758,23 +782,13 @@ async function reservationCountForDate(date: string): Promise<number> {
   return snap.docs.filter((d) => d.data().status !== 'cancelled').length
 }
 
-function afterTomorrowOpenDeadline(lotteryTime: string): boolean {
-  const [h, m] = lotteryTime.split(':').map(Number)
-  const lockoutMinutes = h * 60 + m - 10
-  const now = new Date(Date.now() + 9 * 60 * 60 * 1000)
-  const nowMinutes = now.getUTCHours() * 60 + now.getUTCMinutes()
-  return nowMinutes >= lockoutMinutes
-}
-
 async function buildEmergencyDateOptions(): Promise<EmergencyDateOption[]> {
   const today = todayJST()
   const tomorrow = addDaysJST(1)
   const dates = Array.from({ length: 8 }, (_, i) => addDaysJST(i))
-  const [settingsByDate, todaySettings] = await Promise.all([
-    resolveReservationSettingsForDates(db, dates),
-    resolveReservationSettingsForDate(db, today),
-  ])
-  const tomorrowBlockedByDeadline = afterTomorrowOpenDeadline(todaySettings.lotteryTime)
+  const settingsByDate = await resolveReservationSettingsForDates(db, dates)
+  const tomorrowSettings = settingsByDate[tomorrow]
+  const tomorrowBlockedByDeadline = Date.now() >= reservationDeadline(tomorrow, tomorrowSettings.lotteryMode, tomorrowSettings.lotteryTime).getTime()
 
   return dates.map((date) => {
     const settings = settingsByDate[date]
@@ -918,32 +932,124 @@ async function handleSettingsDayOverrideByDate(req: VercelRequest, res: VercelRe
 }
 
 // ─── 抽選時刻の即時更新（緊急用） ─────────────────────
-// 通常の変更は handleSettings（適用日方式）で行う。これはミス修正など
-// 「今すぐ」反映したい場合の緊急上書き：base 値を即書き換え、cron-job.org も即PATCHする。
-async function handleSettingsLotteryTime(req: VercelRequest, res: VercelResponse) {
+async function handleSettingsLotteryOperation(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'PUT') return res.status(405).json({ error: 'Method Not Allowed' })
   let me: AuditActor
   try {
     me = await verifyAdmin(req.headers.authorization)
   } catch (err: any) {
-    const status = err.message === 'Forbidden' ? 403 : 401
-    return res.status(status).json({ error: err.message })
+    return res.status(err.message === 'Forbidden' ? 403 : 401).json({ error: err.message })
   }
 
-  const { lotteryTime } = (req.body ?? {}) as { lotteryTime?: string }
+  const { lotteryMode, lotteryTime, notifyTime } = (req.body ?? {}) as { lotteryMode?: string; lotteryTime?: string; notifyTime?: string }
+  if (lotteryMode !== 'previous-day' && lotteryMode !== 'same-day') {
+    return res.status(400).json({ error: '抽選モードが不正です' })
+  }
+  if (!notifyTime || !LOTTERY_TIME_RE.test(notifyTime)) {
+    return res.status(400).json({ error: '通知時刻は00:00〜23:59で指定してください' })
+  }
   if (!lotteryTime || !LOTTERY_TIME_RE.test(lotteryTime) || lotteryTime < '01:00') {
     return res.status(400).json({ error: '抽選時刻は01:00〜23:59で指定してください' })
   }
-
-  // appliedLotteryTime も更新し、リコンサイラが冗長な再PATCHをしないようにする
-  await db.collection('settings').doc('reservation').set({ lotteryTime, appliedLotteryTime: lotteryTime }, { merge: true })
-  await audit(me, 'settings.lotteryTime.immediate', { targetType: 'settings', details: { lotteryTime } })
-
-  const result = await applyLotteryCronSchedule(lotteryTime)
-  if (result.warning) {
-    return res.status(200).json({ success: true, lotteryTime, cronWarning: result.warning })
+  const settings = await resolveReservationSettingsForDate(db, todayJST())
+  if ((lotteryMode !== settings.lotteryMode || lotteryTime !== settings.lotteryTime) &&
+      (await listPendingReservationSettingsChanges(db, addDaysJST(1))).length > 0) {
+    return res.status(400).json({ error: '適用予定の通常設定があります。先に適用予定を確認してください' })
   }
-  return res.status(200).json({ success: true, lotteryTime })
+  if ((lotteryTime !== settings.lotteryTime || lotteryMode !== settings.lotteryMode) &&
+      await getReservationLotteryOverride(db, todayJST())) {
+    return res.status(400).json({ error: '本日の抽選時刻に緊急上書きがあります。先に解除してください' })
+  }
+  if (lotteryMode !== settings.lotteryMode) {
+    const [todayResult, tomorrowResult] = await Promise.all([
+      db.collection('lottery_results').doc(todayJST()).get(),
+      db.collection('lottery_results').doc(addDaysJST(1)).get(),
+    ])
+    if ([todayResult, tomorrowResult].some((doc) => doc.exists && !doc.data()?.notificationSentAt)) {
+      return res.status(400).json({ error: '抽選済みの結果通知が完了してからモードを切り替えてください' })
+    }
+  }
+  if (notifyTime < lotteryTime) {
+    return res.status(400).json({ error: '通知時刻は抽選時刻以降にしてください' })
+  }
+  if (lotteryMode === 'same-day') {
+    const dates = Array.from({ length: 8 }, (_, index) => addDaysJST(index))
+    const byDate = await resolveReservationSettingsForDates(db, dates)
+    const earliest = dates.flatMap((date) =>
+      isDateAvailableBySettings(date, byDate[date])
+        ? pickTimeSlotsForDate(date, byDate[date]).map((slot) => slot.value.split('-')[0])
+        : []
+    ).filter(Boolean).sort()[0]
+    if (earliest && lotteryTime >= earliest) {
+      return res.status(400).json({ error: '当日モードの抽選時刻は最初の利用枠より前にしてください' })
+    }
+  }
+  const targetDate = lotteryMode === 'same-day' ? todayJST() : addDaysJST(1)
+  const targetResult = await db.collection('lottery_results').doc(targetDate).get()
+  const [drawHour, drawMinute] = lotteryTime.split(':').map(Number)
+  if (!targetResult.exists && jstNowMinutes() >= drawHour * 60 + drawMinute - 5) {
+    const pending = await db.collection('reservations')
+      .where('status', '==', 'pending')
+      .where('date', '>=', `${targetDate}T00:00`)
+      .where('date', '<=', `${targetDate}T23:59`)
+      .limit(1).get()
+    if (!pending.empty) return res.status(400).json({ error: '本日の抽選実行時刻を過ぎています。抽選済みの日付を指定してください' })
+  }
+  const [notifyHour, notifyMinute] = notifyTime.split(':').map(Number)
+  if (targetResult.exists && !targetResult.data()?.notificationSentAt &&
+      jstNowMinutes() >= notifyHour * 60 + notifyMinute) {
+    return res.status(400).json({ error: '未通知の抽選結果があります。通知時刻を未来に設定してください' })
+  }
+  if (settings.lotteryMode === 'same-day' && lotteryMode === 'previous-day') {
+    const today = todayJST()
+    if (isDateAvailableBySettings(today, settings) && !(await db.collection('lottery_results').doc(today).get()).exists) {
+      const pending = await db.collection('reservations')
+        .where('status', '==', 'pending')
+        .where('date', '>=', `${today}T00:00`)
+        .where('date', '<=', `${today}T23:59`)
+        .limit(1).get()
+      if (!pending.empty) return res.status(400).json({ error: '本日の抽選が完了してから前日モードへ切り替えてください' })
+    }
+  }
+  const reservationRef = db.collection('settings').doc('reservation')
+  const result = await applyLotteryCronSchedule(lotteryTime, notifyTime)
+  if (result.warning) {
+    await applyLotteryCronSchedule(settings.lotteryTime, settings.notifyTime)
+    return res.status(503).json({ error: result.warning })
+  }
+  const timeRef = settings.effectiveFrom === BASE_EFFECTIVE_FROM
+    ? reservationRef
+    : reservationRef.collection('versions').doc(settings.effectiveFrom)
+  try {
+    if (settings.effectiveFrom === BASE_EFFECTIVE_FROM) {
+      await reservationRef.set({ lotteryMode, notifyTime, appliedLotteryTime: lotteryTime, appliedNotifyTime: notifyTime,
+        ...(lotteryTime !== settings.lotteryTime ? { lotteryTime } : {}) }, { merge: true })
+    } else {
+      const batch = db.batch()
+      batch.set(reservationRef, { lotteryMode, notifyTime, appliedLotteryTime: lotteryTime, appliedNotifyTime: notifyTime }, { merge: true })
+      if (lotteryTime !== settings.lotteryTime) batch.set(timeRef, { lotteryTime }, { merge: true })
+      await batch.commit()
+    }
+  } catch (error) {
+    await applyLotteryCronSchedule(settings.lotteryTime, settings.notifyTime)
+    throw error
+  }
+  await audit(me, 'settings.lotteryOperation', { targetType: 'settings', details: { lotteryMode, lotteryTime, notifyTime } })
+  return res.status(200).json({ success: true, lotteryMode, lotteryTime, notifyTime })
+}
+
+// 通常の変更は handleSettings（適用日方式）で行う。これはミス修正など
+// 「今すぐ」反映したい場合の緊急上書き：base 値を即書き換え、cron-job.org も即PATCHする。
+async function handleSettingsLotteryTime(req: VercelRequest, res: VercelResponse) {
+  if (req.method !== 'PUT') return res.status(405).json({ error: 'Method Not Allowed' })
+  const settings = await resolveReservationSettingsForDate(db, todayJST())
+  const lotteryTime = (req.body ?? {}).lotteryTime
+  req.body = {
+    lotteryMode: settings.lotteryMode,
+    lotteryTime,
+    notifyTime: settings.notifyTime === settings.lotteryTime ? lotteryTime : settings.notifyTime,
+  }
+  return handleSettingsLotteryOperation(req, res)
 }
 
 // ─── ハモアニ優先抽選の有効期間（自由に即時変更、毎年夏休み前後などに設定する想定） ───
@@ -1038,20 +1144,25 @@ async function buildLotteryOverrideDateOptions(): Promise<LotteryDateOption[]> {
     const isReservable =
       isDateAvailableBySettings(date, settings) && pickTimeSlotsForDate(date, settings).length > 0
     const currentLotteryTime = settings.lotteryTime
+    const drawDate = settings.lotteryMode === 'same-day' ? date :
+      new Date(new Date(`${date}T00:00:00Z`).getTime() - 86_400_000).toISOString().slice(0, 10)
     let editable = isReservable
-    let minTime = '01:00'
+    let minTime = '03:00'
     const maxTime = '23:59'
     let note: string | undefined
 
     if (!isReservable) {
       editable = false
       note = '予約可能な日ではないため抽選時刻は変更できません'
-    } else if (date === today) {
+    } else if (drawDate < today) {
+      editable = false
+      note = 'この日の抽選は終了しています'
+    } else if (drawDate === today) {
       const oldLockout = toMinutes(currentLotteryTime) - 10
       if (nowMin >= oldLockout) {
         // 旧抽選の10分前を過ぎている＝遅延不可かつ新ロックアウトも過去になるため、本日は変更不可
         editable = false
-        note = '抽選時刻の10分前を過ぎているため、本日の抽選時刻は変更できません'
+        note = '抽選時刻の10分前を過ぎているため、抽選時刻は変更できません'
       } else {
         const earliest = Math.max(nowMin + 10, minLottery) // T-10 >= now かつ 01:00以降
         if (earliest > maxLottery) {
@@ -1077,13 +1188,14 @@ async function buildLotteryOverrideDateOptions(): Promise<LotteryDateOption[]> {
   })
 }
 
-// 当日の抽選時刻上書き/解除後、cron-job.org を現在の有効値へ即時再同期する。
-async function reapplyTodayLotteryCron(date: string): Promise<string | undefined> {
-  if (date !== todayJST()) return undefined
-  const settings = await resolveReservationSettingsForDate(db, todayJST())
-  const result = await applyLotteryCronSchedule(settings.lotteryTime)
+// 今日実行する抽選の対象日の上書き/解除後、cron-job.org を再同期する。
+async function reapplyCurrentLotteryCron(date: string): Promise<string | undefined> {
+  const targetDate = await lotteryTargetDate(db)
+  if (date !== targetDate) return undefined
+  const settings = await resolveReservationSettingsForDate(db, targetDate)
+  const result = await applyLotteryCronSchedule(settings.lotteryTime, settings.notifyTime)
   if (result.warning) return result.warning
-  await db.collection('settings').doc('reservation').set({ appliedLotteryTime: settings.lotteryTime }, { merge: true })
+  await db.collection('settings').doc('reservation').set({ appliedLotteryTime: settings.lotteryTime, appliedNotifyTime: settings.notifyTime }, { merge: true })
   return undefined
 }
 
@@ -1122,7 +1234,7 @@ async function handleSettingsLotteryOverrideByDate(req: VercelRequest, res: Verc
   if (req.method === 'DELETE') {
     await docRef.delete()
     await audit(me, 'settings.lotteryOverride.delete', { targetType: 'settings', targetId: date, details: { date } })
-    const cronWarning = await reapplyTodayLotteryCron(date)
+    const cronWarning = await reapplyCurrentLotteryCron(date)
     return res.status(200).json({ success: true, ...(cronWarning ? { cronWarning } : {}) })
   }
 
@@ -1150,7 +1262,7 @@ async function handleSettingsLotteryOverrideByDate(req: VercelRequest, res: Verc
     { merge: true },
   )
   await audit(me, 'settings.lotteryOverride.set', { targetType: 'settings', targetId: date, details: { date, lotteryTime } })
-  const cronWarning = await reapplyTodayLotteryCron(date)
+  const cronWarning = await reapplyCurrentLotteryCron(date)
   return res.status(200).json({ success: true, lotteryTime, ...(cronWarning ? { cronWarning } : {}) })
 }
 

@@ -12,6 +12,7 @@ import {
   type TimeSlot,
 } from '../lib/reservationSettings'
 import 'dotenv/config'
+import { reservationDeadline } from '../lib/lotteryOperation'
 
 const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n')
 if (!admin.apps.length) {
@@ -145,6 +146,9 @@ async function handleCreate(req: VercelRequest, res: VercelResponse) {
           ? `選択された日時は現在の設定では予約できません。利用可能な時間枠: ${slotStr}`
           : '選択された日付は現在の設定では予約できません',
       })
+    }
+    if (Date.now() >= reservationDeadline(datePart, settings.lotteryMode, settings.lotteryTime).getTime()) {
+      return res.status(400).json({ error: 'この日の抽選受付は終了しました' })
     }
 
     // 同日に同名バンドが既に登録されていないかチェック
@@ -376,6 +380,9 @@ async function handleModify(req: VercelRequest, res: VercelResponse, docId: stri
       }
       const newDate = `${dateOnly}T${newTimeSlot}`
       const settings = await resolveReservationSettingsForDate(db, dateOnly)
+      if (Date.now() >= reservationDeadline(dateOnly, settings.lotteryMode, settings.lotteryTime).getTime()) {
+        return res.status(400).json({ error: 'この日の抽選受付は終了しました' })
+      }
       if (!isTimeSlotAvailableBySettings(newDate, settings)) {
         const slotStr = pickTimeSlotsForDate(dateOnly, settings).map((s) => s.value.replace('-', '〜')).join(' / ')
         return res.status(400).json({

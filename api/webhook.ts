@@ -9,6 +9,7 @@ import {
   type ReservationSettings,
 } from '../lib/reservationSettings';
 import 'dotenv/config';
+import { lotteryTargetDate, reservationDeadline } from '../lib/lotteryOperation';
 
 // ---------------------------------------------------------
 // 1. 設定・初期化
@@ -848,6 +849,10 @@ async function handleFinalize(event: line.PostbackEvent, data: string) {
       });
     }
 
+    if (Date.now() >= reservationDeadline(selectedDate, settings.lotteryMode, settings.lotteryTime).getTime()) {
+      return client.replyMessage(event.replyToken, { type: 'text', text: 'この日の抽選受付は終了しました。' });
+    }
+
     // Firestoreに保存（バンド名も追加！）
     await db.collection('reservations').add({
       userId: userId,
@@ -1362,6 +1367,10 @@ async function handleEditFinalize(event: line.PostbackEvent, data: string) {
       });
     }
 
+    if (Date.now() >= reservationDeadline(selectedDate, settings.lotteryMode, settings.lotteryTime).getTime()) {
+      return client.replyMessage(event.replyToken, { type: 'text', text: 'この日の抽選受付は終了しました。' });
+    }
+
     await db.collection('reservations').doc(docId!).update({
       date: newDateTime,
     });
@@ -1384,8 +1393,10 @@ async function handleEditFinalize(event: line.PostbackEvent, data: string) {
 // ---------------------------------------------------------
 
 async function isLotteryTime(): Promise<boolean> {
-  const todaySettings = await getConfig(todayJST());
-  const lotteryTime = todaySettings.lotteryTime;
+  const targetDate = await lotteryTargetDate(db);
+  if (!targetDate) return false;
+  const targetSettings = await getConfig(targetDate);
+  const lotteryTime = targetSettings.lotteryTime;
   const [lh, lm] = lotteryTime.split(':').map(Number);
   const lotteryMinutes = lh * 60 + lm;
 
@@ -1393,22 +1404,11 @@ async function isLotteryTime(): Promise<boolean> {
   const nowMinutes = nowJST.getUTCHours() * 60 + nowJST.getUTCMinutes();
   if (nowMinutes < lotteryMinutes - 10 || nowMinutes >= lotteryMinutes) return false;
 
-  const tomorrow = new Date(nowJST);
-  tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
-  const tomorrowStr = tomorrow.toISOString().slice(0, 10);
-  const tomorrowSettings = await getConfig(tomorrowStr);
-  return isDateAvailableBySettings(tomorrowStr, tomorrowSettings);
+  return isDateAvailableBySettings(targetDate, targetSettings);
 }
 
 async function getAvailableDateList(_includeToday: boolean = false): Promise<{ label: string; value: string }[]> {
-  const todaySettings = await getConfig(todayJST());
-  const lotteryTime = todaySettings.lotteryTime;
-  const [lh, lm] = lotteryTime.split(':').map(Number);
-  const lockoutMinutes = lh * 60 + lm - 10;
-
   const nowJST = new Date(Date.now() + 9 * 60 * 60 * 1000);
-  const nowMinutes = nowJST.getUTCHours() * 60 + nowJST.getUTCMinutes();
-  const afterLotteryPrep = nowMinutes >= lockoutMinutes;
 
   const results: { label: string; value: string }[] = [];
   const weekDays = ['日', '月', '火', '水', '木', '金', '土'];
@@ -1426,8 +1426,8 @@ async function getAvailableDateList(_includeToday: boolean = false): Promise<{ l
     const settings = await getConfig(dateStr);
 
     if (!isDateAvailableBySettings(dateStr, settings)) continue;
-    if (i === 0 && afterLotteryPrep) continue;  // 20:50以降は今日を除外
-    if (i === 1 && afterLotteryPrep) continue;  // 20:50以降は翌日も除外（抽選中・締め切り）
+    if (!(_includeToday && dateStr === todayJST()) &&
+        Date.now() >= reservationDeadline(dateStr, settings.lotteryMode, settings.lotteryTime).getTime()) continue;
 
     const wd = weekDays[targetDate.getUTCDay()];
     results.push({ label: `${m}/${d}(${wd})`, value: dateStr });
