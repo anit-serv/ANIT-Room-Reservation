@@ -447,7 +447,7 @@ export default function Settings() {
     <div className="pb-80">
       <h1 className="text-2xl font-bold mb-6">設定 - 農部生協</h1>
 
-      <RoomPreferenceSettings />
+      <RoomPreferenceSettings effectiveFrom={effectiveFrom} />
 
       {message && <div className="banner-error">{message.text}</div>}
 

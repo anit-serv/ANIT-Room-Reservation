@@ -5,10 +5,9 @@ type Version = { effectiveFrom: string; enabled: boolean }
 type NotificationRow = { date: string; pollStatus: string | null; notificationSentAt: number | null;
   notificationError: string | null; notificationDirty: boolean }
 
-export default function RoomPreferenceSettings() {
+export default function RoomPreferenceSettings({ effectiveFrom }: { effectiveFrom: string }) {
   const [versions, setVersions] = useState<Version[]>([])
   const [minDate, setMinDate] = useState('')
-  const [effectiveFrom, setEffectiveFrom] = useState('')
   const [enabled, setEnabled] = useState(false)
   const [expanded, setExpanded] = useState(false)
   const [loaded, setLoaded] = useState(false)
@@ -38,7 +37,6 @@ export default function RoomPreferenceSettings() {
       setExpanded(nextEnabled)
       setLoaded(true)
     }
-    setEffectiveFrom((prev) => prev || config.minimumModeDate)
     setMode(config.notificationMode); setFallback(config.fallbackPost)
     setCommentConfigured(config.commentBandConfigured)
     if (managerRes.ok) setManager((await managerRes.json()).manager)
@@ -115,10 +113,9 @@ export default function RoomPreferenceSettings() {
           <span aria-hidden="true" className="relative w-11 h-6 rounded-full bg-line peer-checked:bg-brand peer-focus-visible:ring-2 peer-focus-visible:ring-brand transition-colors after:absolute after:top-0.5 after:left-0.5 after:h-5 after:w-5 after:rounded-full after:bg-white after:shadow after:transition-transform peer-checked:after:translate-x-5" />
         </label>
       </div>
-      <p className="text-[0.82rem] text-ink-sub mt-3">予約画面に出る前に確定するため、適用日の8日前までに設定してください。トグルの変更は「切替を予約」で保存されます。</p>
+      <p className="text-[0.82rem] text-ink-sub mt-3">画面下部の「適用日」で選んだ日から切り替えます。予約画面に出る前に確定するため、8日前までに設定してください。</p>
       <div className="flex flex-wrap gap-3 items-end mt-3">
-        <label className="text-sm">適用日<input type="date" className="text-input mt-1" min={minDate} value={effectiveFrom}
-          onChange={(event) => setEffectiveFrom(event.target.value)} /></label>
+        <span className="text-sm text-ink-sub">適用日: <strong className="text-ink">{effectiveFrom || '未選択'}</strong></span>
         <button className="btn-primary w-auto px-4" disabled={busy || !loaded || !effectiveFrom || effectiveFrom < minDate}
           onClick={() => save({ effectiveFrom, enabled })}>切替を予約</button>
       </div>
