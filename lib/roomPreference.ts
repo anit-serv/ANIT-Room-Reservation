@@ -15,9 +15,9 @@ export function roomDayRef(db: Firestore, date: string) {
 }
 
 export async function isRoomPreferenceEnabled(db: Firestore, date: string): Promise<boolean> {
-  const versions = await db.collection('room_preference_modes')
-    .where('__name__', '<=', date).orderBy('__name__', 'asc').limitToLast(1).get()
-  return versions.docs[0]?.data().enabled === true
+  const refs = await db.collection('room_preference_modes').listDocuments()
+  const latest = refs.filter((ref) => ref.id <= date).sort((a, b) => b.id.localeCompare(a.id))[0]
+  return latest ? (await latest.get()).data()?.enabled === true : false
 }
 
 export async function getRoomDay(db: Firestore, date: string): Promise<RoomDay> {

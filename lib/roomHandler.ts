@@ -40,13 +40,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (path === 'config') {
       const me = await verifyAdmin(req.headers.authorization)
       if (req.method === 'GET') {
-        const [config, versions] = await Promise.all([
+        const [config, versionRefs] = await Promise.all([
           getRoomPreferenceConfig(db),
-          db.collection('room_preference_modes').orderBy('__name__', 'asc').limitToLast(30).get(),
+          db.collection('room_preference_modes').listDocuments(),
         ])
+        const versions = await Promise.all(versionRefs
+          .sort((a, b) => b.id.localeCompare(a.id)).slice(0, 30).map((ref) => ref.get()))
         return res.status(200).json({ ...config, minimumModeDate: minimumModeDate(),
           commentBandConfigured: !!process.env.BAND_COMMENT_KEY,
-          versions: [...versions.docs].reverse().map((doc) => ({ effectiveFrom: doc.id, enabled: doc.data().enabled === true })) })
+          versions: versions.map((doc) => ({ effectiveFrom: doc.id, enabled: doc.data()?.enabled === true })) })
       }
       if (req.method === 'PUT') {
         const { effectiveFrom, enabled, notificationMode, fallbackPost } = req.body ?? {}
@@ -93,15 +95,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (path === 'notifications' || path === 'notifications/manual') {
       const me = await verifyAdmin(req.headers.authorization)
       if (path === 'notifications' && req.method === 'GET') {
-        const [results, cleanup] = await Promise.all([
-          db.collection('lottery_results').orderBy('__name__', 'asc').limitToLast(30).get(),
+        const [resultRefs, cleanup] = await Promise.all([
+          db.collection('lottery_results').listDocuments(),
           db.collection('band_cleanup').limit(30).get(),
         ])
+        const results = await Promise.all(resultRefs
+          .sort((a, b) => b.id.localeCompare(a.id)).slice(0, 30).map((ref) => ref.get()))
         return res.status(200).json({
-          results: [...results.docs].reverse().map((doc) => ({ date: doc.id, pollStatus: doc.data().pollStatus ?? null,
-            notificationSentAt: doc.data().notificationSentAt?.toMillis?.() ?? null,
-            notificationError: doc.data().notificationError ?? null,
-            notificationDirty: doc.data().notificationDirty === true })),
+          results: results.map((doc) => ({ date: doc.id, pollStatus: doc.data()?.pollStatus ?? null,
+            notificationSentAt: doc.data()?.notificationSentAt?.toMillis?.() ?? null,
+            notificationError: doc.data()?.notificationError ?? null,
+            notificationDirty: doc.data()?.notificationDirty === true })),
           cleanupPending: cleanup.size,
         })
       }
