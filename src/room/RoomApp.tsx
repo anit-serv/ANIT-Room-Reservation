@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { adminFetch, clearAdminToken, getAdminToken, setAdminToken } from '../admin/auth'
 
 type Slot = { rooms: string[]; unavailable: string[]; ready: boolean }
@@ -8,6 +8,8 @@ const todayJST = () => new Date(Date.now() + 9 * 60 * 60_000).toISOString().slic
 
 export default function RoomApp() {
   const navigate = useNavigate()
+  const location = useLocation()
+  const isTransferPage = location.pathname === '/room/transfer'
   const [params] = useSearchParams()
   const [me, setMe] = useState<{ displayName: string } | null>(null)
   const [date, setDate] = useState(todayJST())
@@ -44,7 +46,7 @@ export default function RoomApp() {
       (data.slots[slot.value]?.rooms ?? []).join('\n')])))
   }
 
-  useEffect(() => { if (me) loadDay(date).catch((err) => setError(err.message)) }, [me, date])
+  useEffect(() => { if (me && !isTransferPage) loadDay(date).catch((err) => setError(err.message)) }, [me, date, isTransferPage])
 
   async function saveSlot(timeSlot: string, ready: boolean) {
     setBusy(true); setError(''); setNotice('')
@@ -99,8 +101,13 @@ export default function RoomApp() {
         <div><h1 className="text-xl font-bold">使用可能部屋の登録</h1><p className="text-sm text-ink-sub">{me.displayName}</p></div>
         <button className="btn-outline" onClick={() => { clearAdminToken(); setMe(null); setDay(null) }}>ログアウト</button>
       </header>
+      <nav className="flex gap-2 mb-6" aria-label="部屋取りメニュー">
+        <Link to="/room" className={isTransferPage ? 'btn-outline w-auto px-4' : 'btn-primary w-auto px-4'}>部屋の登録</Link>
+        <Link to="/room/transfer" className={isTransferPage ? 'btn-primary w-auto px-4' : 'btn-outline w-auto px-4'}>権限の移譲</Link>
+      </nav>
       {error && <div className="banner-error mb-3">{error}</div>}
       {notice && <div className="bg-brand-light text-brand-dark rounded-lg p-3 mb-3 text-sm">{notice}</div>}
+      {!isTransferPage ? <>
       <label className="block text-sm font-semibold mb-2">活動日</label>
       <input type="date" value={date} min={todayJST()} onChange={(event) => setDate(event.target.value)} className="text-input mb-4" />
       {day && <>
@@ -124,12 +131,12 @@ export default function RoomApp() {
           </section>
         })}
       </>}
-      <section className="bg-surface border border-line rounded-xl p-4 mt-6">
+      </> : <section className="bg-surface border border-line rounded-xl p-4">
         <h2 className="font-bold mb-2">部屋取り権限の移譲</h2>
         <p className="text-sm text-ink-sub mb-3">招待リンクを移譲先に渡してください。相手がLINEでログインすると、この権限だけが移ります。</p>
         <button className="btn-outline" onClick={createTransferInvite}>移譲リンクを作成</button>
         {inviteUrl && <input className="text-input mt-2" readOnly value={inviteUrl} onFocus={(event) => event.target.select()} />}
-      </section>
+      </section>}
     </div>
   </main>
 }

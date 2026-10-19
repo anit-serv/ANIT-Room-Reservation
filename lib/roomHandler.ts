@@ -76,7 +76,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (path === 'manager') {
       const me = await verifyAdmin(req.headers.authorization)
-      if (!me.isSuperAdmin) return res.status(403).json({ error: 'スーパー管理者のみ操作できます' })
       if (req.method === 'GET') {
         const snap = await db.collection('settings').doc('room-manager').get()
         return res.status(200).json({ manager: snap.exists ? snap.data() : null })
@@ -85,6 +84,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const userId = String(req.body?.userId ?? '')
         const user = await db.collection('users').doc(userId).get()
         if (!user.exists) return res.status(404).json({ error: '移譲先のユーザーが見つかりません' })
+        if (user.data()?.banned === true) return res.status(400).json({ error: '利用停止中のユーザーには移譲できません' })
         await db.collection('settings').doc('room-manager').set({ userId,
           displayName: user.data()?.displayName ?? '', updatedAt: new Date(), updatedBy: me.userId })
         return res.status(200).json({ success: true })
@@ -127,18 +127,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(200).json({ success: true })
       }
       return res.status(405).json({ error: 'Method Not Allowed' })
-    }
-
-    if (path === 'invite') {
-      if (req.method !== 'POST') return res.status(405).json({ error: 'Method Not Allowed' })
-      const me = await verifyAdmin(req.headers.authorization)
-      if (!me.isSuperAdmin) return res.status(403).json({ error: 'スーパー管理者のみ招待できます' })
-      const token = crypto.randomBytes(24).toString('hex')
-      const expiresAt = new Date(Date.now() + 24 * 60 * 60_000)
-      await db.collection('invitations').doc(token).set({ kind: 'room-manager', createdBy: me.userId,
-        createdAt: new Date(), expiresAt, used: false })
-      return res.status(201).json({ url: `https://${req.headers.host}/api/admin/invite?token=${token}`,
-        expiresAt: expiresAt.toISOString() })
     }
 
     if (path === 'transfer') {

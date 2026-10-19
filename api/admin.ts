@@ -308,6 +308,10 @@ async function handleAuthCallback(req: VercelRequest, res: VercelResponse) {
         invData.expiresAt.toMillis() > Date.now()
       if (isValid) {
         if (invData!.kind === 'room-manager') {
+          const invitee = await db.collection('users').doc(userId).get()
+          if (invitee.data()?.banned === true) {
+            return res.redirect(302, `${baseUrl}/room/login?error=invalid_invitation`)
+          }
           if (invData!.fromManager) {
             const current = await db.collection('settings').doc('room-manager').get()
             if (current.data()?.userId !== invData!.fromManager) {
@@ -604,10 +608,13 @@ async function handleSettings(req: VercelRequest, res: VercelResponse) {
   const docRef = db.collection('settings').doc('reservation')
 
   if (req.method === 'GET') {
-    const [data, scheduledChanges] = await Promise.all([
+    const [data, scheduledChanges, roomModeRefs] = await Promise.all([
       resolveReservationSettingsForDate(db, todayJST()),
       listPendingReservationSettingsChanges(db),
+      db.collection('room_preference_modes').listDocuments(),
     ])
+    const roomModeDocs = await Promise.all(roomModeRefs
+      .sort((a, b) => b.id.localeCompare(a.id)).map((ref) => ref.get()))
     const pendingChange = scheduledChanges[0] ?? null
     return res.status(200).json({
       availableDays:  data.availableDays,
@@ -622,6 +629,7 @@ async function handleSettings(req: VercelRequest, res: VercelResponse) {
       notifyTime:     data.notifyTime,
       hamoaniStartDate: data.hamoaniStartDate,
       hamoaniEndDate:   data.hamoaniEndDate,
+      roomModeVersions: roomModeDocs.map((doc) => ({ effectiveFrom: doc.id, enabled: doc.data()?.enabled === true })),
     })
   }
 
@@ -629,7 +637,9 @@ async function handleSettings(req: VercelRequest, res: VercelResponse) {
     const validated = validateSettings(req.body)
     if (typeof validated === 'string') return res.status(400).json({ error: validated })
 
-    const { effectiveFrom, lotteryTime } = (req.body ?? {}) as { effectiveFrom?: string; lotteryTime?: string }
+    const { effectiveFrom, lotteryTime, roomPreferenceEnabled } = (req.body ?? {}) as {
+      effectiveFrom?: string; lotteryTime?: string; roomPreferenceEnabled?: boolean
+    }
 
     if (!effectiveFrom || !isValidDate(effectiveFrom)) {
       return res.status(400).json({ error: '適用日を指定してください' })
@@ -664,19 +674,29 @@ async function handleSettings(req: VercelRequest, res: VercelResponse) {
         error: `適用日は${minDateStr}以降を指定してください（現在の予約可能期間との競合を避けるため）`,
       })
     }
+    if (typeof roomPreferenceEnabled !== 'boolean') {
+      return res.status(400).json({ error: '希望部屋モードの指定が不正です' })
+    }
 
     // 抽選時刻も各バージョンに含めて保存する（適用日方式）。
     // cron-job.org のスケジュールは適用日当日に /api/data-organize?task=apply-lottery-time
     // のリコンサイラが反映する。
-    await docRef.collection('versions').doc(effectiveFrom).set({
+    const batch = db.batch()
+    batch.set(docRef.collection('versions').doc(effectiveFrom), {
       ...validated,
       lotteryTime,
       effectiveFrom,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       updatedBy: me.userId,
     })
-    await docRef.set({ nextChange: admin.firestore.FieldValue.delete() }, { merge: true })
-    await audit(me, 'settings.schedule', { targetType: 'settings', details: { ...validated, lotteryTime, effectiveFrom } })
+    batch.set(db.collection('room_preference_modes').doc(effectiveFrom), {
+      enabled: roomPreferenceEnabled,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedBy: me.userId,
+    })
+    batch.set(docRef, { nextChange: admin.firestore.FieldValue.delete() }, { merge: true })
+    await batch.commit()
+    await audit(me, 'settings.schedule', { targetType: 'settings', details: { ...validated, lotteryTime, effectiveFrom, roomPreferenceEnabled } })
     return res.status(200).json({ applied: 'scheduled', effectiveFrom })
   }
 
@@ -781,7 +801,10 @@ async function handleSettingsScheduled(req: VercelRequest, res: VercelResponse) 
   if (date && !isValidDate(date)) return res.status(400).json({ error: '日付の形式が不正です' })
 
   if (date) {
-    await docRef.collection('versions').doc(date).delete()
+    const batch = db.batch()
+    batch.delete(docRef.collection('versions').doc(date))
+    batch.delete(db.collection('room_preference_modes').doc(date))
+    await batch.commit()
     const doc = await docRef.get()
     if (doc.exists && doc.data()?.nextChange?.effectiveFrom === date) {
       await docRef.set({ nextChange: admin.firestore.FieldValue.delete() }, { merge: true })

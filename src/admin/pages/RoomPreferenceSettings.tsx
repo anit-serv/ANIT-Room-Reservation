@@ -1,45 +1,39 @@
 import { useEffect, useState } from 'react'
 import { adminFetch } from '../auth'
 
-type Version = { effectiveFrom: string; enabled: boolean }
 type NotificationRow = { date: string; pollStatus: string | null; notificationSentAt: number | null;
   notificationError: string | null; notificationDirty: boolean }
 
-export default function RoomPreferenceSettings({ effectiveFrom }: { effectiveFrom: string }) {
-  const [versions, setVersions] = useState<Version[]>([])
-  const [minDate, setMinDate] = useState('')
-  const [enabled, setEnabled] = useState(false)
+export default function RoomPreferenceSettings({ enabled, onEnabledChange }: {
+  enabled: boolean; onEnabledChange: (enabled: boolean) => void
+}) {
   const [expanded, setExpanded] = useState(false)
-  const [loaded, setLoaded] = useState(false)
   const [mode, setMode] = useState<'post' | 'comment'>('post')
   const [fallback, setFallback] = useState(false)
   const [commentConfigured, setCommentConfigured] = useState(false)
   const [manager, setManager] = useState<{ userId: string; displayName: string } | null>(null)
+  const [users, setUsers] = useState<{ userId: string; displayName: string; banned: boolean }[]>([])
+  const [userSearch, setUserSearch] = useState('')
   const [targetUserId, setTargetUserId] = useState('')
-  const [inviteUrl, setInviteUrl] = useState('')
   const [notifications, setNotifications] = useState<NotificationRow[]>([])
   const [cleanupPending, setCleanupPending] = useState(0)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [busy, setBusy] = useState(false)
 
+  useEffect(() => { if (enabled) setExpanded(true) }, [enabled])
+
   async function load() {
-    const [configRes, managerRes, notificationsRes] = await Promise.all([
-      adminFetch('/api/room/config'), adminFetch('/api/room/manager'), adminFetch('/api/room/notifications'),
+    const [configRes, managerRes, notificationsRes, usersRes] = await Promise.all([
+      adminFetch('/api/room/config'), adminFetch('/api/room/manager'),
+      adminFetch('/api/room/notifications'), adminFetch('/api/admin/users'),
     ])
     if (!configRes.ok) throw new Error('設定を取得できませんでした')
     const config = await configRes.json()
-    const nextVersions: Version[] = config.versions ?? []
-    setVersions(nextVersions); setMinDate(config.minimumModeDate)
-    if (!loaded) {
-      const nextEnabled = nextVersions[0]?.enabled ?? false
-      setEnabled(nextEnabled)
-      setExpanded(nextEnabled)
-      setLoaded(true)
-    }
     setMode(config.notificationMode); setFallback(config.fallbackPost)
     setCommentConfigured(config.commentBandConfigured)
     if (managerRes.ok) setManager((await managerRes.json()).manager)
+    if (usersRes.ok) setUsers((await usersRes.json()).users ?? [])
     if (notificationsRes.ok) {
       const data = await notificationsRes.json()
       setNotifications(data.results ?? []); setCleanupPending(data.cleanupPending ?? 0)
@@ -60,25 +54,16 @@ export default function RoomPreferenceSettings({ effectiveFrom }: { effectiveFro
     finally { setBusy(false) }
   }
 
-  async function invite() {
-    setBusy(true); setError('')
-    try {
-      const response = await adminFetch('/api/room/invite', { method: 'POST' })
-      const data = await response.json()
-      if (!response.ok) throw new Error(data.error ?? '招待を作成できませんでした')
-      setInviteUrl(data.url)
-    } catch (err: any) { setError(err.message) }
-    finally { setBusy(false) }
-  }
-
   async function assign() {
+    const target = users.find((user) => user.userId === targetUserId)
+    if (!target || !window.confirm(`${target.displayName || target.userId} に部屋取り権限を移譲しますか？`)) return
     setBusy(true); setError('')
     try {
       const response = await adminFetch('/api/room/manager', { method: 'PUT',
         headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId: targetUserId.trim() }) })
       const data = await response.json()
       if (!response.ok) throw new Error(data.error ?? '再割当に失敗しました')
-      setTargetUserId(''); await load(); setNotice('部屋取り権限を再割当しました')
+      setTargetUserId(''); setUserSearch(''); await load(); setNotice('部屋取り権限を移譲しました')
     } catch (err: any) { setError(err.message) }
     finally { setBusy(false) }
   }
@@ -107,20 +92,13 @@ export default function RoomPreferenceSettings({ effectiveFrom }: { effectiveFro
         </div>
         <label className="flex items-center gap-3 cursor-pointer select-none">
           <span className="text-sm font-semibold">{enabled ? 'オン' : 'オフ'}</span>
-          <input type="checkbox" role="switch" aria-label="希望部屋モード" checked={enabled} disabled={!loaded || busy}
-            onChange={(event) => { setEnabled(event.target.checked); setExpanded(event.target.checked) }}
+          <input type="checkbox" role="switch" aria-label="希望部屋モード" checked={enabled}
+            onChange={(event) => { onEnabledChange(event.target.checked); setExpanded(event.target.checked) }}
             className="sr-only peer" />
           <span aria-hidden="true" className="relative w-11 h-6 rounded-full bg-line peer-checked:bg-brand peer-focus-visible:ring-2 peer-focus-visible:ring-brand transition-colors after:absolute after:top-0.5 after:left-0.5 after:h-5 after:w-5 after:rounded-full after:bg-white after:shadow after:transition-transform peer-checked:after:translate-x-5" />
         </label>
       </div>
-      <p className="text-[0.82rem] text-ink-sub mt-3">画面下部の「適用日」で選んだ日から切り替えます。予約画面に出る前に確定するため、8日前までに設定してください。</p>
-      <div className="flex flex-wrap gap-3 items-end mt-3">
-        <span className="text-sm text-ink-sub">適用日: <strong className="text-ink">{effectiveFrom || '未選択'}</strong></span>
-        <button className="btn-primary w-auto px-4" disabled={busy || !loaded || !effectiveFrom || effectiveFrom < minDate}
-          onClick={() => save({ effectiveFrom, enabled })}>切替を予約</button>
-      </div>
-      {!!versions.length && <ul className="text-sm text-ink-sub mt-3 space-y-1">{versions.map((item) =>
-        <li key={item.effectiveFrom}>{item.effectiveFrom}から {item.enabled ? 'オン' : 'オフ'}</li>)}</ul>}
+      <p className="text-[0.82rem] text-ink-sub mt-3">画面下部の「適用日」と「確認する」から、他の設定と一緒に保存します。</p>
       {enabled && <div className="mt-4 border-t border-line pt-3">
         <button type="button" className="flex w-full items-center justify-between text-sm font-semibold text-ink"
           aria-expanded={expanded} aria-controls="room-preference-details" onClick={() => setExpanded((value) => !value)}>
@@ -131,12 +109,17 @@ export default function RoomPreferenceSettings({ effectiveFrom }: { effectiveFro
           <div className="rounded-lg border border-line p-4">
             <h3 className="font-bold mb-2">部屋取り権限者</h3>
             <p className="text-sm mb-3">現在: {manager ? `${manager.displayName} (${manager.userId})` : '未登録'}</p>
-            <button className="btn-outline" disabled={busy} onClick={invite}>新しい権限者の招待リンクを作成</button>
-            {inviteUrl && <input className="text-input mt-2" readOnly value={inviteUrl} onFocus={(event) => event.target.select()} />}
-            <p className="text-sm text-ink-sub mt-4 mb-2">ログイン不能時は、登録済みユーザーIDを指定して再割当できます。</p>
-            <div className="flex gap-2"><input className="text-input" placeholder="LINEユーザーID" value={targetUserId}
-              onChange={(event) => setTargetUserId(event.target.value)} />
-              <button className="btn-outline" disabled={busy || !targetUserId.trim()} onClick={assign}>再割当</button></div>
+            <p className="text-sm text-ink-sub mb-2">登録済みユーザーを選んで移譲します。</p>
+            <input className="text-input" placeholder="ユーザー名で検索" value={userSearch}
+              onChange={(event) => { setUserSearch(event.target.value); setTargetUserId('') }} />
+            <select className="text-input mt-2" aria-label="移譲先ユーザー" value={targetUserId}
+              onChange={(event) => setTargetUserId(event.target.value)}>
+              <option value="">移譲先を選択</option>
+              {users.filter((user) => user.userId !== manager?.userId && !user.banned &&
+                `${user.displayName} ${user.userId}`.toLowerCase().includes(userSearch.toLowerCase()))
+                .map((user) => <option key={user.userId} value={user.userId}>{user.displayName || '名前なし'} ({user.userId})</option>)}
+            </select>
+            <button className="btn-outline mt-2" disabled={busy || !targetUserId} onClick={assign}>選択したユーザーへ移譲</button>
           </div>
         </div>}
       </div>}

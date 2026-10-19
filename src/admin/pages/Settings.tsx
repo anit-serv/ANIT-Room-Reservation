@@ -20,6 +20,7 @@ type SettingsCore = {
 }
 
 type ScheduledChange = SettingsCore & { effectiveFrom: string; lotteryTime?: string }
+type RoomModeVersion = { effectiveFrom: string; enabled: boolean }
 
 type SettingsResponse = SettingsCore & {
   nextChange: ScheduledChange | null
@@ -29,6 +30,7 @@ type SettingsResponse = SettingsCore & {
   notifyTime: string
   hamoaniStartDate?: string | null
   hamoaniEndDate?: string | null
+  roomModeVersions?: RoomModeVersion[]
 }
 
 const WEEK_DAYS = ['日', '月', '火', '水', '木', '金', '土']
@@ -41,6 +43,10 @@ function minEffectiveDate(): string {
   const d = new Date(Date.now() + 9 * 60 * 60 * 1000)
   d.setUTCDate(d.getUTCDate() + 8)
   return d.toISOString().slice(0, 10)
+}
+
+function roomModeAtDate(date: string, versions: RoomModeVersion[]): boolean {
+  return versions.find((version) => version.effectiveFrom <= date)?.enabled ?? false
 }
 
 function emptySchedule(): PerDaySchedule {
@@ -70,16 +76,13 @@ export default function Settings() {
   const [lotteryMode, setLotteryMode] = useState<'previous-day' | 'same-day'>(cached?.lotteryMode ?? 'previous-day')
   const [operationLotteryTime, setOperationLotteryTime] = useState(cached?.lotteryTime ?? '21:00')
   const [notifyTime, setNotifyTime] = useState(cached?.notifyTime ?? cached?.lotteryTime ?? '21:00')
-  const [operationSaving, setOperationSaving] = useState(false)
   const [hamoaniStartDate, setHamoaniStartDate] = useState<string>(cached?.hamoaniStartDate ?? '')
   const [hamoaniEndDate,   setHamoaniEndDate]   = useState<string>(cached?.hamoaniEndDate ?? '')
-  const [savedHamoaniStartDate, setSavedHamoaniStartDate] = useState<string>(cached?.hamoaniStartDate ?? '')
-  const [savedHamoaniEndDate,   setSavedHamoaniEndDate]   = useState<string>(cached?.hamoaniEndDate ?? '')
-  const [savingHamoani, setSavingHamoani] = useState(false)
-  const [hamoaniMessage, setHamoaniMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [roomModeVersions, setRoomModeVersions] = useState<RoomModeVersion[]>(cached?.roomModeVersions ?? [])
+  const [roomModeEnabled, setRoomModeEnabled] = useState(() => roomModeAtDate(minEffectiveDate(), cached?.roomModeVersions ?? []))
   const { showToast } = useToast()
 
-  useEffect(() => { load(); loadPresets() }, [])
+  useEffect(() => { load(true); loadPresets() }, [])
 
   async function loadPresets() {
     try {
@@ -132,11 +135,13 @@ export default function Settings() {
     setPerDaySchedule(s.perDaySchedule ?? emptySchedule())
   }
 
-  async function load() {
+  async function load(resetRoomMode = false) {
     const res = await adminFetch('/api/admin/settings')
     if (!res.ok) { setMessage({ type: 'error', text: '設定の取得に失敗しました' }); return }
     const data = (await res.json()) as SettingsResponse
     setCurrent(data)
+    setRoomModeVersions(data.roomModeVersions ?? [])
+    if (resetRoomMode) setRoomModeEnabled(roomModeAtDate(effectiveFrom, data.roomModeVersions ?? []))
     setPageCache<SettingsResponse>(SETTINGS_CACHE_KEY, data)
     setLotteryTime(data.lotteryTime ?? '21:00')
     setLotteryMode(data.lotteryMode ?? 'previous-day')
@@ -145,7 +150,6 @@ export default function Settings() {
     const hStart = data.hamoaniStartDate ?? ''
     const hEnd   = data.hamoaniEndDate ?? ''
     setHamoaniStartDate(hStart); setHamoaniEndDate(hEnd)
-    setSavedHamoaniStartDate(hStart); setSavedHamoaniEndDate(hEnd)
     if (!editingScheduled) applyToForm(data)
   }
 
@@ -155,6 +159,7 @@ export default function Settings() {
     applyToForm(change)
     setLotteryTime(change.lotteryTime ?? current?.lotteryTime ?? '21:00')
     setEffectiveFrom(change.effectiveFrom)
+    setRoomModeEnabled(roomModeAtDate(change.effectiveFrom, roomModeVersions))
     setEditingScheduled(true)
     setEditingScheduledDate(change.effectiveFrom)
     setMessage(null)
@@ -165,6 +170,7 @@ export default function Settings() {
     applyToForm(current)
     setLotteryTime(current.lotteryTime ?? '21:00')
     setEffectiveFrom(minEffectiveDate())
+    setRoomModeEnabled(roomModeAtDate(minEffectiveDate(), roomModeVersions))
     setEditingScheduled(false)
     setEditingScheduledDate(null)
   }
@@ -182,7 +188,13 @@ export default function Settings() {
     return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`
   }
 
-  const lotteryTimeInvalid = !lotteryTime || lotteryTime < '03:00' || lotteryTime > (current?.notifyTime ?? '23:59')
+  const lotteryTimeInvalid = !lotteryTime || lotteryTime < '03:00' || lotteryTime > notifyTime
+  const operationDirty = !!current && (lotteryMode !== current.lotteryMode ||
+    operationLotteryTime !== current.lotteryTime || notifyTime !== current.notifyTime)
+  const hamoaniDirty = !!current && (hamoaniStartDate !== (current.hamoaniStartDate ?? '') ||
+    hamoaniEndDate !== (current.hamoaniEndDate ?? ''))
+  const hamoaniRangeInvalid = !!hamoaniStartDate && !!hamoaniEndDate && hamoaniStartDate > hamoaniEndDate
+  const hamoaniIncomplete = (!!hamoaniStartDate && !hamoaniEndDate) || (!hamoaniStartDate && !!hamoaniEndDate)
 
   const isDirty = useMemo(() => {
     if (!current) return false
@@ -193,9 +205,11 @@ export default function Settings() {
       sortedStr(extraDates)         !== sortedStr(current.extraDates ?? []) ||
       sortedStr(excludedDates)      !== sortedStr(current.excludedDates ?? []) ||
       JSON.stringify(perDaySchedule) !== JSON.stringify(current.perDaySchedule ?? emptySchedule()) ||
-      lotteryTime !== (current.lotteryTime ?? '21:00')
+      lotteryTime !== (current.lotteryTime ?? '21:00') ||
+      roomModeEnabled !== roomModeAtDate(effectiveFrom, roomModeVersions) ||
+      operationDirty || hamoaniDirty
     )
-  }, [current, availableDays, timeSlots, extraDates, excludedDates, perDaySchedule, lotteryTime])
+  }, [current, availableDays, timeSlots, extraDates, excludedDates, perDaySchedule, lotteryTime, roomModeEnabled, effectiveFrom, roomModeVersions, operationDirty, hamoaniDirty])
 
   const effectiveDirty = isDirty
 
@@ -222,6 +236,14 @@ export default function Settings() {
 
   function goToConfirm() {
     setMessage(null)
+    if (!operationLotteryTime || !notifyTime || operationLotteryTime > notifyTime) {
+      setMessage({ type: 'error', text: '通知時刻は抽選時刻以降に設定してください' })
+      return
+    }
+    if (hamoaniIncomplete || hamoaniRangeInvalid) {
+      setMessage({ type: 'error', text: 'ハモアニ期間の開始日・終了日を正しく指定してください' })
+      return
+    }
     if (lotteryTimeInvalid) {
       setMessage({ type: 'error', text: '適用予定の抽選時刻は03:00以降、通知時刻以前に設定してください' })
       return
@@ -256,24 +278,6 @@ export default function Settings() {
     setStep('confirming')
   }
 
-  async function saveLotteryOperation() {
-    setOperationSaving(true)
-    try {
-      const res = await adminFetch('/api/admin/settings/lottery-operation', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ lotteryMode, lotteryTime: operationLotteryTime, notifyTime }),
-      })
-      const result = await res.json()
-      if (!res.ok) throw new Error(result.error ?? '保存に失敗しました')
-      showToast(result.cronWarning ? `保存しました。${result.cronWarning}` : '抽選運用設定を保存しました')
-      await load()
-    } catch (err: any) {
-      setMessage({ type: 'error', text: err.message })
-    } finally {
-      setOperationSaving(false)
-    }
-  }
 
   async function save() {
     setMessage(null)
@@ -288,11 +292,30 @@ export default function Settings() {
     }
 
     setSaving(true)
+    const applied: string[] = []
     try {
+      if (operationDirty) {
+        const operationRes = await adminFetch('/api/admin/settings/lottery-operation', {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ lotteryMode, lotteryTime: operationLotteryTime, notifyTime }),
+        })
+        const operationResult = await operationRes.json()
+        if (!operationRes.ok) throw new Error(operationResult.error ?? '抽選運用の保存に失敗しました')
+        applied.push('抽選運用')
+      }
+      if (hamoaniDirty) {
+        const hamoaniRes = await adminFetch('/api/admin/settings/hamoani-period', {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ hamoaniStartDate: hamoaniStartDate || null, hamoaniEndDate: hamoaniEndDate || null }),
+        })
+        const hamoaniResult = await hamoaniRes.json()
+        if (!hamoaniRes.ok) throw new Error(hamoaniResult.error ?? 'ハモアニ期間の保存に失敗しました')
+        applied.push('ハモアニ期間')
+      }
       const res = await adminFetch('/api/admin/settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ availableDays, timeSlots, extraDates, excludedDates, perDaySchedule, effectiveFrom: finalEffective, lotteryTime }),
+        body: JSON.stringify({ availableDays, timeSlots, extraDates, excludedDates, perDaySchedule, effectiveFrom: finalEffective, lotteryTime, roomPreferenceEnabled: roomModeEnabled }),
       })
       const result = await res.json()
       if (!res.ok) throw new Error(result.error ?? '保存に失敗しました')
@@ -302,48 +325,16 @@ export default function Settings() {
       setStep('editing')
       load()
     } catch (err: any) {
-      setMessage({ type: 'error', text: err.message })
+      setMessage({ type: 'error', text: applied.length
+        ? `${applied.join('・')}は保存されました。残りは保存できませんでした: ${err.message}`
+        : err.message })
       setStep('editing')
     } finally {
       setSaving(false)
     }
   }
 
-  const hamoaniDirty = hamoaniStartDate !== savedHamoaniStartDate || hamoaniEndDate !== savedHamoaniEndDate
-  const hamoaniRangeInvalid = !!hamoaniStartDate && !!hamoaniEndDate && hamoaniStartDate > hamoaniEndDate
-  const hamoaniIncomplete = (!!hamoaniStartDate && !hamoaniEndDate) || (!hamoaniStartDate && !!hamoaniEndDate)
 
-  async function saveHamoaniPeriod() {
-    setHamoaniMessage(null)
-    if (hamoaniIncomplete) {
-      setHamoaniMessage({ type: 'error', text: '開始日・終了日は両方とも指定してください（両方空なら無効化されます）' })
-      return
-    }
-    if (hamoaniRangeInvalid) {
-      setHamoaniMessage({ type: 'error', text: '開始日は終了日より前（または同じ日）にしてください' })
-      return
-    }
-    setSavingHamoani(true)
-    try {
-      const res = await adminFetch('/api/admin/settings/hamoani-period', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          hamoaniStartDate: hamoaniStartDate || null,
-          hamoaniEndDate: hamoaniEndDate || null,
-        }),
-      })
-      const result = await res.json()
-      if (!res.ok) throw new Error(result.error ?? '保存に失敗しました')
-      setSavedHamoaniStartDate(result.hamoaniStartDate ?? '')
-      setSavedHamoaniEndDate(result.hamoaniEndDate ?? '')
-      showToast(result.hamoaniStartDate ? 'ハモアニ期間を保存しました' : 'ハモアニ期間を無効化しました')
-    } catch (err: any) {
-      setHamoaniMessage({ type: 'error', text: err.message })
-    } finally {
-      setSavingHamoani(false)
-    }
-  }
 
   async function execCancelScheduled() {
     if (!cancelTarget) return
@@ -353,7 +344,7 @@ export default function Settings() {
     showToast('予約済みの変更を取り消しました')
     setEditingScheduled(false)
     setEditingScheduledDate(null)
-    load()
+    load(true)
   }
 
   if (!current) return (
@@ -420,6 +411,11 @@ export default function Settings() {
               ['追加日',               `${extraDates.length}件`],
               ['除外日',               `${excludedDates.length}件`],
               ['曜日/日付別スケジュール', perDaySchedule.enabled ? '有効' : '無効'],
+              ['希望部屋モード',        roomModeEnabled ? 'オン' : 'オフ'],
+              ['抽選日（即時反映）',    lotteryMode === 'previous-day' ? '利用日の前日' : '利用日当日'],
+              ['運用抽選時刻（即時反映）', operationLotteryTime],
+              ['通知時刻（即時反映）', notifyTime],
+              ['ハモアニ期間（即時反映）', hamoaniStartDate && hamoaniEndDate ? `${hamoaniStartDate} 〜 ${hamoaniEndDate}` : '無効'],
             ] as [string, string][]).map(([label, value]) => (
               <tr key={label} className="border-b border-line last:border-0">
                 <td className="py-3 pr-4 text-ink-sub font-medium w-44 text-[0.88rem]">{label}</td>
@@ -447,7 +443,7 @@ export default function Settings() {
     <div className="pb-80">
       <h1 className="text-2xl font-bold mb-6">設定 - 農部生協</h1>
 
-      <RoomPreferenceSettings effectiveFrom={effectiveFrom} />
+      <RoomPreferenceSettings enabled={roomModeEnabled} onEnabledChange={setRoomModeEnabled} />
 
       {message && <div className="banner-error">{message.text}</div>}
 
@@ -528,7 +524,6 @@ export default function Settings() {
             <label className="block text-[0.8rem] text-ink-sub mb-1">通知時刻</label>
             <input type="time" className="text-input" min="00:00" max="23:59" value={notifyTime} onChange={(e) => setNotifyTime(e.target.value)} />
           </div>
-          <button className="btn-primary w-auto px-5" onClick={saveLotteryOperation} disabled={operationSaving || isDirty} title={isDirty ? '通常設定の未保存変更を先に保存してください' : undefined}>{operationSaving ? '保存中...' : '運用設定を保存'}</button>
         </div>
         <p className="mt-2 text-[0.82rem] text-ink-sub">通知時刻は抽選時刻以降。当日モードの抽選は最初の利用枠より前に設定してください。</p>
       </div>
@@ -577,26 +572,13 @@ export default function Settings() {
             <label className="block text-[0.8rem] text-ink-sub mb-1">終了日</label>
             <DatePicker value={hamoaniEndDate} onChange={setHamoaniEndDate} min={hamoaniStartDate || undefined} clearable />
           </div>
-          <button
-            className="btn-primary w-auto px-4 self-end"
-            onClick={saveHamoaniPeriod}
-            disabled={savingHamoani || !hamoaniDirty}
-          >
-            {savingHamoani ? '保存中...' : '保存'}
-          </button>
         </div>
-        {hamoaniMessage && (
-          <p className={`mt-2 text-[0.85rem] ${hamoaniMessage.type === 'error' ? 'text-danger' : 'text-ink-sub'}`}>
-            {hamoaniMessage.type === 'error' && <span className="icon icon-sm align-middle">error</span>}
-            {' '}{hamoaniMessage.text}
-          </p>
-        )}
-        {!hamoaniMessage && savedHamoaniStartDate && savedHamoaniEndDate && (
+        {!!current?.hamoaniStartDate && !!current?.hamoaniEndDate && (
           <p className="mt-2 text-[0.82rem] text-ink-sub">
-            現在有効: <strong className="text-ink">{savedHamoaniStartDate} 〜 {savedHamoaniEndDate}</strong>
+            現在有効: <strong className="text-ink">{current.hamoaniStartDate} 〜 {current.hamoaniEndDate}</strong>
           </p>
         )}
-        {!hamoaniMessage && (!savedHamoaniStartDate || !savedHamoaniEndDate) && (
+        {(!current?.hamoaniStartDate || !current?.hamoaniEndDate) && (
           <p className="mt-2 text-[0.82rem] text-ink-pale">現在は無効です</p>
         )}
       </div>
@@ -718,7 +700,10 @@ export default function Settings() {
           現在予約可能な最長日（7日後）との競合を避けるため、
           <strong>{minDate}</strong> 以降の日付を指定してください。
         </p>
-        <DatePicker value={effectiveFrom} onChange={setEffectiveFrom} min={minDate} />
+        <DatePicker value={effectiveFrom} onChange={(date) => {
+          setEffectiveFrom(date)
+          setRoomModeEnabled(roomModeAtDate(date, roomModeVersions))
+        }} min={minDate} />
       </div>
 
       <button className="btn-primary max-w-[300px]" onClick={goToConfirm}>
