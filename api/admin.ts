@@ -17,6 +17,7 @@ import {
   listPendingReservationSettingsChanges,
   listReservationDayOverrides,
   listReservationLotteryOverrides,
+  normalizeLotteryTimeOverrides,
   isDateAvailableBySettings,
   isTimeSlotAvailableBySettings,
   pickTimeSlotsForDate,
@@ -625,6 +626,8 @@ async function handleSettings(req: VercelRequest, res: VercelResponse) {
       nextChange:     pendingChange,
       scheduledChanges,
       lotteryTime:    data.lotteryTime,
+      defaultLotteryTime: data.defaultLotteryTime,
+      lotteryTimeOverrides: data.lotteryTimeOverrides,
       lotteryMode:    data.lotteryMode,
       notifyTime:     data.notifyTime,
       hamoaniStartDate: data.hamoaniStartDate,
@@ -637,8 +640,8 @@ async function handleSettings(req: VercelRequest, res: VercelResponse) {
     const validated = validateSettings(req.body)
     if (typeof validated === 'string') return res.status(400).json({ error: validated })
 
-    const { effectiveFrom, lotteryTime, roomPreferenceEnabled } = (req.body ?? {}) as {
-      effectiveFrom?: string; lotteryTime?: string; roomPreferenceEnabled?: boolean
+    const { effectiveFrom, lotteryTime, lotteryTimeOverrides, roomPreferenceEnabled } = (req.body ?? {}) as {
+      effectiveFrom?: string; lotteryTime?: string; lotteryTimeOverrides?: { byWeekday?: Record<string, string>; byDate?: Record<string, string> }; roomPreferenceEnabled?: boolean
     }
 
     if (!effectiveFrom || !isValidDate(effectiveFrom)) {
@@ -651,7 +654,16 @@ async function handleSettings(req: VercelRequest, res: VercelResponse) {
       return res.status(400).json({ error: '適用予定の抽選時刻は03:00以降にしてください（日次ジョブ更新後）' })
     }
     const currentOperation = await resolveReservationSettingsForDate(db, todayJST())
-    if (lotteryTime > currentOperation.notifyTime) {
+    const overrides = normalizeLotteryTimeOverrides(lotteryTimeOverrides)
+    const weekdayEntries = Object.entries(lotteryTimeOverrides?.byWeekday ?? {})
+    const dateEntries = Object.entries(lotteryTimeOverrides?.byDate ?? {})
+    if (weekdayEntries.length !== Object.keys(overrides.byWeekday).length || dateEntries.length !== Object.keys(overrides.byDate).length ||
+        Object.values(overrides.byWeekday).some((time) => time < '03:00') || Object.values(overrides.byDate).some((time) => time < '03:00') ||
+        dateEntries.some(([date]) => !isValidDate(date) || date < effectiveFrom)) {
+      return res.status(400).json({ error: '抽選時刻の例外設定を確認してください。時刻は03:00以降、特定日は適用日以降にしてください' })
+    }
+    const allLotteryTimes = [lotteryTime, ...Object.values(overrides.byWeekday), ...Object.values(overrides.byDate)]
+    if (allLotteryTimes.some((time) => time > currentOperation.notifyTime)) {
       return res.status(400).json({ error: '抽選時刻は通知時刻以前にしてください' })
     }
     if (currentOperation.lotteryMode === 'same-day') {
@@ -661,7 +673,7 @@ async function handleSettings(req: VercelRequest, res: VercelResponse) {
         ...Object.values(validated.perDaySchedule.byDate ?? {}).flat(),
       ]
       const starts = allSlots.map((slot) => slot.value.split('-')[0]).filter(Boolean)
-      if (starts.length && lotteryTime >= starts.sort()[0]) {
+      if (starts.length && allLotteryTimes.some((time) => time >= starts.sort()[0])) {
         return res.status(400).json({ error: '当日モードの抽選時刻は最初の利用枠より前にしてください' })
       }
     }
@@ -685,6 +697,7 @@ async function handleSettings(req: VercelRequest, res: VercelResponse) {
     batch.set(docRef.collection('versions').doc(effectiveFrom), {
       ...validated,
       lotteryTime,
+      lotteryTimeOverrides: overrides,
       effectiveFrom,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       updatedBy: me.userId,
@@ -696,7 +709,7 @@ async function handleSettings(req: VercelRequest, res: VercelResponse) {
     })
     batch.set(docRef, { nextChange: admin.firestore.FieldValue.delete() }, { merge: true })
     await batch.commit()
-    await audit(me, 'settings.schedule', { targetType: 'settings', details: { ...validated, lotteryTime, effectiveFrom, roomPreferenceEnabled } })
+    await audit(me, 'settings.schedule', { targetType: 'settings', details: { ...validated, lotteryTime, lotteryTimeOverrides: overrides, effectiveFrom, roomPreferenceEnabled } })
     return res.status(200).json({ applied: 'scheduled', effectiveFrom })
   }
 

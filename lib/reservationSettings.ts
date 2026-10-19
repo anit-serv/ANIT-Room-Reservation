@@ -19,6 +19,8 @@ export type ReservationSettingsCore = {
 export type ReservationSettings = ReservationSettingsCore & {
   effectiveFrom: string
   lotteryTime: string
+  defaultLotteryTime: string
+  lotteryTimeOverrides: LotteryTimeOverrides
   lotteryMode: 'previous-day' | 'same-day'
   notifyTime: string
   dayOverride?: ReservationDayOverride | null
@@ -32,7 +34,10 @@ export type ReservationSettingsVersion = ReservationSettingsCore & {
   effectiveFrom: string
   /** このバージョンが適用される日以降の抽選時刻（HH:MM）。未設定なら base 値にフォールバック */
   lotteryTime?: string
+  lotteryTimeOverrides: LotteryTimeOverrides
 }
+
+export type LotteryTimeOverrides = { byWeekday: Record<string, string>; byDate: Record<string, string> }
 
 const LOTTERY_TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/
 
@@ -59,6 +64,21 @@ export const DEFAULT_NOTIFY_TIME = '21:00'
 export const BASE_EFFECTIVE_FROM = '0000-00-00'
 
 const EMPTY_SCHEDULE: PerDaySchedule = { enabled: false, byWeekday: {}, byDate: {} }
+const EMPTY_LOTTERY_OVERRIDES: LotteryTimeOverrides = { byWeekday: {}, byDate: {} }
+
+export function normalizeLotteryTimeOverrides(value: any): LotteryTimeOverrides {
+  const validEntries = (entries: any, keyCheck: (key: string) => boolean) =>
+    Object.fromEntries(Object.entries(entries ?? {}).filter(([key, time]) => keyCheck(key) && typeof time === 'string' && LOTTERY_TIME_RE.test(time))) as Record<string, string>
+  return {
+    byWeekday: validEntries(value?.byWeekday, (key) => /^[0-6]$/.test(key)),
+    byDate: validEntries(value?.byDate, (key) => DATE_ONLY_RE.test(key)),
+  }
+}
+
+function lotteryTimeForDate(date: string, normalTime: string, overrides: LotteryTimeOverrides): string {
+  const weekday = String(new Date(`${date}T00:00:00Z`).getUTCDay())
+  return overrides.byDate[date] ?? overrides.byWeekday[weekday] ?? normalTime
+}
 
 export function todayJST(): string {
   return new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10)
@@ -94,6 +114,8 @@ export function normalizeReservationSettings(data: any, effectiveFrom = BASE_EFF
     ...normalizeReservationSettingsCore(data),
     effectiveFrom,
     lotteryTime: data?.lotteryTime ?? DEFAULT_LOTTERY_TIME,
+    defaultLotteryTime: data?.lotteryTime ?? DEFAULT_LOTTERY_TIME,
+    lotteryTimeOverrides: normalizeLotteryTimeOverrides(data?.lotteryTimeOverrides),
     lotteryMode: data?.lotteryMode === 'same-day' ? 'same-day' : 'previous-day',
     notifyTime: typeof data?.notifyTime === 'string' && LOTTERY_TIME_RE.test(data.notifyTime)
       ? data.notifyTime : (data?.lotteryTime ?? DEFAULT_NOTIFY_TIME),
@@ -150,6 +172,7 @@ function normalizeVersion(data: any): ReservationSettingsVersion | null {
     ...normalizeReservationSettingsCore(data),
     effectiveFrom: data.effectiveFrom,
     ...(lotteryTime ? { lotteryTime } : {}),
+    lotteryTimeOverrides: normalizeLotteryTimeOverrides(data?.lotteryTimeOverrides),
   }
 }
 
@@ -312,7 +335,9 @@ export async function resolveReservationSettingsForDate(
   const sortedApplicable = applicable.sort(compareEffectiveFrom)
   const latest = sortedApplicable[sortedApplicable.length - 1]
   // 抽選時刻の優先順位: 日付別緊急上書き > 適用中バージョン > base
-  const lotteryTime = lotteryOverride?.lotteryTime ?? latest?.lotteryTime ?? base.lotteryTime
+  const defaultLotteryTime = latest?.lotteryTime ?? base.defaultLotteryTime
+  const lotteryTimeOverrides = latest?.lotteryTimeOverrides ?? base.lotteryTimeOverrides
+  const lotteryTime = lotteryOverride?.lotteryTime ?? lotteryTimeForDate(date, defaultLotteryTime, lotteryTimeOverrides)
   const notifyTime = typeof data?.notifyTime === 'string' && LOTTERY_TIME_RE.test(data.notifyTime)
     ? base.notifyTime : lotteryTime
   // ハモアニ期間はバージョン管理せず base の値をそのまま使う（管理画面から自由に即時変更する運用のため）
@@ -322,6 +347,8 @@ export async function resolveReservationSettingsForDate(
   return {
     ...latest,
     lotteryTime,
+    defaultLotteryTime,
+    lotteryTimeOverrides,
     lotteryMode: base.lotteryMode,
     notifyTime,
     dayOverride,
@@ -402,11 +429,13 @@ export async function resolveReservationSettingsForDates(
     const candidates = allVersions.filter((version) => version.effectiveFrom <= date)
     const latest = candidates[candidates.length - 1]
     // 抽選時刻の優先順位: 日付別緊急上書き > 適用中バージョン > base
-    const lotteryTime = lotteryOverridesByDate[date]?.lotteryTime ?? latest?.lotteryTime ?? base.lotteryTime
+    const defaultLotteryTime = latest?.lotteryTime ?? base.defaultLotteryTime
+    const lotteryTimeOverrides = latest?.lotteryTimeOverrides ?? base.lotteryTimeOverrides
+    const lotteryTime = lotteryOverridesByDate[date]?.lotteryTime ?? lotteryTimeForDate(date, defaultLotteryTime, lotteryTimeOverrides)
     const notifyTime = typeof data?.notifyTime === 'string' && LOTTERY_TIME_RE.test(data.notifyTime)
       ? base.notifyTime : lotteryTime
     result[date] = latest
-      ? { ...latest, lotteryTime, lotteryMode: base.lotteryMode, notifyTime, dayOverride: overridesByDate[date], hamoaniStartDate: base.hamoaniStartDate, hamoaniEndDate: base.hamoaniEndDate }
+      ? { ...latest, lotteryTime, defaultLotteryTime, lotteryTimeOverrides, lotteryMode: base.lotteryMode, notifyTime, dayOverride: overridesByDate[date], hamoaniStartDate: base.hamoaniStartDate, hamoaniEndDate: base.hamoaniEndDate }
       : { ...base, lotteryTime, notifyTime, dayOverride: overridesByDate[date] }
   }
   return result
