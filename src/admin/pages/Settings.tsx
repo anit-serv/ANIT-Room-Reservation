@@ -80,6 +80,10 @@ export default function Settings() {
   const [hamoaniEndDate,   setHamoaniEndDate]   = useState<string>(cached?.hamoaniEndDate ?? '')
   const [roomModeVersions, setRoomModeVersions] = useState<RoomModeVersion[]>(cached?.roomModeVersions ?? [])
   const [roomModeEnabled, setRoomModeEnabled] = useState(() => roomModeAtDate(minEffectiveDate(), cached?.roomModeVersions ?? []))
+  const [notificationMode, setNotificationMode] = useState<'post' | 'comment'>('post')
+  const [fallbackPost, setFallbackPost] = useState(false)
+  const [savedNotification, setSavedNotification] = useState<{ mode: 'post' | 'comment'; fallback: boolean } | null>(null)
+  const [commentConfigured, setCommentConfigured] = useState(false)
   const { showToast } = useToast()
 
   useEffect(() => { load(true); loadPresets() }, [])
@@ -136,8 +140,14 @@ export default function Settings() {
   }
 
   async function load(resetRoomMode = false) {
-    const res = await adminFetch('/api/admin/settings')
+    const [res, roomConfigRes] = await Promise.all([adminFetch('/api/admin/settings'), adminFetch('/api/room/config')])
     if (!res.ok) { setMessage({ type: 'error', text: '設定の取得に失敗しました' }); return }
+    if (!roomConfigRes.ok) { setMessage({ type: 'error', text: '通知方式を取得できませんでした' }); return }
+    const roomConfig = await roomConfigRes.json()
+    setNotificationMode(roomConfig.notificationMode ?? 'post')
+    setFallbackPost(roomConfig.fallbackPost === true)
+    setSavedNotification({ mode: roomConfig.notificationMode ?? 'post', fallback: roomConfig.fallbackPost === true })
+    setCommentConfigured(roomConfig.commentBandConfigured === true)
     const data = (await res.json()) as SettingsResponse
     setCurrent(data)
     setRoomModeVersions(data.roomModeVersions ?? [])
@@ -195,6 +205,7 @@ export default function Settings() {
     hamoaniEndDate !== (current.hamoaniEndDate ?? ''))
   const hamoaniRangeInvalid = !!hamoaniStartDate && !!hamoaniEndDate && hamoaniStartDate > hamoaniEndDate
   const hamoaniIncomplete = (!!hamoaniStartDate && !hamoaniEndDate) || (!hamoaniStartDate && !!hamoaniEndDate)
+  const notificationDirty = !!savedNotification && (notificationMode !== savedNotification.mode || fallbackPost !== savedNotification.fallback)
 
   const isDirty = useMemo(() => {
     if (!current) return false
@@ -207,9 +218,9 @@ export default function Settings() {
       JSON.stringify(perDaySchedule) !== JSON.stringify(current.perDaySchedule ?? emptySchedule()) ||
       lotteryTime !== (current.lotteryTime ?? '21:00') ||
       roomModeEnabled !== roomModeAtDate(effectiveFrom, roomModeVersions) ||
-      operationDirty || hamoaniDirty
+      operationDirty || hamoaniDirty || notificationDirty
     )
-  }, [current, availableDays, timeSlots, extraDates, excludedDates, perDaySchedule, lotteryTime, roomModeEnabled, effectiveFrom, roomModeVersions, operationDirty, hamoaniDirty])
+  }, [current, availableDays, timeSlots, extraDates, excludedDates, perDaySchedule, lotteryTime, roomModeEnabled, effectiveFrom, roomModeVersions, operationDirty, hamoaniDirty, notificationDirty])
 
   const effectiveDirty = isDirty
 
@@ -236,6 +247,10 @@ export default function Settings() {
 
   function goToConfirm() {
     setMessage(null)
+    if (!savedNotification || (notificationMode === 'comment' && !commentConfigured)) {
+      setMessage({ type: 'error', text: !savedNotification ? '通知方式を取得できませんでした' : 'コメント先BANDのキーが未設定です' })
+      return
+    }
     if (!operationLotteryTime || !notifyTime || operationLotteryTime > notifyTime) {
       setMessage({ type: 'error', text: '通知時刻は抽選時刻以降に設定してください' })
       return
@@ -294,6 +309,15 @@ export default function Settings() {
     setSaving(true)
     const applied: string[] = []
     try {
+      if (notificationDirty) {
+        const notificationRes = await adminFetch('/api/room/config', {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ notificationMode, fallbackPost }),
+        })
+        const notificationResult = await notificationRes.json()
+        if (!notificationRes.ok) throw new Error(notificationResult.error ?? '通知方式の保存に失敗しました')
+        applied.push('BAND通知方式')
+      }
       if (operationDirty) {
         const operationRes = await adminFetch('/api/admin/settings/lottery-operation', {
           method: 'PUT', headers: { 'Content-Type': 'application/json' },
@@ -412,6 +436,8 @@ export default function Settings() {
               ['除外日',               `${excludedDates.length}件`],
               ['曜日/日付別スケジュール', perDaySchedule.enabled ? '有効' : '無効'],
               ['希望部屋モード',        roomModeEnabled ? 'オン' : 'オフ'],
+              ['BAND通知方式',         notificationMode === 'comment' ? 'メンション投稿にコメント' : '新規投稿'],
+              ...(notificationMode === 'comment' ? [['対象投稿がない場合', fallbackPost ? '1時間後に自動投稿' : '手動通知']] : []),
               ['抽選日（即時反映）',    lotteryMode === 'previous-day' ? '利用日の前日' : '利用日当日'],
               ['運用抽選時刻（即時反映）', operationLotteryTime],
               ['通知時刻（即時反映）', notifyTime],
@@ -443,7 +469,9 @@ export default function Settings() {
     <div className="pb-80">
       <h1 className="text-2xl font-bold mb-6">設定 - 農部生協</h1>
 
-      <RoomPreferenceSettings enabled={roomModeEnabled} onEnabledChange={setRoomModeEnabled} />
+      <RoomPreferenceSettings enabled={roomModeEnabled} onEnabledChange={setRoomModeEnabled}
+        mode={notificationMode} onModeChange={setNotificationMode} fallback={fallbackPost}
+        onFallbackChange={setFallbackPost} commentConfigured={commentConfigured} />
 
       {message && <div className="banner-error">{message.text}</div>}
 

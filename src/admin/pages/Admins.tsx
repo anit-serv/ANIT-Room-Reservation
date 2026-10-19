@@ -24,18 +24,23 @@ type Invitation = {
   used: boolean
   usedBy: string | null
 }
+type TransferUser = { userId: string; displayName: string; banned: boolean }
 
 const ADMINS_CACHE_KEY = 'admins-with-room-manager'
 type AdminsCache = {
   me: { userId: string; isSuperAdmin?: boolean } | null
   admins: Admin[]
   invitations: Invitation[]
+  users: TransferUser[]
 }
 
 export default function Admins() {
   const cached = getPageCache<AdminsCache>(ADMINS_CACHE_KEY)
   const [admins, setAdmins]           = useState<Admin[]>(cached?.admins ?? [])
   const [invitations, setInvitations] = useState<Invitation[]>(cached?.invitations ?? [])
+  const [users, setUsers] = useState<TransferUser[]>(cached?.users ?? [])
+  const [userSearch, setUserSearch] = useState('')
+  const [targetUserId, setTargetUserId] = useState('')
   const [loading, setLoading]         = useState(!cached)
   const [me, setMe]                   = useState<{ userId: string; isSuperAdmin?: boolean } | null>(cached?.me ?? null)
   const [generated, setGenerated]     = useState<{ url: string; expiresAt: string } | null>(null)
@@ -53,21 +58,25 @@ export default function Admins() {
   const load = useCallback(async () => {
     if (!getPageCache<AdminsCache>(ADMINS_CACHE_KEY)) setLoading(true)
     try {
-      const [meRes, adminRes, invRes] = await Promise.all([
+      const [meRes, adminRes, invRes, usersRes] = await Promise.all([
         adminFetch('/api/admin/auth/me'),
         adminFetch('/api/admin/admins'),
         adminFetch('/api/admin/invitations'),
+        adminFetch('/api/admin/users'),
       ])
       const meData = await meRes.json()
       const adminData = await adminRes.json()
       const invitationData = await invRes.json()
+      const usersData = usersRes.ok ? await usersRes.json() : { users: [] }
       setMe(meData)
       setAdmins(adminData.admins)
       setInvitations(invitationData.invitations)
+      setUsers(usersData.users ?? [])
       setPageCache<AdminsCache>(ADMINS_CACHE_KEY, {
         me: meData,
         admins: adminData.admins,
         invitations: invitationData.invitations,
+        users: usersData.users ?? [],
       })
     } catch { /* ignore */ } finally { setLoading(false) }
   }, [])
@@ -97,6 +106,26 @@ export default function Admins() {
         if (!res.ok) throw new Error((await res.json()).error ?? '移譲に失敗しました')
         showToast(`「${a.displayName || a.userId}」にスーパー管理者を移譲しました`)
         setConfirmAction(null)
+        await load()
+      },
+    })
+  }
+
+  function transferRoomManager() {
+    const target = users.find((user) => user.userId === targetUserId)
+    if (!target) return
+    setConfirmAction({
+      title: '部屋取り権限を移譲しますか？',
+      message: `「${target.displayName || target.userId}」に部屋取り権限を移譲します。`,
+      confirmLabel: '移譲',
+      onConfirm: async () => {
+        const res = await adminFetch('/api/room/manager', { method: 'PUT',
+          headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId: target.userId }) })
+        if (!res.ok) throw new Error((await res.json()).error ?? '移譲に失敗しました')
+        setTargetUserId('')
+        setUserSearch('')
+        setConfirmAction(null)
+        showToast(`「${target.displayName || target.userId}」に部屋取り権限を移譲しました`)
         await load()
       },
     })
@@ -207,6 +236,22 @@ export default function Admins() {
             </button>
           </div>
         )}
+      </div>
+
+      <div className="admin-card">
+        <h2 className="text-base font-bold mb-2">部屋取り権限の移譲</h2>
+        <p className="text-sm mb-3">現在: {(() => { const manager = admins.find((admin) => admin.isRoomManager); return manager ? `${manager.displayName || manager.userId} (${manager.userId})` : '未登録' })()}</p>
+        <p className="text-sm text-ink-sub mb-2">登録済みユーザーから移譲先を選択します。</p>
+        <input className="text-input" placeholder="ユーザー名で検索" value={userSearch}
+          onChange={(event) => { setUserSearch(event.target.value); setTargetUserId('') }} />
+        <select className="text-input mt-2" aria-label="部屋取り権限の移譲先" value={targetUserId}
+          onChange={(event) => setTargetUserId(event.target.value)}>
+          <option value="">移譲先を選択</option>
+          {users.filter((user) => !user.banned && !admins.some((admin) => admin.isRoomManager && admin.userId === user.userId) &&
+            `${user.displayName} ${user.userId}`.toLowerCase().includes(userSearch.toLowerCase()))
+            .map((user) => <option key={user.userId} value={user.userId}>{user.displayName || '名前なし'} ({user.userId})</option>)}
+        </select>
+        <button className="btn-outline mt-2" disabled={!targetUserId} onClick={transferRoomManager}>選択したユーザーへ移譲</button>
       </div>
 
       {/* 現在の管理者 */}
