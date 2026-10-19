@@ -255,6 +255,7 @@
 @utility badge-danger    { @apply bg-danger-light text-danger; }
 @utility badge-info      { @apply bg-link-light text-link; }
 @utility badge-super     { background: var(--color-super-light); color: var(--color-super); border: 1px solid var(--color-super-border); }
+@utility badge-room      { @apply bg-violet-100 text-violet-800; }
 @utility badge-neutral   { @apply bg-bg text-ink-sub; }
 
 /* ── モーダル ─────────────────────────────────────── */

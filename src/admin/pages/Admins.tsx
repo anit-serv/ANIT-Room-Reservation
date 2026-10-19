@@ -9,7 +9,9 @@ type Admin = {
   userId: string
   displayName: string
   pictureUrl: string | null
+  isAdmin: boolean
   isSuperAdmin: boolean
+  isRoomManager: boolean
   addedAt: number | null
   addedBy: string | null
 }
@@ -23,7 +25,7 @@ type Invitation = {
   usedBy: string | null
 }
 
-const ADMINS_CACHE_KEY = 'admins'
+const ADMINS_CACHE_KEY = 'admins-with-room-manager'
 type AdminsCache = {
   me: { userId: string; isSuperAdmin?: boolean } | null
   admins: Admin[]
@@ -79,7 +81,7 @@ export default function Admins() {
       onConfirm: async () => {
         const res = await adminFetch(`/api/admin/admins/${a.userId}`, { method: 'DELETE' })
         if (!res.ok) throw new Error((await res.json()).error ?? '削除に失敗しました')
-        setAdmins((prev) => prev.filter((x) => x.userId !== a.userId))
+        await load()
         setConfirmAction(null)
       },
     })
@@ -110,7 +112,7 @@ export default function Admins() {
       setGenerated({ url: data.url, expiresAt: data.expiresAt })
       load()
     } catch {
-      setMessage({ type: 'error', text: '招待リンクの生成に失敗しました' })
+      setMessage('招待リンクの生成に失敗しました')
     } finally {
       setGenerating(false)
     }
@@ -210,7 +212,7 @@ export default function Admins() {
       {/* 現在の管理者 */}
       <div className="bg-surface border border-line rounded-xl overflow-hidden shadow-[var(--shadow-card-sm)] mb-4">
         <div className="px-5 py-4 border-b border-line">
-          <h2 className="text-base font-bold m-0">現在の管理者 ({admins.length}名)</h2>
+          <h2 className="text-base font-bold m-0">現在の権限者 ({admins.length}名)</h2>
         </div>
 
         {/* Desktop */}
@@ -234,6 +236,12 @@ export default function Admins() {
                     {a.isSuperAdmin && (
                       <span className="badge badge-super"><span className="icon icon-sm">star</span>スーパー管理者</span>
                     )}
+                    {a.isAdmin && !a.isSuperAdmin && (
+                      <span className="badge badge-info"><span className="icon icon-sm">shield_person</span>管理者</span>
+                    )}
+                    {a.isRoomManager && (
+                      <span className="badge badge-room"><span className="icon icon-sm">meeting_room</span>部屋取り</span>
+                    )}
                     {me?.userId === a.userId && <span className="badge badge-neutral">自分</span>}
                   </div>
                 </td>
@@ -242,7 +250,7 @@ export default function Admins() {
                 </td>
                 <td className="cell-actions">
                   <div className="flex gap-1.5 justify-end">
-                    {me?.isSuperAdmin && !a.isSuperAdmin && me?.userId !== a.userId && (
+                    {a.isAdmin && me?.isSuperAdmin && !a.isSuperAdmin && me?.userId !== a.userId && (
                       <button
                         className="btn-icon hover:text-[var(--color-super)] hover:border-[var(--color-super-border)] hover:bg-[var(--color-super-light)]"
                         onClick={() => transferSuper(a)}
@@ -252,7 +260,7 @@ export default function Admins() {
                         <span className="icon">star</span>
                       </button>
                     )}
-                    {!a.isSuperAdmin && me?.userId !== a.userId && (
+                    {a.isAdmin && !a.isSuperAdmin && me?.userId !== a.userId && (
                       <button className="btn-icon-danger" onClick={() => removeAdmin(a)} title="削除">
                         <span className="icon">person_remove</span>
                       </button>
@@ -386,10 +394,10 @@ function AdminMobileCard({
             {isSelf && <span className="badge badge-neutral">自分</span>}
           </div>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
-          {a.isSuperAdmin
-            ? <span className="badge badge-super"><span className="icon icon-sm">star</span>スーパー管理者</span>
-            : <span className="badge badge-info"><span className="icon icon-sm">shield_person</span>管理者</span>}
+        <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
+          {a.isSuperAdmin && <span className="badge badge-super"><span className="icon icon-sm">star</span>スーパー管理者</span>}
+          {a.isAdmin && !a.isSuperAdmin && <span className="badge badge-info"><span className="icon icon-sm">shield_person</span>管理者</span>}
+          {a.isRoomManager && <span className="badge badge-room"><span className="icon icon-sm">meeting_room</span>部屋取り</span>}
           <span className={`icon text-ink-pale transition-transform duration-200 ${open ? 'rotate-180' : ''}`}>
             expand_more
           </span>
@@ -405,7 +413,7 @@ function AdminMobileCard({
                 {a.addedAt ? new Date(a.addedAt).toLocaleDateString('ja-JP') : '-'}
               </span>
             </div>
-            {!isSelf && !a.isSuperAdmin && (
+            {!isSelf && a.isAdmin && !a.isSuperAdmin && (
               <div className="flex gap-2 pt-2">
                 {me?.isSuperAdmin && (
                   <button

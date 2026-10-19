@@ -1379,10 +1379,15 @@ async function handleAdminsList(req: VercelRequest, res: VercelResponse) {
     const status = err.message === 'Forbidden' ? 403 : 401
     return res.status(status).json({ error: err.message })
   }
-  const snapshot = await db.collection('admins').get()
-  const adminIds = snapshot.docs.map((d) => d.id)
-  const userDocs = adminIds.length > 0
-    ? await db.getAll(...adminIds.map((id) => db.collection('users').doc(id)))
+  const [snapshot, managerDoc] = await Promise.all([
+    db.collection('admins').get(),
+    db.collection('settings').doc('room-manager').get(),
+  ])
+  const managerData = managerDoc.data()
+  const managerId = typeof managerData?.userId === 'string' ? managerData.userId : null
+  const userIds = [...new Set([...snapshot.docs.map((d) => d.id), ...(managerId ? [managerId] : [])])]
+  const userDocs = userIds.length > 0
+    ? await db.getAll(...userIds.map((id) => db.collection('users').doc(id)))
     : []
   const pictureMap: Record<string, string | null> = {}
   userDocs.forEach((d) => { pictureMap[d.id] = d.exists ? (d.data()?.pictureUrl ?? null) : null })
@@ -1393,11 +1398,26 @@ async function handleAdminsList(req: VercelRequest, res: VercelResponse) {
       userId: d.id,
       displayName: data.displayName ?? '',
       pictureUrl: pictureMap[d.id] ?? null,
+      isAdmin: true,
       isSuperAdmin: data.isSuperAdmin === true,
+      isRoomManager: d.id === managerId,
       addedAt: data.addedAt?.toMillis?.() ?? null,
       addedBy: data.addedBy ?? null,
     }
-  }).sort((a, b) => {
+  })
+  if (managerId && !snapshot.docs.some((doc) => doc.id === managerId)) {
+    admins.push({
+      userId: managerId,
+      displayName: managerData?.displayName ?? userDocs.find((doc) => doc.id === managerId)?.data()?.displayName ?? '',
+      pictureUrl: pictureMap[managerId] ?? null,
+      isAdmin: false,
+      isSuperAdmin: false,
+      isRoomManager: true,
+      addedAt: managerData?.updatedAt?.toMillis?.() ?? null,
+      addedBy: managerData?.updatedBy ?? null,
+    })
+  }
+  admins.sort((a, b) => {
     // スーパー管理者を先頭、その後 addedAt 順
     if (a.isSuperAdmin !== b.isSuperAdmin) return a.isSuperAdmin ? -1 : 1
     return (a.addedAt ?? 0) - (b.addedAt ?? 0)
