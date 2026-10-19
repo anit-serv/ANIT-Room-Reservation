@@ -6,13 +6,14 @@ import FavoritePicker, { type Favorite } from '../../components/FavoritePicker'
 
 type Props = { profile: LiffProfile; onBookingActive?: (active: boolean) => void }
 type TimeSlot  = { label: string; value: string }
-type DateEntry = { label: string; value: string; timeSlots: TimeSlot[]; lotteryTime?: string; hamoaniActive?: boolean }
+type DateEntry = { label: string; value: string; timeSlots: TimeSlot[]; lotteryTime?: string; hamoaniActive?: boolean; roomPreferenceEnabled?: boolean; roomRegistrationPending?: boolean; roomChoices?: Record<string, string[]> }
 
 export default function ReservationForm({ profile, onBookingActive }: Props) {
   const [bandName,          setBandName]          = useState('')
   const [dates,             setDates]             = useState<DateEntry[]>([])
   const [selectedDate,      setSelectedDate]      = useState('')
   const [selectedTime,      setSelectedTime]      = useState('')
+  const [preferredRooms,    setPreferredRooms]    = useState<string[]>([])
   const [hamoani,           setHamoani]           = useState(false)
   const [submitting,        setSubmitting]        = useState(false)
   const [done,              setDone]              = useState(false)
@@ -43,9 +44,11 @@ export default function ReservationForm({ profile, onBookingActive }: Props) {
 
   const selectedDateEntry = dates.find((d) => d.value === selectedDate)
   const timeSlots = selectedDateEntry?.timeSlots ?? []
+  const roomChoices = selectedDateEntry?.roomChoices?.[selectedTime] ?? []
 
   function handleSelectDate(value: string) {
     setSelectedDate(value)
+    setPreferredRooms([])
     const newEntry = dates.find((d) => d.value === value)
     if (!newEntry) return
     if (!newEntry.hamoaniActive) setHamoani(false)
@@ -84,7 +87,23 @@ export default function ReservationForm({ profile, onBookingActive }: Props) {
     }
   }
 
-  const canSubmit = bandName.trim() && selectedDate && selectedTime && !submitting
+  const canSubmit = bandName.trim() && selectedDate && selectedTime && !submitting &&
+    (!selectedDateEntry?.roomPreferenceEnabled || preferredRooms.length > 0)
+
+  function toggleRoom(room: string) {
+    setPreferredRooms((current) => current.includes(room)
+      ? current.filter((item) => item !== room) : [...current, room])
+  }
+
+  function moveRoom(index: number, direction: number) {
+    setPreferredRooms((current) => {
+      const next = [...current]
+      const other = index + direction
+      if (other < 0 || other >= next.length) return current
+      ;[next[index], next[other]] = [next[other], next[index]]
+      return next
+    })
+  }
 
   async function handleSubmit() {
     if (!canSubmit) return
@@ -102,6 +121,7 @@ export default function ReservationForm({ profile, onBookingActive }: Props) {
           date: `${selectedDate}T${selectedTime}`,
           ...(selectedFavId ? { favoriteId: selectedFavId } : {}),
           ...(selectedDateEntry?.hamoaniActive ? { hamoani } : {}),
+          ...(selectedDateEntry?.roomPreferenceEnabled ? { preferredRooms } : {}),
         }),
       })
       if (!res.ok) throw new Error((await res.json()).error ?? '登録に失敗しました')
@@ -116,7 +136,7 @@ export default function ReservationForm({ profile, onBookingActive }: Props) {
 
   function reset() {
     setBandName(''); setSelectedDate(''); setSelectedTime(''); setDone(false); setError(null)
-    setSelectedFavId(null); setPreferredTimeSlot(null); setFavSaved(false); setHamoani(false)
+    setSelectedFavId(null); setPreferredTimeSlot(null); setFavSaved(false); setHamoani(false); setPreferredRooms([])
   }
 
   const dateLabel = dates.find((d) => d.value === selectedDate)?.label ?? ''
@@ -147,6 +167,7 @@ export default function ReservationForm({ profile, onBookingActive }: Props) {
           timeLabel={timeLabel}
           lotteryTime={lotteryTime}
           hamoani={selectedDateEntry?.hamoaniActive ? hamoani : undefined}
+          preferredRooms={selectedDateEntry?.roomPreferenceEnabled ? preferredRooms : undefined}
         />
         {!isAlreadyFav && !favSaved && (
           <button
@@ -195,8 +216,8 @@ export default function ReservationForm({ profile, onBookingActive }: Props) {
       <SectionCard step={2} label="日付" complete={!!selectedDate}>
         <div className="grid grid-cols-3 gap-2">
           {dates.map((d) => (
-            <SelectButton key={d.value} active={selectedDate === d.value} onClick={() => handleSelectDate(d.value)}>
-              {d.label}
+            <SelectButton key={d.value} active={selectedDate === d.value} disabled={d.roomRegistrationPending || d.timeSlots.length === 0} onClick={() => handleSelectDate(d.value)}>
+              {d.label}{d.roomRegistrationPending ? <span className="block text-[0.7rem]">部屋登録待ち</span> : null}
             </SelectButton>
           ))}
         </div>
@@ -205,12 +226,31 @@ export default function ReservationForm({ profile, onBookingActive }: Props) {
       <SectionCard step={3} label="時間帯" complete={!!selectedTime}>
         <div className="grid grid-cols-2 gap-2">
           {timeSlots.map((t) => (
-            <SelectButton key={t.value} active={selectedTime === t.value} onClick={() => setSelectedTime(t.value)}>
+            <SelectButton key={t.value} active={selectedTime === t.value} onClick={() => { setSelectedTime(t.value); setPreferredRooms([]) }}>
               {t.label}
             </SelectButton>
           ))}
         </div>
       </SectionCard>
+
+      {selectedDateEntry?.roomPreferenceEnabled && selectedTime && (
+        <SectionCard step={4} label="希望部屋（上から希望順）" complete={preferredRooms.length > 0}>
+          <p className="text-[0.8rem] text-ink-sub mb-2">希望する部屋だけ選べます。希望順は矢印で変更してください。</p>
+          <div className="flex flex-wrap gap-2 mb-3">
+            {roomChoices.map((room) => <button key={room} type="button" onClick={() => toggleRoom(room)}
+              className={`px-3 py-2 rounded-lg border text-sm ${preferredRooms.includes(room) ? 'bg-brand text-white border-brand' : 'border-line'}`}>
+              {room}
+            </button>)}
+          </div>
+          <ol className="space-y-2">
+            {preferredRooms.map((room, index) => <li key={room} className="flex items-center gap-2 text-sm">
+              <span className="w-6">{index + 1}.</span><span className="flex-1">{room}</span>
+              <button type="button" aria-label={`${room}を上へ`} disabled={index === 0} onClick={() => moveRoom(index, -1)} className="px-2 disabled:opacity-30">↑</button>
+              <button type="button" aria-label={`${room}を下へ`} disabled={index === preferredRooms.length - 1} onClick={() => moveRoom(index, 1)} className="px-2 disabled:opacity-30">↓</button>
+            </li>)}
+          </ol>
+        </SectionCard>
+      )}
 
       {selectedDateEntry?.hamoaniActive && (
         <div className="bg-surface border border-line rounded-xl p-4 mb-3 shadow-[var(--shadow-card-sm)]">
@@ -237,6 +277,7 @@ export default function ReservationForm({ profile, onBookingActive }: Props) {
           <SummaryRow label="日付" value={dateLabel} />
           <SummaryRow label="時間帯" value={timeLabel} />
           {selectedDateEntry?.hamoaniActive && <SummaryRow label="ハモアニ" value={hamoani ? '有効' : '無効'} />}
+          {selectedDateEntry?.roomPreferenceEnabled && <SummaryRow label="希望部屋" value={preferredRooms.join(' → ')} />}
         </div>
       )}
 
@@ -272,14 +313,16 @@ function SectionCard({
 }
 
 function SelectButton({
-  active, onClick, children,
-}: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  active, disabled, onClick, children,
+}: { active: boolean; disabled?: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
     <button
       onClick={onClick}
+      disabled={disabled}
       className={
         'px-1 py-2.5 rounded-lg text-[0.85rem] cursor-pointer text-center transition active:scale-[0.97] border-[1.5px] ' +
-        (active ? 'bg-brand border-brand text-white font-semibold' : 'bg-[#fafafa] border-line text-ink-sub')
+        (active ? 'bg-brand border-brand text-white font-semibold' : 'bg-[#fafafa] border-line text-ink-sub') +
+        (disabled ? ' opacity-40 cursor-not-allowed' : '')
       }
     >
       {children}
@@ -287,8 +330,8 @@ function SelectButton({
   )
 }
 
-function Summary({ bandName, dateLabel, timeLabel, lotteryTime, hamoani }: {
-  bandName: string; dateLabel: string; timeLabel: string; lotteryTime?: string; hamoani?: boolean
+function Summary({ bandName, dateLabel, timeLabel, lotteryTime, hamoani, preferredRooms }: {
+  bandName: string; dateLabel: string; timeLabel: string; lotteryTime?: string; hamoani?: boolean; preferredRooms?: string[]
 }) {
   return (
     <div className="bg-surface border border-line rounded-xl p-4 mb-3 shadow-[var(--shadow-card-sm)]">
@@ -297,6 +340,7 @@ function Summary({ bandName, dateLabel, timeLabel, lotteryTime, hamoani }: {
       <SummaryRow label="時間帯" value={timeLabel} />
       {lotteryTime && <SummaryRow label="抽選時刻" value={lotteryTime} />}
       {hamoani !== undefined && <SummaryRow label="ハモアニ" value={hamoani ? '有効' : '無効'} />}
+      {preferredRooms && <SummaryRow label="希望部屋" value={preferredRooms.join(' → ')} />}
     </div>
   )
 }

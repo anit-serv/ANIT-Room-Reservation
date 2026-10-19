@@ -1,149 +1,54 @@
-import { VercelRequest, VercelResponse } from '@vercel/node';
-import * as admin from 'firebase-admin';
-import axios from 'axios'; // BAND APIを叩くために必要
-import { lotteryTargetDate } from '../lib/lotteryOperation';
-import 'dotenv/config';
+import { VercelRequest, VercelResponse } from '@vercel/node'
+import * as admin from 'firebase-admin'
+import { lotteryTargetDate } from '../lib/lotteryOperation'
+import { bandUserKey, writeBandPost } from '../lib/band'
+import { notificationWindow, resultMessage } from '../lib/notificationMessage'
+import 'dotenv/config'
 
-// ---------------------------------------------------------
-// 1. 設定・初期化
-// ---------------------------------------------------------
-const privateKey = process.env.FIREBASE_PRIVATE_KEY
-  ? process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n')
-  : undefined;
+const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n')
+if (!admin.apps.length) admin.initializeApp({ credential: admin.credential.cert({
+  projectId: process.env.FIREBASE_PROJECT_ID,
+  clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+  privateKey,
+}) })
+const db = admin.firestore()
 
-if (!admin.apps.length) {
-  if (!privateKey) throw new Error('FIREBASE_PRIVATE_KEY is missing');
-  admin.initializeApp({
-    credential: admin.credential.cert({
-      projectId: process.env.FIREBASE_PROJECT_ID,
-      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-      privateKey: privateKey,
-    }),
-  });
-}
-const db = admin.firestore();
-
-// ---------------------------------------------------------
-// 2. メイン処理
-// ---------------------------------------------------------
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // セキュリティチェック
-  const { key, date } = req.query;
-  if (key !== process.env.CRON_SECRET) {
-    return res.status(401).json({ status: 'error', message: 'Unauthorized' });
+  if (!process.env.CRON_SECRET ||
+      (req.query.key !== process.env.CRON_SECRET && req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`)) {
+    return res.status(401).json({ error: 'Unauthorized' })
   }
-
   try {
-    // 1. 通知対象の日付（明日）を計算
-    // ※ dateパラメータがあればそれを使用（テスト用）
-    let targetDateStr: string;
+    const date = typeof req.query.date === 'string' ? req.query.date : await lotteryTargetDate(db)
+    if (!date) return res.status(200).json({ status: 'skipped' })
+    const ref = db.collection('lottery_results').doc(date)
+    const result = await ref.get()
+    if (!result.exists) return res.status(503).json({ error: 'Lottery results missing' })
+    const data = result.data()!
+    if (data.notificationSentAt || data.pollStatus) return res.status(200).json({ status: 'skipped' })
+    const content = resultMessage(date, data)
+    if (!content) return res.status(200).json({ status: 'skipped', reason: 'empty' })
 
-    if (date && typeof date === 'string') {
-      targetDateStr = date;
-    } else {
-      const scheduledDate = await lotteryTargetDate(db);
-      if (!scheduledDate) return res.status(200).json({ status: 'skipped', message: 'No lottery scheduled today.' });
-      targetDateStr = scheduledDate;
-    }
-
-    console.log(`Checking lottery results for: ${targetDateStr}`);
-
-    // 2. Firestoreから抽選結果を取得
-    const resultDoc = await db.collection('lottery_results').doc(targetDateStr).get();
-
-    if (!resultDoc.exists) {
-      const pending = await db.collection('reservations')
-        .where('status', '==', 'pending')
-        .where('date', '>=', `${targetDateStr}T00:00`)
-        .where('date', '<=', `${targetDateStr}T23:59`)
-        .limit(1).get();
-      return res.status(pending.empty ? 200 : 503).json({
-        status: pending.empty ? 'skipped' : 'error',
-        message: pending.empty ? 'No reservations to notify.' : `Lottery results missing for ${targetDateStr}.`,
-      });
-    }
-    if (resultDoc.data()?.notificationSentAt) {
-      return res.status(200).json({ status: 'skipped', message: 'Notification already sent.' });
-    }
-
-    const data = resultDoc.data();
-    const results = data?.results || {};
-
-    // 結果がない場合（空の日）
-    if (Object.keys(results).length === 0) {
-      return res.status(200).json({ status: 'skipped', message: 'No entries found.' });
-    }
-
-    // 3. 投稿メッセージを作成（確定は抽選実行時に済ませる）
-    const timeSlots = Object.keys(results);
-    const displayDate = targetDateStr.replace(/-/g, '/').slice(5); // 12/21
-    const weekDays = ['日', '月', '火', '水', '木', '金', '土'];
-    const dateObj = new Date(targetDateStr);
-    const wd = weekDays[dateObj.getDay()];
-
-    let message = `📢 【部屋取り抽選結果】＜${displayDate}(${wd})＞\n\n`;
-    
-    // 時間帯リストをソート（既に取得済み）
-    const sortedTimeSlots = timeSlots.sort();
-
-    let hasContent = false;
-
-    for (const timeSlot of sortedTimeSlots) {
-      const slotData = results[timeSlot];
-      const bands: string[] = slotData.order || [];
-      const hamoaniBands: string[] = slotData.hamoaniBands || [];
-
-      if (bands.length > 0) {
-        hasContent = true;
-        message += `【${timeSlot}】\n`;
-        bands.forEach((bandName, index) => {
-          const displayName = hamoaniBands.includes(bandName) ? `${bandName}（ハモアニ）` : bandName;
-          message += `${index + 1}. ${displayName}\n`;
-        });
-        message += `\n`;
+    if (data.notificationMode === 'comment') {
+      const { startsAt, endsAt } = notificationWindow(date, data.lotteryMode ?? 'previous-day', data.notifyTime ?? '21:00')
+      if (Date.now() >= endsAt.getTime()) {
+        await ref.update({ pollStatus: 'unnotified', notificationError: 'Notification window was missed' })
+        return res.status(200).json({ status: 'unnotified' })
       }
+      await ref.update({ pollStatus: 'active', pollStartsAt: startsAt, pollEndsAt: endsAt,
+        pollTargetDate: date, pollLotteryMode: data.lotteryMode ?? 'previous-day',
+        deliveries: {}, pollLastSuccessAt: null })
+      return res.status(200).json({ status: 'polling', targetDate: date })
     }
 
-    if (!hasContent) {
-      return res.status(200).json({ status: 'skipped', message: 'No bands to notify.' });
-    }
-
-    message += `------------------\n`;
-    message += `※詳細はLINE ANIT部屋取りシステム【全登録一覧】からも確認できます。`;
-
-    // 5. BAND APIに投稿
-    const bandAccessToken = process.env.BAND_ACCESS_TOKEN;
-    const bandKey = process.env.BAND_KEY;
-
-    if (!bandAccessToken || !bandKey) {
-      throw new Error('BAND API credentials are missing.');
-    }
-
-    // BAND API: 投稿作成 (v2.2)
-    // 公式ドキュメント: https://developers.band.us/develop/guide/api/write_post.html
-    const response = await axios.post('https://openapi.band.us/v2.2/band/post/create', null, {
-      params: {
-        access_token: bandAccessToken,
-        band_key: bandKey,
-        content: message,
-        do_push: true // プッシュ通知を送る
-      }
-    });
-
-    // レスポンスコードの確認 (result_code: 1 = 成功)
-    if (response.data?.result_code !== 1) {
-      throw new Error(`BAND API returned error: ${JSON.stringify(response.data)}`);
-    }
-    await resultDoc.ref.update({ notificationSentAt: admin.firestore.FieldValue.serverTimestamp() });
-
-    return res.status(200).json({
-      status: 'success',
-      message: 'Posted to BAND successfully.',
-      content: message
-    });
-
+    const ownKey = await bandUserKey()
+    const postKey = await writeBandPost(content, ownKey)
+    await ref.update({ notificationSentAt: new Date(), notificationRevisionSent: data.notificationRevision ?? 1,
+      deliveries: { post: { postKey, content, revision: data.notificationRevision ?? 1 } },
+      notificationDirty: false })
+    return res.status(200).json({ status: 'success', targetDate: date })
   } catch (error: any) {
-    console.error(error);
-    return res.status(500).json({ status: 'error', error: error.message });
+    console.error('BAND notification error:', error.message)
+    return res.status(500).json({ error: error.message })
   }
 }

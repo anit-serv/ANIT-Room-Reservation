@@ -166,7 +166,11 @@ LINE_LOGIN_CHANNEL_SECRET=your-login-channel-secret
 
 # BAND API（抽選結果通知）
 BAND_ACCESS_TOKEN=your-band-access-token
-BAND_KEY=your-band-key
+BAND_KEY=your-post-band-key
+BAND_COMMENT_KEY=your-comment-band-key
+
+# 投稿先を明示する場合（BAND_KEY より優先）
+BAND_POST_KEY=your-post-band-key
 
 # Cron ジョブ認証
 CRON_SECRET=your-random-secret-key

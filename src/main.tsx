@@ -4,10 +4,12 @@ import { createBrowserRouter, RouterProvider } from 'react-router-dom'
 import './index.css'
 import LiffApp from './liff/LiffApp'
 import AdminApp from './admin/AdminApp'
+import RoomApp from './room/RoomApp'
 import { ToastProvider } from './contexts/ToastContext'
 
 const router = createBrowserRouter([
   { path: '/admin/*', element: <AdminApp /> },
+  { path: '/room/*', element: <RoomApp /> },
   { path: '/*',       element: <LiffApp /> },
 ])
 

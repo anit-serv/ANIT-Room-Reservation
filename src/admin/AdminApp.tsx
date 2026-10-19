@@ -12,6 +12,7 @@ import KobuSettings from './pages/KobuSettings'
 import Users from './pages/Users'
 import Admins from './pages/Admins'
 import Logs from './pages/Logs'
+import RoomPreferenceSettings from './pages/RoomPreferenceSettings'
 
 export default function AdminApp() {
   return (
@@ -25,6 +26,7 @@ export default function AdminApp() {
         <Route path="reservations/kobu" element={<KobuReservations />} />
         <Route path="settings" element={<Navigate to="/admin/settings/nobu" replace />} />
         <Route path="settings/nobu" element={<SeikyoSettings />} />
+        <Route path="settings/room-preference" element={<RoomPreferenceSettings />} />
         <Route path="settings/nobu-emergency" element={<NobuEmergencySettings />} />
         <Route path="settings/nobu-room" element={<NobuRoomSettings />} />
         <Route path="settings/kobu" element={<KobuSettings />} />

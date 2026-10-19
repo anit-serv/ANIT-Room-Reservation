@@ -13,6 +13,8 @@ import {
 } from '../lib/reservationSettings'
 import 'dotenv/config'
 import { reservationDeadline } from '../lib/lotteryOperation'
+import { getRoomDay, isRoomPreferenceEnabled, normalizeRoomList, roomDayRef, usableRooms } from '../lib/roomPreference'
+import { refreshLotterySlot } from '../lib/roomAllocation'
 
 const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n')
 if (!admin.apps.length) {
@@ -116,8 +118,8 @@ async function handleCreate(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method Not Allowed' })
   try {
     const { userId, name, picture } = await verifyLineToken(req.headers.authorization)
-    const { bandName, date, favoriteId, hamoani } = req.body as {
-      bandName: string; date: string; favoriteId?: string; hamoani?: boolean
+    const { bandName, date, favoriteId, hamoani, preferredRooms } = req.body as {
+      bandName: string; date: string; favoriteId?: string; hamoani?: boolean; preferredRooms?: string[]
     }
     if (!bandName || !date) return res.status(400).json({ error: 'bandName と date は必須です' })
     const [datePart, timePart] = date.split('T')
@@ -149,6 +151,21 @@ async function handleCreate(req: VercelRequest, res: VercelResponse) {
     }
     if (Date.now() >= reservationDeadline(datePart, settings.lotteryMode, settings.lotteryTime).getTime()) {
       return res.status(400).json({ error: 'この日の抽選受付は終了しました' })
+    }
+    const roomPreferenceEnabled = await isRoomPreferenceEnabled(db, datePart)
+    let finalPreferredRooms: string[] = []
+    if (roomPreferenceEnabled) {
+      const day = await getRoomDay(db, datePart)
+      const slots = pickTimeSlotsForDate(datePart, settings)
+      if (slots.some((slot) => !day.slots[slot.value]?.ready)) {
+        return res.status(400).json({ error: 'この日は部屋の登録が完了していません' })
+      }
+      const available = usableRooms(day.slots[timePart])
+      const selected = normalizeRoomList(preferredRooms)
+      if (!selected?.length || selected.some((room) => !available.includes(room))) {
+        return res.status(400).json({ error: '公開されている部屋から希望を1室以上選んでください' })
+      }
+      finalPreferredRooms = selected
     }
 
     // 同日に同名バンドが既に登録されていないかチェック
@@ -193,15 +210,32 @@ async function handleCreate(req: VercelRequest, res: VercelResponse) {
     if (!userDoc.exists) userUpdate.banned = false
     await userRef.set(userUpdate, { merge: true })
 
-    await db.collection('reservations').add({
+    const newReservation = {
       userId,
       bandName,
       date,
       status: 'pending',
       favoriteId: favoriteId ?? null,
       hamoani: finalHamoani,
+      roomPreferenceEnabled,
+      preferredRooms: finalPreferredRooms,
       createdAt: new Date(),
-    })
+    }
+    if (roomPreferenceEnabled) {
+      const dayRef = roomDayRef(db, datePart)
+      await db.runTransaction(async (tx) => {
+        const day = await tx.get(dayRef)
+        const slots = pickTimeSlotsForDate(datePart, settings)
+        if (slots.some((slot) => !day.data()?.slots?.[slot.value]?.ready)) throw new Error('この日は部屋の登録が完了していません')
+        const available = usableRooms(day.data()?.slots?.[timePart])
+        if (finalPreferredRooms.some((room) => !available.includes(room))) throw new Error('希望部屋が変更されました')
+        const reservationRef = db.collection('reservations').doc()
+        tx.create(reservationRef, newReservation)
+        tx.update(dayRef, { lastReservationAt: new Date() })
+      })
+    } else {
+      await db.collection('reservations').add(newReservation)
+    }
 
     // お気に入りの最終使用時間枠を自動更新
     if (favoriteId) {
@@ -239,6 +273,11 @@ async function handleMy(req: VercelRequest, res: VercelResponse) {
       cancelledAt: r.cancelledAt?.toMillis?.() ?? null,
       cancelledByType: r.cancelledByType ?? null,
       hamoani: r.hamoani === true,
+      roomPreferenceEnabled: r.roomPreferenceEnabled === true,
+      preferredRooms: r.preferredRooms ?? [],
+      assignedRoom: r.assignedRoom ?? null,
+      waitRank: r.waitRank ?? null,
+      lotteryRank: r.lotteryRank ?? null,
       ...getReservationAvailability(r.date, settingsByDate[r.date.split('T')[0]]),
     }))
     return res.status(200).json({ reservations })
@@ -266,7 +305,7 @@ async function handleAll(req: VercelRequest, res: VercelResponse) {
       .where('date', '<=', `${date}T23:59`)
       .get()
 
-    const slotMap: Record<string, { id: string; userId: string; bandName: string; status: string; order?: number; hamoani?: boolean }[]> = {}
+    const slotMap: Record<string, { id: string; userId: string; bandName: string; status: string; order?: number; hamoani?: boolean; assignedRoom?: string | null; waitRank?: number | null; lotteryRank?: number | null }[]> = {}
     snapshot.forEach((doc) => {
       const data = doc.data()
       if (data.status === 'cancelled') return
@@ -281,6 +320,9 @@ async function handleAll(req: VercelRequest, res: VercelResponse) {
         status:   data.status,
         order:    data.order,
         hamoani:  data.hamoani === true,
+        assignedRoom: data.assignedRoom ?? null,
+        waitRank: data.waitRank ?? null,
+        lotteryRank: data.lotteryRank ?? null,
       })
     })
 
@@ -320,12 +362,15 @@ async function handleDelete(req: VercelRequest, res: VercelResponse, docId: stri
     if (Date.now() >= new Date(`${datePart}T${startTime}:00+09:00`).getTime()) {
       return res.status(400).json({ error: '予約開始時刻を過ぎているためキャンセルできません' })
     }
-    await docRef.update({
-      status: 'cancelled',
-      cancelledAt: new Date(),
-      cancelledByType: 'user',
-      cancelledById: userId,
-      updatedAt: new Date(),
+    await db.runTransaction(async (tx) => {
+      const current = await tx.get(docRef)
+      if (!current.exists || current.data()?.userId !== userId) throw new Error('Forbidden')
+      if (current.data()?.status === 'cancelled') return
+      if (current.data()?.status === 'confirmed') {
+        await refreshLotterySlot(db, tx, datePart, timePart, [docId])
+      }
+      tx.update(docRef, { status: 'cancelled', cancelledAt: new Date(),
+        cancelledByType: 'user', cancelledById: userId, updatedAt: new Date() })
     })
     return res.status(200).json({ success: true })
   } catch (err: any) {
@@ -338,8 +383,8 @@ async function handleDelete(req: VercelRequest, res: VercelResponse, docId: stri
 async function handleModify(req: VercelRequest, res: VercelResponse, docId: string) {
   try {
     const { userId } = await verifyLineToken(req.headers.authorization)
-    const { bandName: newBandName, timeSlot: newTimeSlot } = (req.body ?? {}) as {
-      bandName?: string; timeSlot?: string
+    const { bandName: newBandName, timeSlot: newTimeSlot, preferredRooms: newPreferredRooms } = (req.body ?? {}) as {
+      bandName?: string; timeSlot?: string; preferredRooms?: string[]
     }
 
     const docRef = db.collection('reservations').doc(docId)
@@ -392,6 +437,22 @@ async function handleModify(req: VercelRequest, res: VercelResponse, docId: stri
         })
       }
       if (newDate !== data.date) updates.date = newDate
+    }
+
+    if (data.roomPreferenceEnabled === true && (newPreferredRooms !== undefined || updates.date)) {
+      if (data.status === 'confirmed') return res.status(400).json({ error: '抽選後は希望部屋を変更できません' })
+      const settings = await resolveReservationSettingsForDate(db, dateOnly)
+      if (Date.now() >= reservationDeadline(dateOnly, settings.lotteryMode, settings.lotteryTime).getTime()) {
+        return res.status(400).json({ error: 'この日の抽選受付は終了しました' })
+      }
+      const targetSlot = newTimeSlot ?? (data.date as string).split('T')[1]
+      const day = await getRoomDay(db, dateOnly)
+      const available = usableRooms(day.slots[targetSlot])
+      const selected = normalizeRoomList(newPreferredRooms ?? data.preferredRooms)
+      if (!selected?.length || selected.some((room) => !available.includes(room))) {
+        return res.status(400).json({ error: '変更先の時間枠で希望部屋を1室以上選んでください' })
+      }
+      updates.preferredRooms = selected
     }
 
     if (Object.keys(updates).length === 0) return res.status(200).json({ success: true })

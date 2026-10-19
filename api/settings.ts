@@ -13,6 +13,7 @@ import {
 } from '../lib/reservationSettings'
 import 'dotenv/config'
 import { reservationDeadline } from '../lib/lotteryOperation'
+import { getRoomDay, isRoomPreferenceEnabled, usableRooms } from '../lib/roomPreference'
 
 const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n')
 if (!admin.apps.length) {
@@ -31,6 +32,7 @@ const WEEK_DAYS = ['日', '月', '火', '水', '木', '金', '土']
 type DateEntry = {
   label: string; value: string; timeSlots: TimeSlot[]; effectiveFrom: string; lotteryTime: string
   hamoaniActive: boolean
+  roomPreferenceEnabled: boolean; roomChoices: Record<string, string[]>; roomRegistrationPending: boolean
 }
 
 // 今日から7日後まで（8日分）を見て、availableDays に該当 + extraDates - excludedDates の日付を集める
@@ -55,13 +57,21 @@ async function buildDateList(forView: boolean): Promise<DateEntry[]> {
     const m = dObj.getUTCMonth() + 1
     const day = dObj.getUTCDate()
     const wd = WEEK_DAYS[dObj.getUTCDay()]
+    const roomPreferenceEnabled = await isRoomPreferenceEnabled(db, dateStr)
+    const roomDay = roomPreferenceEnabled ? await getRoomDay(db, dateStr) : null
+    const allSlots = pickTimeSlotsForDate(dateStr, settings)
+    const roomChoices = Object.fromEntries(allSlots.map((slot) => [slot.value, usableRooms(roomDay?.slots[slot.value])]))
+    const roomRegistrationPending = roomPreferenceEnabled && allSlots.some((slot) => !roomDay?.slots[slot.value]?.ready)
     results.push({
       label: `${m}/${day}(${wd})`,
       value: dateStr,
-      timeSlots: pickTimeSlotsForDate(dateStr, settings),
+      timeSlots: forView || !roomPreferenceEnabled ? allSlots : allSlots.filter((slot) => roomChoices[slot.value].length > 0),
       effectiveFrom: settings.effectiveFrom,
       lotteryTime: settings.lotteryTime,
       hamoaniActive: isHamoaniActive(settings, dateStr),
+      roomPreferenceEnabled,
+      roomChoices,
+      roomRegistrationPending,
     })
   }
   return results

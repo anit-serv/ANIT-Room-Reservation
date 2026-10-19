@@ -1,4 +1,5 @@
 import axios from 'axios'
+import type { Firestore } from 'firebase-admin/firestore'
 
 export type CronApplyResult = { applied: boolean; warning?: string }
 
@@ -40,4 +41,30 @@ export async function applyLotteryCronSchedule(lotteryTime: string, notifyTime =
   } catch (err: any) {
     return { applied: false, warning: 'cron-job.orgの更新に失敗しました: ' + err.message }
   }
+}
+
+/** Provision a single cron-job.org job which calls the BAND poll worker every minute. */
+export async function ensureBandPollCron(db: Firestore, host: string | undefined): Promise<number> {
+  const apiKey = process.env.CRONJOB_ORG_API_KEY
+  const cronSecret = process.env.CRON_SECRET
+  const baseUrl = process.env.PUBLIC_BASE_URL ?? (host && /^[a-z0-9.-]+$/i.test(host) ? `https://${host}` : '')
+  if (!apiKey || !cronSecret || !baseUrl) throw new Error('BAND定期確認ジョブの設定が不足しています')
+  const ref = db.collection('settings').doc('room-preference')
+  const saved = await ref.get()
+  const jobId = saved.data()?.bandPollJobId
+  const headers = { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' }
+  const job = { enabled: true, title: 'ANIT BAND notification polling',
+    url: `${baseUrl.replace(/\/$/, '')}/api/band-poll?key=${encodeURIComponent(cronSecret)}`,
+    saveResponses: false,
+    schedule: { timezone: 'Asia/Tokyo', expiresAt: 0, hours: [-1], minutes: [-1],
+      mdays: [-1], months: [-1], wdays: [-1] } }
+  if (jobId) {
+    await axios.patch(`https://api.cron-job.org/jobs/${jobId}`, { job }, { headers })
+    return jobId
+  }
+  const response = await axios.put('https://api.cron-job.org/jobs', { job }, { headers })
+  const created = response.data?.jobId
+  if (!Number.isInteger(created)) throw new Error('BAND定期確認ジョブを作成できませんでした')
+  await ref.set({ bandPollJobId: created }, { merge: true })
+  return created
 }

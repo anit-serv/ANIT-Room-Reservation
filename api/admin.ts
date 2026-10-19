@@ -5,6 +5,7 @@ import axios from 'axios'
 import { verifyAdmin } from '../lib/verifyAdmin'
 import { applyLotteryCronSchedule } from '../lib/cronSchedule'
 import { lotteryTargetDate, reservationDeadline } from '../lib/lotteryOperation'
+import { refreshLotterySlot } from '../lib/roomAllocation'
 import {
   addDaysJST,
   BASE_EFFECTIVE_FROM,
@@ -213,12 +214,14 @@ async function handleAuthExchange(req: VercelRequest, res: VercelResponse) {
 // ─── LINE Login OAuth 開始 ──────────────────────────────
 function handleAuthStart(req: VercelRequest, res: VercelResponse) {
   const state = crypto.randomBytes(16).toString('hex')
+  const role = req.query.role === 'room' ? 'room' : 'admin'
   const baseUrl = `https://${req.headers.host}`
   const redirectUri = `${baseUrl}/api/admin/auth/callback`
 
   res.setHeader(
     'Set-Cookie',
-    `admin_oauth_state=${state}; HttpOnly; Secure; SameSite=Lax; Max-Age=600; Path=/`
+    [`admin_oauth_state=${state}; HttpOnly; Secure; SameSite=Lax; Max-Age=600; Path=/`,
+      `admin_oauth_role=${role}; HttpOnly; Secure; SameSite=Lax; Max-Age=600; Path=/`]
   )
 
   const authUrl = new URL('https://access.line.me/oauth2/v2.1/authorize')
@@ -234,11 +237,11 @@ function handleAuthStart(req: VercelRequest, res: VercelResponse) {
 // ─── LINE Login OAuth コールバック ─────────────────────
 async function handleAuthCallback(req: VercelRequest, res: VercelResponse) {
   const baseUrl = `https://${req.headers.host}`
-  const loginUrl = `${baseUrl}/admin/login`
+  const cookies = parseCookies(req.headers.cookie)
+  const loginUrl = cookies.admin_oauth_role === 'room' ? `${baseUrl}/room/login` : `${baseUrl}/admin/login`
 
   try {
     const { code, state } = req.query as { code?: string; state?: string }
-    const cookies = parseCookies(req.headers.cookie)
     if (!state || !code || state !== cookies.admin_oauth_state) {
       return res.redirect(302, `${loginUrl}?error=invalid`)
     }
@@ -284,6 +287,7 @@ async function handleAuthCallback(req: VercelRequest, res: VercelResponse) {
     const invitationToken = cookies.admin_invitation
     const clearCookies = [
       'admin_oauth_state=; HttpOnly; Secure; SameSite=Lax; Max-Age=0; Path=/',
+      'admin_oauth_role=; HttpOnly; Secure; SameSite=Lax; Max-Age=0; Path=/',
       'admin_invitation=; HttpOnly; Secure; SameSite=Lax; Max-Age=0; Path=/',
     ]
     res.setHeader('Set-Cookie', clearCookies)
@@ -298,13 +302,28 @@ async function handleAuthCallback(req: VercelRequest, res: VercelResponse) {
         invData.expiresAt &&
         invData.expiresAt.toMillis() > Date.now()
       if (isValid) {
+        if (invData!.kind === 'room-manager') {
+          if (invData!.fromManager) {
+            const current = await db.collection('settings').doc('room-manager').get()
+            if (current.data()?.userId !== invData!.fromManager) {
+              return res.redirect(302, `${baseUrl}/room/login?error=invalid_invitation`)
+            }
+          }
+          const displayName = (verifyRes.data.name as string) ?? ''
+          await db.collection('settings').doc('room-manager').set({ userId, displayName,
+            updatedAt: new Date(), updatedBy: invData!.createdBy ?? null })
+          await invRef.update({ used: true, usedAt: new Date(), usedBy: userId })
+          await audit({ userId: invData!.createdBy ?? 'system', displayName: 'システム' },
+            'room_manager.assign', { targetType: 'room-manager', targetId: userId })
+          return redirectWithAuthCode(res, `${baseUrl}/room/login`, accessToken)
+        }
         // 招待トークンからの管理者追加
         const displayName = (verifyRes.data.name as string) ?? ''
         await db.collection('admins').doc(userId).set({
           displayName,
           addedAt: new Date(),
           addedBy: invData!.createdBy ?? null,
-        })
+        }, { merge: true })
         await invRef.update({ used: true, usedAt: new Date(), usedBy: userId })
 
         // 招待者をアクターとして取得
@@ -327,9 +346,12 @@ async function handleAuthCallback(req: VercelRequest, res: VercelResponse) {
       // 招待トークンが無効でも、既存管理者なら通常ログインさせる
     }
 
-    const adminDoc = await db.collection('admins').doc(userId).get()
-    if (!adminDoc.exists) {
-      return res.redirect(302, `${loginUrl}?error=not_admin`)
+    if (cookies.admin_oauth_role === 'room') {
+      const manager = await db.collection('settings').doc('room-manager').get()
+      if (manager.data()?.userId !== userId) return res.redirect(302, `${loginUrl}?error=not_manager`)
+    } else {
+      const adminDoc = await db.collection('admins').doc(userId).get()
+      if (!adminDoc.exists) return res.redirect(302, `${loginUrl}?error=not_admin`)
     }
     return redirectWithAuthCode(res, loginUrl, accessToken)
   } catch (err) {
@@ -1764,6 +1786,7 @@ async function handleInviteAccept(req: VercelRequest, res: VercelResponse) {
   const redirectUri = `${baseUrl}/api/admin/auth/callback`
   res.setHeader('Set-Cookie', [
     `admin_oauth_state=${state}; HttpOnly; Secure; SameSite=Lax; Max-Age=600; Path=/`,
+    `admin_oauth_role=${data.kind === 'room-manager' ? 'room' : 'admin'}; HttpOnly; Secure; SameSite=Lax; Max-Age=600; Path=/`,
     `admin_invitation=${token}; HttpOnly; Secure; SameSite=Lax; Max-Age=600; Path=/`,
   ])
 
@@ -1950,7 +1973,15 @@ async function handleReservationById(req: VercelRequest, res: VercelResponse, id
       cancelReason: typeof reason === 'string' && reason.trim() ? reason.trim() : null,
       updatedAt: new Date(),
     }
-    await docRef.update(cancelUpdate)
+    await db.runTransaction(async (tx) => {
+      const current = await tx.get(docRef)
+      if (!current.exists || current.data()?.status === 'cancelled') return
+      if (current.data()?.status === 'confirmed') {
+        const [date, slot] = String(current.data()?.date ?? '').split('T')
+        await refreshLotterySlot(db, tx, date, slot, [id])
+      }
+      tx.update(docRef, cancelUpdate)
+    })
     await audit(me, 'reservation.cancel', {
       targetType: 'reservation', targetId: id, targetLabel: before.bandName,
       details: { bandName: before.bandName, date: before.date, userId: before.userId, status: before.status, after: cancelUpdate },

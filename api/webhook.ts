@@ -712,7 +712,10 @@ async function handlePostbackEvent(event: line.PostbackEvent) {
 
   // パターンB: 時間も選ばれて、最終確定したとき
   if (data.startsWith('action=finalize')) {
-    return handleFinalize(event, data);
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: `予約はWeb画面からお願いします👇\n${process.env.LINE_LIFF_URL}`,
+    });
   }
 
   // パターンC: 全登録表示（日付選択後）

@@ -7,8 +7,8 @@ const DATES_CACHE_KEY = 'liff:nobu-settings'
 function slotCacheKey(date: string) { return `liff:nobu-slots:${date}` }
 
 type TimeSlot    = { label: string; value: string }
-type DateEntry   = { label: string; value: string; timeSlots: TimeSlot[]; lotteryTime?: string }
-type SlotEntry   = { id: string; userId: string; bandName: string; status: string; order?: number; hamoani?: boolean }
+type DateEntry   = { label: string; value: string; timeSlots: TimeSlot[]; lotteryTime?: string; roomPreferenceEnabled?: boolean }
+type SlotEntry   = { id: string; userId: string; bandName: string; status: string; order?: number; hamoani?: boolean; assignedRoom?: string | null; waitRank?: number | null; lotteryRank?: number | null }
 type TimeSlotMap = { [timeSlot: string]: SlotEntry[] }
 type DetailModal = { entry: SlotEntry; date: string; timeSlot: string }
 
@@ -187,12 +187,15 @@ export default function AllReservations({ profile, initialFocus, onFocusHandled,
                 >
                   {entry.status === 'confirmed' ? (
                     <div className="w-[22px] h-[22px] rounded-full bg-brand-light text-brand-dark text-[0.7rem] font-bold flex items-center justify-center flex-shrink-0">
-                      {i + 1}
+                      {entry.lotteryRank ?? entry.order ?? i + 1}
                     </div>
                   ) : (
                     <div className="w-1.5 h-1.5 rounded-full bg-ink-pale flex-shrink-0" />
                   )}
                   <span className="text-[0.9rem] text-ink font-medium flex-1 truncate">{entry.bandName}</span>
+                  {entry.status === 'confirmed' && selectedDateEntry?.roomPreferenceEnabled && (
+                    <span className="text-[0.75rem] text-ink-sub shrink-0">{entry.assignedRoom ?? `待機 ${entry.waitRank ?? '-'}位`}</span>
+                  )}
                   {entry.hamoani && (
                     <span className="text-[0.7rem] font-semibold text-brand bg-brand-light px-1.5 py-0.5 rounded-full shrink-0">
                       ハモアニ
@@ -233,6 +236,10 @@ export default function AllReservations({ profile, initialFocus, onFocusHandled,
                   </span>
                 )}
               </div>
+              {detailModal.entry.status === 'confirmed' && selectedDateEntry?.roomPreferenceEnabled && (
+                <p className="text-[0.88rem] text-ink-sub">{detailModal.entry.assignedRoom
+                  ? `割当部屋: ${detailModal.entry.assignedRoom}` : `待機順位: ${detailModal.entry.waitRank ?? '-'}位`}</p>
+              )}
               <div className="flex items-center gap-2.5">
                 <span className="icon text-ink-pale" style={{ fontSize: 20 }}>calendar_today</span>
                 <span className="text-[0.88rem] text-ink-sub">{detailModal.date.slice(5).replace('-', '/')}</span>

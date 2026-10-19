@@ -35,6 +35,11 @@ type NobuReservation = {
   availabilityLabel?: string
   availabilityMessage?: string
   availableTimeSlots?: NobuTimeSlot[]
+  preferredRooms?: string[]
+  assignedRoom?: string | null
+  waitRank?: number | null
+  lotteryRank?: number | null
+  roomPreferenceEnabled?: boolean
 }
 
 type KobuReservation = {
@@ -471,6 +476,13 @@ export default function MyReservations({ profile, initialEdit, onEditHandled, on
                 <span className="icon icon-sm text-ink-pale">schedule</span>
                 <span>{displayTime(r)}</span>
               </div>
+              {r.facility === 'nobu' && r.roomPreferenceEnabled && !isCancelled && (
+                <p className="text-[0.78rem] text-ink-sub mt-1">
+                  {r.status === 'confirmed'
+                    ? (r.assignedRoom ? `割当部屋: ${r.assignedRoom}` : `待機順位: ${r.waitRank ?? '-'}位`)
+                    : `希望部屋: ${(r.preferredRooms ?? []).join(' → ')}`}
+                </p>
+              )}
               {notice && (
                 <div
                   className={
@@ -697,6 +709,8 @@ function NobuModifyModal({
   const currentSlot = reservation.date.split('T')[1] // e.g. "18:00-20:00"
   const [newBandName, setNewBandName] = useState(reservation.bandName)
   const [newTimeSlot, setNewTimeSlot] = useState(currentSlot)
+  const [preferredRooms, setPreferredRooms] = useState<string[]>(reservation.preferredRooms ?? [])
+  const [roomChoices, setRoomChoices] = useState<Record<string, string[]>>({})
   const [slots,       setSlots]       = useState<NobuTimeSlot[] | null>(null)
   const [error,       setError]       = useState<string | null>(null)
   const [saving,      setSaving]      = useState(false)
@@ -704,30 +718,29 @@ function NobuModifyModal({
 
   useEffect(() => {
     const dateOnly = reservation.date.split('T')[0]
-    if (reservation.availableTimeSlots) {
-      setSlots(reservation.availableTimeSlots)
-      return
-    }
     fetch('/api/settings')
       .then((r) => r.json())
       .then((data) => {
         const dateEntry = (data.availableDatesWithToday ?? []).find((d: any) => d.value === dateOnly)
         const raw: NobuTimeSlot[] = dateEntry?.timeSlots?.length ? dateEntry.timeSlots : []
-        setSlots(raw)
+        setSlots(reservation.availableTimeSlots ?? raw)
+        setRoomChoices(dateEntry?.roomChoices ?? {})
       })
       .catch(() => setSlots([]))
   }, [reservation])
 
   async function handleSubmit() {
-    const noChange = newBandName.trim() === reservation.bandName && newTimeSlot === currentSlot
+    const noChange = newBandName.trim() === reservation.bandName && newTimeSlot === currentSlot &&
+      JSON.stringify(preferredRooms) === JSON.stringify(reservation.preferredRooms ?? [])
     if (noChange) { onClose(); return }
     if (!newBandName.trim()) { setError('バンド名を入力してください'); return }
     setSaving(true)
     setError(null)
     try {
-      const body: Record<string, string> = {}
+      const body: Record<string, unknown> = {}
       if (newBandName.trim() !== reservation.bandName) body.bandName = newBandName.trim()
       if (newTimeSlot !== currentSlot) body.timeSlot = newTimeSlot
+      if (reservation.roomPreferenceEnabled && !isConfirmed) body.preferredRooms = preferredRooms
       const res = await fetch(`/api/reservations/${reservation.id}`, {
         method: 'PATCH',
         headers: {
@@ -793,7 +806,7 @@ function NobuModifyModal({
                           ? 'bg-brand border-brand text-white font-semibold'
                           : 'bg-surface border-line text-ink-sub')
                       }
-                      onClick={() => setNewTimeSlot(s.value)}
+                      onClick={() => { setNewTimeSlot(s.value); if (s.value !== newTimeSlot) setPreferredRooms([]) }}
                     >{s.label}</button>
                   ))}
                 </div>
@@ -806,13 +819,30 @@ function NobuModifyModal({
                 <p className="text-[0.78rem] text-ink-sub mt-1">抽選確定済みのため時間枠は変更できません</p>
               )}
             </div>
+            {reservation.roomPreferenceEnabled && (
+              <div>
+                <label className="text-[0.85rem] font-medium mb-1 block">希望部屋（希望順）</label>
+                {isConfirmed ? <p className="text-sm text-ink-sub">{(reservation.preferredRooms ?? []).join(' → ')}</p> : <>
+                  <div className="flex flex-wrap gap-2 mb-2">
+                    {(roomChoices[newTimeSlot] ?? []).map((room) => <button type="button" key={room}
+                      onClick={() => setPreferredRooms((prev) => prev.includes(room) ? prev.filter((x) => x !== room) : [...prev, room])}
+                      className={`px-2 py-1.5 rounded border text-sm ${preferredRooms.includes(room) ? 'bg-brand text-white border-brand' : 'border-line'}`}>{room}</button>)}
+                  </div>
+                  {preferredRooms.map((room, index) => <div key={room} className="flex items-center gap-2 text-sm py-1">
+                    <span className="flex-1">{index + 1}. {room}</span>
+                    <button type="button" disabled={index === 0} onClick={() => setPreferredRooms((prev) => { const next = [...prev]; [next[index - 1], next[index]] = [next[index], next[index - 1]]; return next })}>↑</button>
+                    <button type="button" disabled={index === preferredRooms.length - 1} onClick={() => setPreferredRooms((prev) => { const next = [...prev]; [next[index + 1], next[index]] = [next[index], next[index + 1]]; return next })}>↓</button>
+                  </div>)}
+                </>}
+              </div>
+            )}
           </div>
         )}
 
         {error && <div className="banner-error mt-3">{error}</div>}
 
         <div className="mt-4">
-          <button className="btn-primary" onClick={handleSubmit} disabled={saving || slots === null}>
+          <button className="btn-primary" onClick={handleSubmit} disabled={saving || slots === null || (!!reservation.roomPreferenceEnabled && !isConfirmed && preferredRooms.length === 0)}>
             {saving ? '変更中...' : '変更'}
           </button>
         </div>
