@@ -3,7 +3,8 @@
   "outputDirectory": "dist",
   "rewrites": [
     { "source": "/api/admin/:path*",             "destination": "/api/admin?_path=:path*" },
-    { "source": "/api/room/:path*",              "destination": "/api/room?_path=:path*" },
+    { "source": "/api/room/:path*",              "destination": "/api/admin?_path=room/:path*" },
+    { "source": "/api/band-poll",               "destination": "/api/notify?_poll=1" },
     { "source": "/api/reservations/:path*",      "destination": "/api/reservations?_path=:path*" },
     { "source": "/api/kobu-reservations/:path*",      "destination": "/api/facility-reservations?facility=kobu&_path=:path*" },
     { "source": "/api/kobu-settings",                 "destination": "/api/facility-settings?facility=kobu" },

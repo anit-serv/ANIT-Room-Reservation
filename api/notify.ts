@@ -3,6 +3,7 @@ import * as admin from 'firebase-admin'
 import { lotteryTargetDate } from '../lib/lotteryOperation'
 import { bandUserKey, writeBandPost } from '../lib/band'
 import { notificationWindow, resultMessage } from '../lib/notificationMessage'
+import bandPollHandler from '../lib/bandPollHandler'
 import 'dotenv/config'
 
 const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n')
@@ -14,6 +15,7 @@ if (!admin.apps.length) admin.initializeApp({ credential: admin.credential.cert(
 const db = admin.firestore()
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  if (req.query._poll === '1') return bandPollHandler(req, res)
   if (!process.env.CRON_SECRET ||
       (req.query.key !== process.env.CRON_SECRET && req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`)) {
     return res.status(401).json({ error: 'Unauthorized' })

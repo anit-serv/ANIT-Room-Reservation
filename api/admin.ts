@@ -6,6 +6,7 @@ import { verifyAdmin } from '../lib/verifyAdmin'
 import { applyLotteryCronSchedule } from '../lib/cronSchedule'
 import { lotteryTargetDate, reservationDeadline } from '../lib/lotteryOperation'
 import { refreshLotterySlot } from '../lib/roomAllocation'
+import roomHandler from '../lib/roomHandler'
 import {
   addDaysJST,
   BASE_EFFECTIVE_FROM,
@@ -78,6 +79,10 @@ function parseCookies(header: string | undefined): Record<string, string> {
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const path = (req.query._path as string) ?? ''
+  if (path.startsWith('room/')) {
+    req.query._path = path.slice('room/'.length)
+    return roomHandler(req, res)
+  }
   const segments = path.split('/').filter(Boolean)
 
   // 認証系（無認証アクセス可能）

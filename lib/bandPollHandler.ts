@@ -1,7 +1,7 @@
 import { VercelRequest, VercelResponse } from '@vercel/node'
 import * as admin from 'firebase-admin'
-import { bandUserKey, listBandPosts, matchesMention, removeBandComment, removeBandPost, writeBandComment, writeBandPost } from '../lib/band'
-import { resultMessage } from '../lib/notificationMessage'
+import { bandUserKey, listBandPosts, matchesMention, removeBandComment, removeBandPost, writeBandComment, writeBandPost } from './band'
+import { resultMessage } from './notificationMessage'
 import 'dotenv/config'
 
 const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n')
