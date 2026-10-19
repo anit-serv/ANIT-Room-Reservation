@@ -9,6 +9,7 @@ import Skeleton from '../../components/Skeleton'
 import ConfirmDialog from '../../components/ConfirmDialog'
 import DatePicker from '../../components/DatePicker'
 import { useToast } from '../../contexts/ToastContext'
+import RoomPreferenceSettings from './RoomPreferenceSettings'
 
 type SettingsCore = {
   availableDays: number[]
@@ -445,6 +446,8 @@ export default function Settings() {
   return (
     <div className="pb-80">
       <h1 className="text-2xl font-bold mb-6">設定 - 農部生協</h1>
+
+      <RoomPreferenceSettings />
 
       {message && <div className="banner-error">{message.text}</div>}
 
