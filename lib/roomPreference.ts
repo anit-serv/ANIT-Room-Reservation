@@ -16,7 +16,7 @@ export function roomDayRef(db: Firestore, date: string) {
 
 export async function isRoomPreferenceEnabled(db: Firestore, date: string): Promise<boolean> {
   const versions = await db.collection('room_preference_modes')
-    .where('__name__', '<=', date).orderBy('__name__', 'desc').limit(1).get()
+    .where('__name__', '<=', date).orderBy('__name__', 'asc').limitToLast(1).get()
   return versions.docs[0]?.data().enabled === true
 }
 

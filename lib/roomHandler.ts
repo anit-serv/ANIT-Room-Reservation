@@ -42,11 +42,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (req.method === 'GET') {
         const [config, versions] = await Promise.all([
           getRoomPreferenceConfig(db),
-          db.collection('room_preference_modes').orderBy('__name__', 'desc').limit(30).get(),
+          db.collection('room_preference_modes').orderBy('__name__', 'asc').limitToLast(30).get(),
         ])
         return res.status(200).json({ ...config, minimumModeDate: minimumModeDate(),
           commentBandConfigured: !!process.env.BAND_COMMENT_KEY,
-          versions: versions.docs.map((doc) => ({ effectiveFrom: doc.id, enabled: doc.data().enabled === true })) })
+          versions: [...versions.docs].reverse().map((doc) => ({ effectiveFrom: doc.id, enabled: doc.data().enabled === true })) })
       }
       if (req.method === 'PUT') {
         const { effectiveFrom, enabled, notificationMode, fallbackPost } = req.body ?? {}
@@ -94,11 +94,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const me = await verifyAdmin(req.headers.authorization)
       if (path === 'notifications' && req.method === 'GET') {
         const [results, cleanup] = await Promise.all([
-          db.collection('lottery_results').orderBy('__name__', 'desc').limit(30).get(),
+          db.collection('lottery_results').orderBy('__name__', 'asc').limitToLast(30).get(),
           db.collection('band_cleanup').limit(30).get(),
         ])
         return res.status(200).json({
-          results: results.docs.map((doc) => ({ date: doc.id, pollStatus: doc.data().pollStatus ?? null,
+          results: [...results.docs].reverse().map((doc) => ({ date: doc.id, pollStatus: doc.data().pollStatus ?? null,
             notificationSentAt: doc.data().notificationSentAt?.toMillis?.() ?? null,
             notificationError: doc.data().notificationError ?? null,
             notificationDirty: doc.data().notificationDirty === true })),
