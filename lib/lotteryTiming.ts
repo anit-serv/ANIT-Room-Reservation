@@ -47,3 +47,23 @@ export function notificationFollowsLottery(
   if (lotteryMode === 'same-day') return notifyMode === 'same-day'
   return relativeMinutes(notifyMode, notifyTime) >= relativeMinutes(lotteryMode, lotteryTime)
 }
+
+/** Each notification exception is checked against the draw used on the same usage date. */
+export function timingOverridesValid(base: OperationTiming, rules: {
+  byWeekday?: Record<string, string>; byDate?: Record<string, string>;
+  notifyByWeekday?: Record<string, string>; notifyByDate?: Record<string, string>;
+}, minDate?: string): boolean {
+  const valid = (draw: string, notify: string) => /^([01]\d|2[0-3]):[0-5]\d$/.test(notify) &&
+    notificationFollowsLottery(base.lotteryMode, draw, base.notifyMode, notify)
+  if (!valid(base.lotteryTime, base.notifyTime)) return false
+  for (let day = 0; day < 7; day++) {
+    if (!valid(rules.byWeekday?.[day] ?? base.lotteryTime, rules.notifyByWeekday?.[day] ?? base.notifyTime)) return false
+  }
+  for (const date of new Set([...Object.keys(rules.byDate ?? {}), ...Object.keys(rules.notifyByDate ?? {})])) {
+    if (minDate && date < minDate) continue
+    const day = new Date(`${date}T00:00:00Z`).getUTCDay()
+    if (!valid(rules.byDate?.[date] ?? rules.byWeekday?.[day] ?? base.lotteryTime,
+      rules.notifyByDate?.[date] ?? rules.notifyByWeekday?.[day] ?? base.notifyTime)) return false
+  }
+  return true
+}

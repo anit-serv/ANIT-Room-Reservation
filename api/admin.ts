@@ -5,7 +5,7 @@ import axios from 'axios'
 import { verifyAdmin } from '../lib/verifyAdmin'
 import { applyLotteryCronSchedule } from '../lib/cronSchedule'
 import { lotteryTargetDate, reservationDeadline } from '../lib/lotteryOperation'
-import { notificationFollowsLottery, operationChangeOnExecutionDate } from '../lib/lotteryTiming'
+import { notificationFollowsLottery, operationChangeOnExecutionDate, timingOverridesValid } from '../lib/lotteryTiming'
 import { schedulerEnabled } from '../lib/schedulerQueue'
 import { refreshScheduler } from '../lib/scheduler'
 import { refreshLotterySlot } from '../lib/roomAllocation'
@@ -22,6 +22,7 @@ import {
   listReservationDayOverrides,
   listReservationLotteryOverrides,
   normalizeLotteryTimeOverrides,
+  notificationTimeForDate,
   isDateAvailableBySettings,
   isTimeSlotAvailableBySettings,
   pickTimeSlotsForDate,
@@ -696,7 +697,7 @@ async function handleSettings(req: VercelRequest, res: VercelResponse) {
       lotteryTimeOverrides: data.lotteryTimeOverrides,
       lotteryMode:    data.lotteryMode,
       notifyMode:     data.notifyMode,
-      notifyTime:     data.notifyTime,
+      notifyTime:     data.defaultNotifyTime ?? data.notifyTime,
       hamoaniStartDate: data.hamoaniStartDate,
       hamoaniEndDate:   data.hamoaniEndDate,
       roomModeVersions: roomModeDocs.map((doc) => ({ effectiveFrom: doc.id, enabled: doc.data()?.enabled === true })),
@@ -708,7 +709,7 @@ async function handleSettings(req: VercelRequest, res: VercelResponse) {
     if (typeof validated === 'string') return res.status(400).json({ error: validated })
 
     const { effectiveFrom, lotteryTime, lotteryTimeOverrides, roomPreferenceEnabled, applyRecurring, applyDated } = (req.body ?? {}) as {
-      effectiveFrom?: string; lotteryTime?: string; lotteryTimeOverrides?: { byWeekday?: Record<string, string>; byDate?: Record<string, string> }; roomPreferenceEnabled?: boolean;
+      effectiveFrom?: string; lotteryTime?: string; lotteryTimeOverrides?: { byWeekday?: Record<string, string>; byDate?: Record<string, string>; notifyByWeekday?: Record<string, string>; notifyByDate?: Record<string, string> }; roomPreferenceEnabled?: boolean;
       applyRecurring?: boolean; applyDated?: boolean
     }
     const saveRecurring = applyRecurring !== false
@@ -733,28 +734,36 @@ async function handleSettings(req: VercelRequest, res: VercelResponse) {
         dateEntries.some(([date]) => !isValidDate(date) || date < effectiveFrom)) {
       return res.status(400).json({ error: '抽選時刻の例外設定を確認してください。時刻は03:00以降、特定日は適用日以降にしてください' })
     }
-    const allLotteryTimes = [lotteryTime, ...Object.values(overrides.byWeekday), ...Object.values(overrides.byDate)]
-    if (allLotteryTimes.some((time) => !notificationFollowsLottery(
-      currentOperation.lotteryMode, time, currentOperation.notifyMode, currentOperation.notifyTime))) {
-      return res.status(400).json({ error: '通知日は抽選日と同日以降、通知時刻は抽選以降にしてください' })
+    for (const field of ['notifyByWeekday', 'notifyByDate'] as const) {
+      const entries = Object.entries(lotteryTimeOverrides?.[field] ?? {})
+      if (entries.length !== Object.keys(overrides[field] ?? {}).length ||
+          (field === 'notifyByDate' && entries.some(([date]) => !isValidDate(date) || date < effectiveFrom))) {
+        return res.status(400).json({ error: '通知時刻の例外設定を確認してください。特定日は適用日以降にしてください' })
+      }
+    }
+    if (!timingOverridesValid({ ...currentOperation, lotteryTime,
+      notifyTime: currentOperation.defaultNotifyTime ?? currentOperation.notifyTime }, overrides, effectiveFrom)) {
+      return res.status(400).json({ error: '通知日時は、各ルールの抽選日時以降にしてください' })
     }
     if (effectiveFrom < todayJST()) {
       return res.status(400).json({ error: `適用日は${todayJST()}以降を指定してください` })
     }
-  if (saveRecurring && effectiveFrom <= addDaysJST(1)) {
-    const tomorrow = addDaysJST(1)
-    const previous = await resolveReservationSettingsForDate(db, tomorrow)
-    const weekday = String(new Date(`${tomorrow}T00:00:00Z`).getUTCDay())
-    const nextTime = overrides.byDate[tomorrow] ?? overrides.byWeekday[weekday] ?? lotteryTime
-    const activeBefore = isDateAvailableBySettings(tomorrow, previous) && pickTimeSlotsForDate(tomorrow, previous).length > 0
-    const activeAfter = isDateAvailableBySettings(tomorrow, validated) && pickTimeSlotsForDate(tomorrow, validated).length > 0
-    const blockedEvent = operationChangeOnExecutionDate(todayJST(), activeBefore || activeAfter ? [tomorrow] : [], previous, {
-      lotteryMode: previous.lotteryMode, lotteryTime: nextTime, notifyMode: previous.notifyMode, notifyTime: previous.notifyTime,
-    })
-    if (blockedEvent) {
-      return res.status(400).json({ error: '変更前または変更後の抽選日が本日のため、この抽選時刻は適用できません。適用日を後ろにずらしてください' })
+    if (saveRecurring && effectiveFrom <= addDaysJST(1)) {
+      for (const date of [todayJST(), addDaysJST(1)].filter((date) => date >= effectiveFrom)) {
+        const previous = await resolveReservationSettingsForDate(db, date)
+        const weekday = String(new Date(`${date}T00:00:00Z`).getUTCDay())
+        const nextTime = overrides.byDate[date] ?? overrides.byWeekday[weekday] ?? lotteryTime
+        const activeBefore = isDateAvailableBySettings(date, previous) && pickTimeSlotsForDate(date, previous).length > 0
+        const activeAfter = isDateAvailableBySettings(date, validated) && pickTimeSlotsForDate(date, validated).length > 0
+        const blockedEvent = operationChangeOnExecutionDate(todayJST(), activeBefore || activeAfter ? [date] : [], previous, {
+          lotteryMode: previous.lotteryMode, lotteryTime: nextTime, notifyMode: previous.notifyMode,
+          notifyTime: notificationTimeForDate(date, currentOperation.defaultNotifyTime ?? currentOperation.notifyTime, overrides),
+        })
+        if (blockedEvent) {
+          return res.status(400).json({ error: `変更前または変更後の${blockedEvent}日が本日のため、この時刻は適用できません。適用日を後ろにずらしてください` })
+        }
+      }
     }
-  }
     if (typeof roomPreferenceEnabled !== 'boolean') {
       return res.status(400).json({ error: '希望部屋モードの指定が不正です' })
     }
@@ -1168,18 +1177,12 @@ async function handleSettingsLotteryOperation(req: VercelRequest, res: VercelRes
       return res.status(400).json({ error: '抽選済みの結果通知が完了してからモードを切り替えてください' })
     }
   }
-  const pendingTimes = (await listPendingReservationSettingsChanges(db, addDaysJST(1))).flatMap((change) => [
-    change.lotteryTime ?? settings.defaultLotteryTime,
-    ...Object.values(change.lotteryTimeOverrides?.byWeekday ?? {}),
-    ...Object.values(change.lotteryTimeOverrides?.byDate ?? {}),
-  ])
-  const activeTimes = [settings.defaultLotteryTime,
-    ...Object.values(settings.lotteryTimeOverrides.byWeekday),
-    ...Object.entries(settings.lotteryTimeOverrides.byDate)
-      .filter(([date]) => date >= todayJST()).map(([, time]) => time)]
-  if ([lotteryTime, ...activeTimes, ...pendingTimes].some((time) => !notificationFollowsLottery(
-    lotteryMode, time, notifyMode, notifyTime))) {
-    return res.status(400).json({ error: '通知日は抽選日と同日以降、通知時刻は抽選以降にしてください' })
+  const pendingTimingChanges = await listPendingReservationSettingsChanges(db, addDaysJST(1))
+  const timingBase: Parameters<typeof timingOverridesValid>[0] = { lotteryMode, lotteryTime, notifyMode, notifyTime }
+  if (!timingOverridesValid({ ...timingBase, lotteryTime: settings.defaultLotteryTime }, settings.lotteryTimeOverrides, todayJST()) ||
+      pendingTimingChanges.some((change) => !timingOverridesValid({ ...timingBase,
+        lotteryTime: change.lotteryTime ?? settings.defaultLotteryTime }, change.lotteryTimeOverrides ?? {}, change.effectiveFrom))) {
+    return res.status(400).json({ error: '通知日時は通常設定と各例外ルールの抽選日時以降にしてください' })
   }
   const targetDate = addDaysJST(1)
   const targetResult = await db.collection('lottery_results').doc(targetDate).get()

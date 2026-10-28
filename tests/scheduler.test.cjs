@@ -295,3 +295,37 @@ test('an explicit confirmed-absent decision permits a recorded resend', async ()
   const sent = await delivery.durableDelivery(db, '2026-10-29', 'post', '', 'body', 1, 'self', api)
   assert.equal(sent.postKey, 'confirmed-resend'); assert.equal(sends, 2)
 })
+
+
+test('same-day notification exceptions survive save normalization and resolve by usage date', async () => {
+  const { normalizeLotteryTimeOverrides, resolveReservationSettingsForDate, resolveReservationSettingsForDates } = require('../lib/reservationSettings.ts')
+  const rules = normalizeLotteryTimeOverrides({ byWeekday: {}, byDate: {},
+    notifyByWeekday: { '4': '10:30', bad: '12:00' }, notifyByDate: { '2026-11-05': '11:45', '2026-11-12': '25:00' } })
+  assert.deepEqual(rules.notifyByWeekday, { '4': '10:30' })
+  assert.deepEqual(rules.notifyByDate, { '2026-11-05': '11:45' })
+  const db = new FakeFirestore({
+    'settings/reservation': { lotteryMode: 'same-day', notifyMode: 'same-day', lotteryTime: '21:00', notifyTime: '09:00' },
+    'settings/reservation/versions/2026-11-01': { effectiveFrom: '2026-11-01', lotteryTime: '21:00', lotteryTimeOverrides: rules },
+  })
+  const dates = ['2026-10-29', '2026-11-05', '2026-11-12', '2026-11-13']
+  const batch = await resolveReservationSettingsForDates(db, dates)
+  for (const [index, date] of dates.entries()) {
+    const single = await resolveReservationSettingsForDate(db, date)
+    assert.equal(single.notifyTime, ['09:00', '11:45', '10:30', '09:00'][index])
+    assert.equal(batch[date].notifyTime, single.notifyTime)
+    assert.equal(single.defaultNotifyTime, '09:00')
+    assert.equal(new Date(timing.executionTimes(date, single).lottery).toISOString(),
+      new Date(Date.parse(`${date}T00:00:00+09:00`) - 5 * 60_000).toISOString())
+    assert.equal(new Date(timing.executionTimes(date, single).notify).getTime(), Date.parse(`${date}T${single.notifyTime}:00+09:00`))
+  }
+})
+
+test('notification exception validation compares matching draw rules and retains day ordering', () => {
+  const { timingOverridesValid } = require('../lib/lotteryTiming.ts')
+  assert.equal(timingOverridesValid({ ...mode, lotteryMode: 'same-day' }, { notifyByWeekday: { '4': '00:00' } }), true)
+  assert.equal(timingOverridesValid({ ...mode, lotteryMode: 'same-day', notifyMode: 'previous-day' }, {}), false)
+  const base = { ...mode, notifyMode: 'previous-day', notifyTime: '21:00' }
+  assert.equal(timingOverridesValid(base, { byWeekday: { '4': '22:00' }, notifyByWeekday: { '4': '23:00' } }), true)
+  assert.equal(timingOverridesValid(base, { byWeekday: { '4': '22:00' }, notifyByWeekday: { '4': '21:30' } }), false)
+  assert.equal(timingOverridesValid(base, { byWeekday: { '4': '22:00' }, notifyByWeekday: { '4': '23:00' }, notifyByDate: { '2026-11-05': '21:00' } }), false)
+})

@@ -24,6 +24,7 @@ export type ReservationSettings = ReservationSettingsCore & {
   lotteryMode: 'previous-day' | 'same-day'
   notifyMode: 'previous-day' | 'same-day'
   notifyTime: string
+  defaultNotifyTime?: string
   dayOverride?: ReservationDayOverride | null
   /** 適用日を待たずに反映する特定日の時間枠。 */
   immediateDateTimeSlots?: Record<string, TimeSlot[]>
@@ -40,7 +41,7 @@ export type ReservationSettingsVersion = ReservationSettingsCore & {
   lotteryTimeOverrides: LotteryTimeOverrides
 }
 
-export type LotteryTimeOverrides = { byWeekday: Record<string, string>; byDate: Record<string, string> }
+export type LotteryTimeOverrides = { byWeekday: Record<string, string>; byDate: Record<string, string>; notifyByWeekday?: Record<string, string>; notifyByDate?: Record<string, string> }
 
 const LOTTERY_TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/
 
@@ -100,12 +101,19 @@ export function normalizeLotteryTimeOverrides(value: any): LotteryTimeOverrides 
   return {
     byWeekday: validEntries(value?.byWeekday, (key) => /^[0-6]$/.test(key)),
     byDate: validEntries(value?.byDate, (key) => DATE_ONLY_RE.test(key)),
+    notifyByWeekday: validEntries(value?.notifyByWeekday, (key) => /^[0-6]$/.test(key)),
+    notifyByDate: validEntries(value?.notifyByDate, (key) => DATE_ONLY_RE.test(key)),
   }
 }
 
 function lotteryTimeForDate(date: string, normalTime: string, overrides: LotteryTimeOverrides): string {
   const weekday = String(new Date(`${date}T00:00:00Z`).getUTCDay())
   return overrides.byDate[date] ?? overrides.byWeekday[weekday] ?? normalTime
+}
+
+export function notificationTimeForDate(date: string, normalTime: string, overrides: LotteryTimeOverrides): string {
+  const weekday = String(new Date(`${date}T00:00:00Z`).getUTCDay())
+  return overrides.notifyByDate?.[date] ?? overrides.notifyByWeekday?.[weekday] ?? normalTime
 }
 
 export function todayJST(): string {
@@ -404,11 +412,11 @@ export async function resolveReservationSettingsForDate(
   const defaultLotteryTime = latest?.lotteryTime ?? base.defaultLotteryTime
   const lotteryTimeOverrides = latest?.lotteryTimeOverrides ?? base.lotteryTimeOverrides
   const lotteryTime = lotteryOverride?.lotteryTime ?? lotteryTimeForDate(date, defaultLotteryTime, lotteryTimeOverrides)
-  const notifyTime = typeof data?.notifyTime === 'string' && LOTTERY_TIME_RE.test(data.notifyTime)
-    ? base.notifyTime : lotteryTime
+  const notifyTime = notificationTimeForDate(date, typeof data?.notifyTime === 'string' && LOTTERY_TIME_RE.test(data.notifyTime)
+    ? base.notifyTime : lotteryTime, lotteryTimeOverrides)
   // ハモアニ期間はバージョン管理せず base の値をそのまま使う（管理画面から自由に即時変更する運用のため）
   const { hamoaniStartDate, hamoaniEndDate } = base
-  if (!latest) return withImmediateDatedSettings({ ...base, lotteryTime, notifyTime, dayOverride }, data)
+  if (!latest) return withImmediateDatedSettings({ ...base, lotteryTime, notifyTime, defaultNotifyTime: base.notifyTime, dayOverride }, data)
 
   return withImmediateDatedSettings({
     ...latest,
@@ -418,6 +426,7 @@ export async function resolveReservationSettingsForDate(
     lotteryMode: base.lotteryMode,
     notifyMode: base.notifyMode,
     notifyTime,
+    defaultNotifyTime: base.notifyTime,
     dayOverride,
     hamoaniStartDate,
     hamoaniEndDate,
@@ -499,11 +508,11 @@ export async function resolveReservationSettingsForDates(
     const defaultLotteryTime = latest?.lotteryTime ?? base.defaultLotteryTime
     const lotteryTimeOverrides = latest?.lotteryTimeOverrides ?? base.lotteryTimeOverrides
     const lotteryTime = lotteryOverridesByDate[date]?.lotteryTime ?? lotteryTimeForDate(date, defaultLotteryTime, lotteryTimeOverrides)
-    const notifyTime = typeof data?.notifyTime === 'string' && LOTTERY_TIME_RE.test(data.notifyTime)
-      ? base.notifyTime : lotteryTime
+    const notifyTime = notificationTimeForDate(date, typeof data?.notifyTime === 'string' && LOTTERY_TIME_RE.test(data.notifyTime)
+      ? base.notifyTime : lotteryTime, lotteryTimeOverrides)
     result[date] = withImmediateDatedSettings(latest
-      ? { ...latest, lotteryTime, defaultLotteryTime, lotteryTimeOverrides, lotteryMode: base.lotteryMode, notifyMode: base.notifyMode, notifyTime, dayOverride: overridesByDate[date], hamoaniStartDate: base.hamoaniStartDate, hamoaniEndDate: base.hamoaniEndDate }
-      : { ...base, lotteryTime, notifyTime, dayOverride: overridesByDate[date] }, data)
+      ? { ...latest, lotteryTime, defaultLotteryTime, lotteryTimeOverrides, lotteryMode: base.lotteryMode, notifyMode: base.notifyMode, notifyTime, defaultNotifyTime: base.notifyTime, dayOverride: overridesByDate[date], hamoaniStartDate: base.hamoaniStartDate, hamoaniEndDate: base.hamoaniEndDate }
+      : { ...base, lotteryTime, notifyTime, defaultNotifyTime: base.notifyTime, dayOverride: overridesByDate[date] }, data)
   }
   return result
 }
