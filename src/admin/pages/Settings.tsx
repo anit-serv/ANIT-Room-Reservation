@@ -820,7 +820,7 @@ export default function Settings() {
             </select>
           </label>
           <label className="block text-[0.8rem] text-ink-sub">時刻
-            <input type="time" className="text-input mt-1 disabled:bg-bg disabled:text-ink-pale disabled:cursor-not-allowed" min="03:00" max="23:59" value={lotteryMode === 'same-day' ? '23:55' : lotteryTime} disabled={lotteryMode === 'same-day'} onChange={(e) => setLotteryTime(e.target.value)} />
+            <input type="time" className="text-input mt-1 disabled:bg-bg disabled:text-ink-pale disabled:cursor-not-allowed" min="03:00" max="23:59" value={lotteryMode === 'same-day' ? '00:00' : lotteryTime} disabled={lotteryMode === 'same-day'} onChange={(e) => setLotteryTime(e.target.value)} />
           </label>
         </div>
         {lotteryTimeInvalid ? (
