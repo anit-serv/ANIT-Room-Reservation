@@ -259,8 +259,8 @@ export default function Settings() {
 
   const lotteryWeekdays = [...new Set([...Object.keys(lotteryTimeOverrides.byWeekday), ...Object.keys(lotteryTimeOverrides.notifyByWeekday ?? {})])].sort()
   const lotteryDates = [...new Set([...Object.keys(lotteryTimeOverrides.byDate), ...Object.keys(lotteryTimeOverrides.notifyByDate ?? {})])].sort()
-  const lotteryTimeInvalid = !lotteryTime || lotteryTime < '03:00' ||
-    [...Object.values(lotteryTimeOverrides.byWeekday), ...Object.values(lotteryTimeOverrides.byDate)].some((time) => !time || time < '03:00') ||
+  const lotteryTimeInvalid = !lotteryTime || lotteryTime < '00:10' ||
+    [...Object.values(lotteryTimeOverrides.byWeekday), ...Object.values(lotteryTimeOverrides.byDate)].some((time) => !time || time < '00:10') ||
     !timingOverridesValid({ lotteryMode, lotteryTime, notifyMode, notifyTime }, lotteryTimeOverrides, effectiveFrom)
   const operationDirty = !!current && (lotteryMode !== current.lotteryMode ||
     notifyMode !== (current.notifyMode ?? current.lotteryMode) || notifyTime !== current.notifyTime)
@@ -410,7 +410,7 @@ export default function Settings() {
       return
     }
     if (lotteryTimeInvalid) {
-      setMessage({ type: 'error', text: '抽選時刻は03:00以降にし、通知日時は抽選以降に設定してください' })
+      setMessage({ type: 'error', text: '抽選時刻は00:10以降にし、通知日時は抽選以降に設定してください' })
       return
     }
     if (availableDays.length === 0 && extraDates.length === 0) {
@@ -820,13 +820,13 @@ export default function Settings() {
             </select>
           </label>
           <label className="block text-[0.8rem] text-ink-sub">時刻
-            <input type="time" className="text-input mt-1 disabled:bg-bg disabled:text-ink-pale disabled:cursor-not-allowed" min="03:00" max="23:59" value={lotteryMode === 'same-day' ? '00:00' : lotteryTime} disabled={lotteryMode === 'same-day'} onChange={(e) => setLotteryTime(e.target.value)} />
+            <input type="time" className="text-input mt-1 disabled:bg-bg disabled:text-ink-pale disabled:cursor-not-allowed" min="00:10" max="23:59" value={lotteryMode === 'same-day' ? '00:00' : lotteryTime} disabled={lotteryMode === 'same-day'} onChange={(e) => setLotteryTime(e.target.value)} />
           </label>
         </div>
         {lotteryTimeInvalid ? (
           <p className="mt-2 text-danger text-[0.85rem]">
             <span className="icon icon-sm align-middle">error</span>
-            {' '}抽選時刻は03:00以降にし、通知日時は抽選以降に設定してください
+            {' '}抽選時刻は00:10以降にし、通知日時は抽選以降に設定してください
           </p>
         ) : (
           <p className="mt-2 text-[0.82rem] text-ink-sub">
@@ -904,7 +904,7 @@ export default function Settings() {
               return <div key={`${kind}-${key}`} className="bg-surface border border-line rounded-[10px] p-3 mb-2 flex flex-wrap items-center gap-3">
                 <strong className="text-sm min-w-28">{label}</strong>
                 {lotteryMode === 'previous-day' && <label className="text-sm">抽選時刻
-                  <input type="time" className="text-input w-auto mt-1" aria-label={`${label}の抽選時刻`} value={lotteryTimeOverrides[drawKey][key] ?? lotteryTime}
+                  <input type="time" className="text-input w-auto mt-1" min="00:10" max="23:59" aria-label={`${label}の抽選時刻`} value={lotteryTimeOverrides[drawKey][key] ?? lotteryTime}
                     onChange={(e) => setLotteryTimeOverrides((prev) => ({ ...prev, [drawKey]: { ...prev[drawKey], [key]: e.target.value } }))} />
                 </label>}
                 <label className="text-sm">通知時刻（{notifyMode === 'same-day' ? '当日' : '前日'}）

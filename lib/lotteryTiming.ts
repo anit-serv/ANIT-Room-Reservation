@@ -53,7 +53,7 @@ export function timingOverridesValid(base: OperationTiming, rules: {
   byWeekday?: Record<string, string>; byDate?: Record<string, string>;
   notifyByWeekday?: Record<string, string>; notifyByDate?: Record<string, string>;
 }, minDate?: string): boolean {
-  const valid = (draw: string, notify: string) => /^([01]\d|2[0-3]):[0-5]\d$/.test(notify) &&
+  const valid = (draw: string, notify: string) => (base.lotteryMode === 'same-day' || draw >= '00:10') && /^([01]\d|2[0-3]):[0-5]\d$/.test(notify) &&
     notificationFollowsLottery(base.lotteryMode, draw, base.notifyMode, notify)
   if (!valid(base.lotteryTime, base.notifyTime)) return false
   for (let day = 0; day < 7; day++) {

@@ -329,3 +329,16 @@ test('notification exception validation compares matching draw rules and retains
   assert.equal(timingOverridesValid(base, { byWeekday: { '4': '22:00' }, notifyByWeekday: { '4': '21:30' } }), false)
   assert.equal(timingOverridesValid(base, { byWeekday: { '4': '22:00' }, notifyByWeekday: { '4': '23:00' }, notifyByDate: { '2026-11-05': '21:00' } }), false)
 })
+
+
+test('previous-day nominal time starts at 00:10 so its deadline stays on the previous day', () => {
+  const { timingOverridesValid } = require('../lib/lotteryTiming.ts')
+  const base = { lotteryMode: 'previous-day', lotteryTime: '00:10', notifyMode: 'previous-day', notifyTime: '00:10' }
+  assert.equal(timingOverridesValid(base, {}), true)
+  assert.equal(timingOverridesValid({ ...base, lotteryTime: '00:09' }, {}), false)
+  assert.equal(timingOverridesValid(base, { byWeekday: { '4': '00:09' } }), false)
+  assert.equal(timingOverridesValid(base, { byDate: { '2026-11-05': '00:09' } }), false)
+  const times = timing.executionTimes('2026-11-05', base)
+  assert.equal(times.deadline, Date.parse('2026-11-04T00:00:00+09:00'))
+  assert.equal(times.lottery, Date.parse('2026-11-04T00:05:00+09:00'))
+})

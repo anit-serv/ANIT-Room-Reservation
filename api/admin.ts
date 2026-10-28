@@ -719,20 +719,17 @@ async function handleSettings(req: VercelRequest, res: VercelResponse) {
     if (!effectiveFrom || !isValidDate(effectiveFrom)) {
       return res.status(400).json({ error: '適用日を指定してください' })
     }
-    if (!lotteryTime || !LOTTERY_TIME_RE.test(lotteryTime) || lotteryTime < '01:00') {
-      return res.status(400).json({ error: '抽選時刻は01:00〜23:59で指定してください' })
-    }
-    if (lotteryTime < '03:00') {
-      return res.status(400).json({ error: '適用予定の抽選時刻は03:00以降にしてください（日次ジョブ更新後）' })
+    if (!lotteryTime || !LOTTERY_TIME_RE.test(lotteryTime) || lotteryTime < '00:10') {
+      return res.status(400).json({ error: '抽選時刻は00:10〜23:59で指定してください' })
     }
     const currentOperation = await resolveReservationSettingsForDate(db, todayJST())
     const overrides = normalizeLotteryTimeOverrides(lotteryTimeOverrides)
     const weekdayEntries = Object.entries(lotteryTimeOverrides?.byWeekday ?? {})
     const dateEntries = Object.entries(lotteryTimeOverrides?.byDate ?? {})
     if (weekdayEntries.length !== Object.keys(overrides.byWeekday).length || dateEntries.length !== Object.keys(overrides.byDate).length ||
-        Object.values(overrides.byWeekday).some((time) => time < '03:00') || Object.values(overrides.byDate).some((time) => time < '03:00') ||
+        Object.values(overrides.byWeekday).some((time) => time < '00:10') || Object.values(overrides.byDate).some((time) => time < '00:10') ||
         dateEntries.some(([date]) => !isValidDate(date) || date < effectiveFrom)) {
-      return res.status(400).json({ error: '抽選時刻の例外設定を確認してください。時刻は03:00以降、特定日は適用日以降にしてください' })
+      return res.status(400).json({ error: '抽選時刻の例外設定を確認してください。時刻は00:10以降、特定日は適用日以降にしてください' })
     }
     for (const field of ['notifyByWeekday', 'notifyByDate'] as const) {
       const entries = Object.entries(lotteryTimeOverrides?.[field] ?? {})
@@ -1145,8 +1142,8 @@ async function handleSettingsLotteryOperation(req: VercelRequest, res: VercelRes
   if (!notifyTime || !LOTTERY_TIME_RE.test(notifyTime)) {
     return res.status(400).json({ error: '通知時刻は00:00〜23:59で指定してください' })
   }
-  if (!lotteryTime || !LOTTERY_TIME_RE.test(lotteryTime) || lotteryTime < '01:00') {
-    return res.status(400).json({ error: '抽選時刻は01:00〜23:59で指定してください' })
+  if (!lotteryTime || !LOTTERY_TIME_RE.test(lotteryTime) || lotteryTime < '00:10') {
+    return res.status(400).json({ error: '抽選時刻は00:10〜23:59で指定してください' })
   }
   const settings = await resolveReservationSettingsForDate(db, todayJST())
   const executionDate = todayJST()
@@ -1344,7 +1341,7 @@ async function buildLotteryOverrideDateOptions(): Promise<LotteryDateOption[]> {
   ])
   const overrideDates = new Set(overrides.map((o) => o.date))
   const nowMin = jstNowMinutes()
-  const minLottery = toMinutes('01:00')
+  const minLottery = toMinutes('00:10')
   const maxLottery = toMinutes('23:59')
 
   return dates.map((date) => {
@@ -1355,7 +1352,7 @@ async function buildLotteryOverrideDateOptions(): Promise<LotteryDateOption[]> {
     const drawDate = settings.lotteryMode === 'same-day' ? date :
       new Date(new Date(`${date}T00:00:00Z`).getTime() - 86_400_000).toISOString().slice(0, 10)
     let editable = isReservable
-    let minTime = '03:00'
+    let minTime = '00:10'
     const maxTime = '23:59'
     let note: string | undefined
 
@@ -1372,7 +1369,7 @@ async function buildLotteryOverrideDateOptions(): Promise<LotteryDateOption[]> {
         editable = false
         note = '抽選時刻の10分前を過ぎているため、抽選時刻は変更できません'
       } else {
-        const earliest = Math.max(nowMin + 10, minLottery) // T-10 >= now かつ 01:00以降
+        const earliest = Math.max(nowMin + 10, minLottery) // T-10 >= now かつ 00:10以降
         if (earliest > maxLottery) {
           editable = false
           note = '本日はこれ以上抽選時刻を指定できる時間帯がありません'
@@ -1453,8 +1450,8 @@ async function handleSettingsLotteryOverrideByDate(req: VercelRequest, res: Verc
   if (req.method !== 'PUT') return res.status(405).json({ error: 'Method Not Allowed' })
 
   const { lotteryTime } = (req.body ?? {}) as { lotteryTime?: string }
-  if (!lotteryTime || !LOTTERY_TIME_RE.test(lotteryTime) || lotteryTime < '01:00') {
-    return res.status(400).json({ error: '抽選時刻は01:00〜23:59で指定してください' })
+  if (!lotteryTime || !LOTTERY_TIME_RE.test(lotteryTime) || lotteryTime < '00:10') {
+    return res.status(400).json({ error: '抽選時刻は00:10〜23:59で指定してください' })
   }
 
   // サーバ側で最新の制約を再計算して検証（GET時点との時間経過に対応）
