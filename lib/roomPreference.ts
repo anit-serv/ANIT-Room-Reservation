@@ -1,5 +1,5 @@
 import type { Firestore } from 'firebase-admin/firestore'
-import { addDaysJST } from './reservationSettings'
+import { addDaysJST, resolveReservationSettingsForDate } from './reservationSettings'
 
 export type NotificationMode = 'post' | 'comment'
 export type RoomSlot = { rooms: string[]; unavailable: string[]; ready: boolean }
@@ -39,11 +39,12 @@ export function normalizeRoomList(value: unknown): string[] | null {
   return new Set(rooms).size === rooms.length ? rooms : null
 }
 
-export async function getRoomPreferenceConfig(db: Firestore): Promise<RoomPreferenceConfig> {
+export async function getRoomPreferenceConfig(db: Firestore, date?: string, ignorePlan = false): Promise<RoomPreferenceConfig> {
   const snap = await db.collection('settings').doc('room-preference').get()
+  const settings = date ? await resolveReservationSettingsForDate(db, date, { ignorePlan }) : undefined
   return {
-    notificationMode: snap.data()?.notificationMode === 'comment' ? 'comment' : 'post',
-    fallbackPost: snap.data()?.fallbackPost === true,
+    notificationMode: settings?.notificationMode ?? (snap.data()?.notificationMode === 'comment' ? 'comment' : 'post'),
+    fallbackPost: settings?.fallbackPost ?? (snap.data()?.fallbackPost === true),
   }
 }
 

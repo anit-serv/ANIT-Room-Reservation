@@ -61,7 +61,8 @@ async function executeJob(db: Firestore, kind: JobKind, date: string, dueAt: num
     await runLotteryForDate(db, date)
   } else if (kind === 'notify') {
     const result = await db.collection('lottery_results').doc(date).get()
-    if (!result.exists) throw new Error('Waiting for lottery result')
+    // Waiting for a prerequisite is not a failed send and must not exhaust retry attempts.
+    if (!result.exists) return Date.now() + 60_000
     if (!result.data()?.notificationSentAt && Date.now() > dueAt + 6 * 3_600_000) {
       await result.ref.update({ notificationError: '通知予定から6時間を超過しました。手動確認してください', pollStatus: 'unnotified' })
       throw new DeliveryNeedsReview('Notification overdue')

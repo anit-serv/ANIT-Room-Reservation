@@ -1,3 +1,5 @@
+import { prepareOperationPlans } from '../lib/operationPlanStore'
+import type { PlanWarning, OperationImpact } from '../lib/operationPlan'
 import { VercelRequest, VercelResponse } from '@vercel/node'
 import * as admin from 'firebase-admin'
 import * as crypto from 'crypto'
@@ -8,6 +10,7 @@ import { lotteryTargetDate, reservationDeadline } from '../lib/lotteryOperation'
 import { notificationFollowsLottery, operationChangeOnExecutionDate, timingOverridesValid } from '../lib/lotteryTiming'
 import { schedulerEnabled } from '../lib/schedulerQueue'
 import { refreshScheduler } from '../lib/scheduler'
+import { getRoomPreferenceConfig } from '../lib/roomPreference'
 import { refreshLotterySlot } from '../lib/roomAllocation'
 import roomHandler from '../lib/roomHandler'
 import { roomManagerIds, roomManagerUpdate } from '../lib/roomManagerPermissions'
@@ -99,6 +102,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (path === 'auth/me')       return handleAuthMe(req, res)
 
   // 設定
+  if (path === 'settings/operation-preview' && req.method === 'POST') return handleSettings(req, res, true)
   if (path === 'settings')              return handleSettings(req, res)
   if (path === 'settings/scheduled')    return handleSettingsScheduled(req, res)
   if (path === 'settings/lottery-time') return handleSettingsLotteryTime(req, res)
@@ -660,7 +664,7 @@ function validateSettings(body: any): SettingsCore | string {
   }
 }
 
-async function handleSettings(req: VercelRequest, res: VercelResponse) {
+async function handleSettings(req: VercelRequest, res: VercelResponse, preview = false) {
   let me: AuditActor
   try {
     me = await verifyAdmin(req.headers.authorization)
@@ -674,7 +678,7 @@ async function handleSettings(req: VercelRequest, res: VercelResponse) {
   if (req.method === 'GET') {
     const windowDates = Array.from({ length: 8 }, (_, index) => addDaysJST(index))
     const [data, scheduledChanges, roomModeRefs, windowSettings] = await Promise.all([
-      resolveReservationSettingsForDate(db, todayJST()),
+      resolveReservationSettingsForDate(db, todayJST(), { ignorePlan: true }),
       listPendingReservationSettingsChanges(db),
       db.collection('room_preference_modes').listDocuments(),
       resolveReservationSettingsForDates(db, windowDates),
@@ -700,11 +704,12 @@ async function handleSettings(req: VercelRequest, res: VercelResponse) {
       notifyTime:     data.defaultNotifyTime ?? data.notifyTime,
       hamoaniStartDate: data.hamoaniStartDate,
       hamoaniEndDate:   data.hamoaniEndDate,
+      ...await getRoomPreferenceConfig(db, todayJST(), true),
       roomModeVersions: roomModeDocs.map((doc) => ({ effectiveFrom: doc.id, enabled: doc.data()?.enabled === true })),
     })
   }
 
-  if (req.method === 'PUT') {
+  if (req.method === 'PUT' || preview) {
     const validated = validateSettings(req.body)
     if (typeof validated === 'string') return res.status(400).json({ error: validated })
 
@@ -722,7 +727,20 @@ async function handleSettings(req: VercelRequest, res: VercelResponse) {
     if (!lotteryTime || !LOTTERY_TIME_RE.test(lotteryTime) || lotteryTime < '00:10') {
       return res.status(400).json({ error: '抽選時刻は00:10〜23:59で指定してください' })
     }
-    const currentOperation = await resolveReservationSettingsForDate(db, todayJST())
+    const currentOperation = await resolveReservationSettingsForDate(db, effectiveFrom, { ignorePlan: true })
+    const legacyNotification = await getRoomPreferenceConfig(db, effectiveFrom)
+    const operation = {
+      lotteryMode: req.body.lotteryMode ?? currentOperation.lotteryMode,
+      notifyMode: req.body.notifyMode ?? currentOperation.notifyMode,
+      notifyTime: req.body.notifyTime ?? currentOperation.defaultNotifyTime ?? currentOperation.notifyTime,
+      notificationMode: req.body.notificationMode ?? legacyNotification.notificationMode,
+      fallbackPost: req.body.fallbackPost ?? legacyNotification.fallbackPost,
+    }
+    if (!['previous-day', 'same-day'].includes(operation.lotteryMode) || !['previous-day', 'same-day'].includes(operation.notifyMode) ||
+        !LOTTERY_TIME_RE.test(operation.notifyTime) || !['post', 'comment'].includes(operation.notificationMode) || typeof operation.fallbackPost !== 'boolean') {
+      return res.status(400).json({ error: '抽選・通知設定が不正です' })
+    }
+    if (operation.notificationMode === 'comment' && !process.env.BAND_COMMENT_KEY) return res.status(400).json({ error: 'コメント先BANDが未設定です' })
     const overrides = normalizeLotteryTimeOverrides(lotteryTimeOverrides)
     const weekdayEntries = Object.entries(lotteryTimeOverrides?.byWeekday ?? {})
     const dateEntries = Object.entries(lotteryTimeOverrides?.byDate ?? {})
@@ -738,81 +756,80 @@ async function handleSettings(req: VercelRequest, res: VercelResponse) {
         return res.status(400).json({ error: '通知時刻の例外設定を確認してください。特定日は適用日以降にしてください' })
       }
     }
-    if (!timingOverridesValid({ ...currentOperation, lotteryTime,
-      notifyTime: currentOperation.defaultNotifyTime ?? currentOperation.notifyTime }, overrides, effectiveFrom)) {
+    if (!timingOverridesValid({ ...operation, lotteryTime }, overrides, effectiveFrom)) {
       return res.status(400).json({ error: '通知日時は、各ルールの抽選日時以降にしてください' })
     }
     if (effectiveFrom < todayJST()) {
       return res.status(400).json({ error: `適用日は${todayJST()}以降を指定してください` })
     }
-    if (saveRecurring && effectiveFrom <= addDaysJST(1)) {
-      for (const date of [todayJST(), addDaysJST(1)].filter((date) => date >= effectiveFrom)) {
-        const previous = await resolveReservationSettingsForDate(db, date)
-        const weekday = String(new Date(`${date}T00:00:00Z`).getUTCDay())
-        const nextTime = overrides.byDate[date] ?? overrides.byWeekday[weekday] ?? lotteryTime
-        const activeBefore = isDateAvailableBySettings(date, previous) && pickTimeSlotsForDate(date, previous).length > 0
-        const activeAfter = isDateAvailableBySettings(date, validated) && pickTimeSlotsForDate(date, validated).length > 0
-        const blockedEvent = operationChangeOnExecutionDate(todayJST(), activeBefore || activeAfter ? [date] : [], previous, {
-          lotteryMode: previous.lotteryMode, lotteryTime: nextTime, notifyMode: previous.notifyMode,
-          notifyTime: notificationTimeForDate(date, currentOperation.defaultNotifyTime ?? currentOperation.notifyTime, overrides),
-        })
-        if (blockedEvent) {
-          return res.status(400).json({ error: `変更前または変更後の${blockedEvent}日が本日のため、この時刻は適用できません。適用日を後ろにずらしてください` })
-        }
-      }
-    }
     if (typeof roomPreferenceEnabled !== 'boolean') {
       return res.status(400).json({ error: '希望部屋モードの指定が不正です' })
     }
 
-    // 抽選時刻も各バージョンに含めて保存する（適用日方式）。
-    // cron-job.org のスケジュールは適用日当日に /api/data-organize?task=apply-lottery-time
-    // のリコンサイラが反映する。
+    // 設定・直近利用日の確定予定・キューを同じトランザクションで保存する。
+    // 保存後に次回起動を同期し、同期失敗は固定復旧ジョブで補う。
     const [legacyDayOverrides, legacyLotteryOverrides] = await Promise.all([
       saveDated ? listReservationDayOverrides(db, { minDate: todayJST() }) : Promise.resolve([]),
       saveRecurring ? listReservationLotteryOverrides(db, { minDate: effectiveFrom }) : Promise.resolve([]),
     ])
-    const batch = db.batch()
-    const rootUpdate: Record<string, unknown> = {}
-    if (saveRecurring) {
-      batch.set(docRef.collection('versions').doc(effectiveFrom), {
-        ...validated,
-        lotteryTime,
-        lotteryTimeOverrides: overrides,
-        effectiveFrom,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        updatedBy: me.userId,
+    const proposedVersion = { ...validated, ...operation, lotteryTime, lotteryTimeOverrides: overrides, effectiveFrom }
+    const proposedDatedSettings = saveDated ? { extraDates: validated.extraDates, excludedDates: validated.excludedDates, byDate: validated.perDaySchedule.byDate } : undefined
+    if (preview) {
+      const result = await db.runTransaction(async tx => {
+        const plans = saveRecurring ? await prepareOperationPlans(db, tx, proposedVersion, undefined, undefined, proposedDatedSettings) : null
+        return { operationWarnings: plans?.warnings ?? [], affectedOperations: plans?.affectedOperations ?? [], confirmedAt: plans?.confirmedAt ?? Date.now() }
       })
-      batch.set(db.collection('room_preference_modes').doc(effectiveFrom), {
-        enabled: roomPreferenceEnabled,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        updatedBy: me.userId,
-      })
-      rootUpdate.nextChange = admin.firestore.FieldValue.delete()
+      return res.status(200).json(result)
     }
-    if (saveDated) {
-      rootUpdate.immediateDatedSettings = {
-        extraDates: validated.extraDates,
-        excludedDates: validated.excludedDates,
-        byDate: validated.perDaySchedule.byDate,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        updatedBy: me.userId,
+    let operationWarnings: PlanWarning[] = []
+    let affectedOperations: OperationImpact[] = []
+    await db.runTransaction(async batch => {
+      const plans = saveRecurring ? await prepareOperationPlans(db, batch, proposedVersion, undefined, undefined, proposedDatedSettings) : null
+      // All transactional reads finish before settings, plans and queue entries are written.
+      operationWarnings = plans?.warnings ?? []
+      affectedOperations = plans?.affectedOperations ?? []
+      plans?.write()
+      const rootUpdate: Record<string, unknown> = {}
+      if (saveRecurring) {
+        batch.set(docRef.collection('versions').doc(effectiveFrom), {
+          ...validated,
+          ...operation,
+          lotteryTime,
+          lotteryTimeOverrides: overrides,
+          effectiveFrom,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          updatedBy: me.userId,
+        })
+        batch.set(db.collection('room_preference_modes').doc(effectiveFrom), {
+          enabled: roomPreferenceEnabled,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          updatedBy: me.userId,
+        })
+        rootUpdate.nextChange = admin.firestore.FieldValue.delete()
       }
-    }
-    // 明示した親フィールド単位で更新し、削除済みの特定日ルールが古い map に残らないようにする。
-    batch.set(docRef, rootUpdate, {
-      mergeFields: [
-        ...(saveRecurring ? ['nextChange'] : []),
-        ...(saveDated ? ['immediateDatedSettings'] : []),
-      ],
+      if (saveDated) {
+        rootUpdate.immediateDatedSettings = {
+          extraDates: validated.extraDates,
+          excludedDates: validated.excludedDates,
+          byDate: validated.perDaySchedule.byDate,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          updatedBy: me.userId,
+        }
+      }
+      // 明示した親フィールド単位で更新し、削除済みの特定日ルールが古い map に残らないようにする。
+      batch.set(docRef, rootUpdate, {
+        mergeFields: [
+          ...(saveRecurring ? ['nextChange'] : []),
+          ...(saveDated ? ['immediateDatedSettings'] : []),
+        ],
+      })
+      for (const override of legacyDayOverrides) {
+        batch.delete(docRef.collection('dayOverrides').doc(override.date))
+      }
+      for (const override of legacyLotteryOverrides) {
+        batch.delete(docRef.collection('lotteryOverrides').doc(override.date))
+      }
     })
-    for (const override of legacyDayOverrides) {
-      batch.delete(docRef.collection('dayOverrides').doc(override.date))
-    }
-    for (const override of legacyLotteryOverrides) {
-      batch.delete(docRef.collection('lotteryOverrides').doc(override.date))
-    }
-    await batch.commit()
     let cronWarning: string | undefined
     try {
       if (schedulerEnabled()) await refreshScheduler(db)
@@ -830,12 +847,12 @@ async function handleSettings(req: VercelRequest, res: VercelResponse) {
       cronWarning = '設定は保存されましたが、抽選スケジュールを更新できませんでした。通知状況を確認してください。'
     }
     try {
-      await audit(me, 'settings.schedule', { targetType: 'settings', details: { ...validated, lotteryTime, lotteryTimeOverrides: overrides, effectiveFrom, roomPreferenceEnabled, saveRecurring, saveDated,
+      await audit(me, 'settings.schedule', { targetType: 'settings', details: { ...validated, ...operation, lotteryTime, lotteryTimeOverrides: overrides, effectiveFrom, roomPreferenceEnabled, saveRecurring, saveDated, operationWarnings,
         replacedDayOverrides: legacyDayOverrides.map((item) => item.date), replacedLotteryOverrides: legacyLotteryOverrides.map((item) => item.date) } })
     } catch (error) {
       console.error('設定保存後の監査ログ記録に失敗しました', error)
     }
-    return res.status(200).json({ applied: saveRecurring && effectiveFrom > todayJST() ? 'scheduled' : 'immediate', effectiveFrom, cronWarning })
+    return res.status(200).json({ applied: saveRecurring && effectiveFrom > todayJST() ? 'scheduled' : 'immediate', effectiveFrom, cronWarning, operationWarnings, affectedOperations })
   }
 
   return res.status(405).json({ error: 'Method Not Allowed' })
@@ -939,28 +956,25 @@ async function handleSettingsScheduled(req: VercelRequest, res: VercelResponse) 
   const date = req.query.date as string | undefined
   if (date && !isValidDate(date)) return res.status(400).json({ error: '日付の形式が不正です' })
 
-  if (date) {
-    const batch = db.batch()
-    batch.delete(docRef.collection('versions').doc(date))
-    batch.delete(db.collection('room_preference_modes').doc(date))
-    await batch.commit()
-    const doc = await docRef.get()
-    if (doc.exists && doc.data()?.nextChange?.effectiveFrom === date) {
-      await docRef.set({ nextChange: admin.firestore.FieldValue.delete() }, { merge: true })
-    }
-    await audit(me, 'settings.scheduled.cancel', { targetType: 'settings', targetId: date, details: { effectiveFrom: date } })
-    return res.status(200).json({ success: true })
-  }
-
-  const pendingChange = await getPendingReservationSettingsChange(db)
-  if (pendingChange?.source === 'version') {
-    await docRef.collection('versions').doc(pendingChange.effectiveFrom).delete()
-  }
-  await docRef.set({
-    nextChange: admin.firestore.FieldValue.delete(),
-  }, { merge: true })
-  await audit(me, 'settings.scheduled.cancel', { targetType: 'settings' })
-  return res.status(200).json({ success: true })
+  const pending = date ? null : await getPendingReservationSettingsChange(db)
+  const targetDate = date ?? pending?.effectiveFrom
+  if (!targetDate) return res.status(200).json({ success: true, operationWarnings: [] })
+  const operationWarnings = await db.runTransaction(async tx => {
+    const root = await tx.get(docRef)
+    const plans = await prepareOperationPlans(db, tx, { effectiveFrom: targetDate, availableDays: [], timeSlots: [],
+      extraDates: [], excludedDates: [], perDaySchedule: { enabled: false, byWeekday: {}, byDate: {} },
+      lotteryTimeOverrides: { byWeekday: {}, byDate: {} } }, undefined, targetDate)
+    plans.write()
+    tx.delete(docRef.collection('versions').doc(targetDate))
+    tx.delete(db.collection('room_preference_modes').doc(targetDate))
+    if (root.data()?.nextChange?.effectiveFrom === targetDate) tx.set(docRef, { nextChange: admin.firestore.FieldValue.delete() }, { merge: true })
+    return plans.warnings
+  })
+  let cronWarning: string | undefined
+  try { if (schedulerEnabled()) await refreshScheduler(db) }
+  catch { cronWarning = '取消は保存されましたが、次回起動の同期に失敗しました。復旧処理で再試行します。' }
+  await audit(me, 'settings.scheduled.cancel', { targetType: 'settings', targetId: targetDate })
+  return res.status(200).json({ success: true, operationWarnings, cronWarning })
 }
 
 async function reservationCountForDate(date: string): Promise<number> {
@@ -1129,6 +1143,8 @@ async function handleSettingsLotteryOperation(req: VercelRequest, res: VercelRes
   } catch (err: any) {
     return res.status(err.message === 'Forbidden' ? 403 : 401).json({ error: err.message })
   }
+  if (schedulerEnabled() && req.method === 'PUT') return res.status(409).json({ error: '農部生協の設定画面で適用日を指定して保存してください' })
+
 
   const { lotteryMode, lotteryTime, notifyMode, notifyTime } = (req.body ?? {}) as {
     lotteryMode?: string; lotteryTime?: string; notifyMode?: string; notifyTime?: string
@@ -1267,6 +1283,8 @@ async function handleSettingsHamoaniPeriod(req: VercelRequest, res: VercelRespon
     const status = err.message === 'Forbidden' ? 403 : 401
     return res.status(status).json({ error: err.message })
   }
+  if (schedulerEnabled() && req.method === 'PUT') return res.status(409).json({ error: '農部生協の設定画面で適用日を指定して保存してください' })
+
 
   const docRef = db.collection('settings').doc('reservation')
 
@@ -1432,6 +1450,8 @@ async function handleSettingsLotteryOverrideByDate(req: VercelRequest, res: Verc
     const status = err.message === 'Forbidden' ? 403 : 401
     return res.status(status).json({ error: err.message })
   }
+  if (schedulerEnabled() && req.method === 'PUT') return res.status(409).json({ error: '農部生協の設定画面で適用日を指定して保存してください' })
+
 
   if (!isValidDate(date)) return res.status(400).json({ error: '日付の形式が不正です' })
   if (date < todayJST() || date > addDaysJST(7)) {

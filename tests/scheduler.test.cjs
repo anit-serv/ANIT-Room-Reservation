@@ -15,6 +15,8 @@ const { runLotteryForDate } = require('../lib/lotteryRunner.ts')
 const { refreshLotterySlot } = require('../lib/roomAllocation.ts')
 const { reconcileScheduler } = require('../lib/scheduler.ts')
 const { runScheduler } = require('../lib/scheduler.ts')
+const { selectOperationPlan, planWarnings } = require('../lib/operationPlan.ts')
+const { prepareOperationPlans } = require('../lib/operationPlanStore.ts')
 // No external request is allowed in this test suite.
 const axios = require('axios')
 axios.get = axios.post = axios.patch = () => { throw new Error('Unexpected network access') }
@@ -341,4 +343,363 @@ test('previous-day nominal time starts at 00:10 so its deadline stays on the pre
   const times = timing.executionTimes('2026-11-05', base)
   assert.equal(times.deadline, Date.parse('2026-11-04T00:00:00+09:00'))
   assert.equal(times.lottery, Date.parse('2026-11-04T00:05:00+09:00'))
+})
+
+
+test('scheduled operation and BAND mode affect only usage dates from the effective date', async () => {
+  const { resolveReservationSettingsForDate, resolveReservationSettingsForDates } = require('../lib/reservationSettings.ts')
+  const { getRoomPreferenceConfig } = require('../lib/roomPreference.ts')
+  const db = new FakeFirestore({
+    'settings/reservation': { lotteryMode: 'previous-day', lotteryTime: '21:00', notifyMode: 'previous-day', notifyTime: '21:00' },
+    'settings/room-preference': { notificationMode: 'post', fallbackPost: false },
+    'settings/reservation/versions/2026-11-05': { effectiveFrom: '2026-11-05', lotteryTime: '21:00',
+      lotteryMode: 'same-day', notifyMode: 'same-day', notifyTime: '08:30', notificationMode: 'comment', fallbackPost: true },
+    // Older scheduled documents without operation fields must inherit the preceding operation.
+    'settings/reservation/versions/2026-11-10': { effectiveFrom: '2026-11-10', lotteryTime: '22:00' },
+  })
+  const dates = ['2026-11-04', '2026-11-05', '2026-11-10']
+  const batch = await resolveReservationSettingsForDates(db, dates)
+  for (const date of dates) {
+    const settings = await resolveReservationSettingsForDate(db, date)
+    const before = date < '2026-11-05'
+    assert.equal(settings.lotteryMode, before ? 'previous-day' : 'same-day')
+    assert.equal(settings.notifyMode, before ? 'previous-day' : 'same-day')
+    assert.equal(settings.notifyTime, before ? '21:00' : '08:30')
+    assert.equal(batch[date].notifyTime, settings.notifyTime)
+    assert.equal(batch[date].lotteryMode, settings.lotteryMode)
+    assert.deepEqual(await getRoomPreferenceConfig(db, date), { notificationMode: before ? 'post' : 'comment', fallbackPost: !before })
+  }
+})
+
+
+test('execution-day guard excludes usage dates before the requested effective date', () => {
+  const { operationChangeOnExecutionDate } = require('../lib/lotteryTiming.ts')
+  const before = { lotteryMode: 'previous-day', lotteryTime: '21:00', notifyMode: 'previous-day', notifyTime: '21:00' }
+  const after = { ...before, notifyMode: 'same-day', notifyTime: '09:00' }
+  assert.equal(operationChangeOnExecutionDate('2026-10-29', ['2026-10-29', '2026-10-30'], before, after, '2026-11-05'), null)
+  assert.equal(operationChangeOnExecutionDate('2026-10-29', ['2026-10-29'], { ...before, notifyMode: 'same-day' }, after, '2026-10-29'), '通知')
+})
+
+
+const at = text => Date.parse(`${text}+09:00`)
+const transitionBase = { lotteryMode: 'previous-day', lotteryTime: '12:09', notifyMode: 'previous-day', notifyTime: '12:09', notificationMode: 'post', fallbackPost: false }
+
+test('12:00 confirmation keeps 12:04 actual draw and 12:09 notification when requested times are 12:01', () => {
+  const plan = selectOperationPlan('2026-10-30', transitionBase, { ...transitionBase, lotteryTime: '12:01', notifyTime: '12:01' }, at('2026-10-29T12:00:00'))
+  assert.equal(plan.deadline, at('2026-10-29T11:59:00'))
+  assert.equal(plan.lotteryAt, at('2026-10-29T12:04:00'))
+  assert.equal(plan.notifyAt, at('2026-10-29T12:09:00'))
+  assert.match(plan.notifyReason, /採用した抽選/)
+  assert.equal(planWarnings(plan).length, 2)
+})
+
+test('exact ten-minute draw boundary is allowed and earlier actual draw is retained', () => {
+  const now = at('2026-10-29T10:00:00'), before = { ...transitionBase, lotteryTime: '13:00', notifyTime: '14:00' }
+  const exact = selectOperationPlan('2026-10-30', before, { ...before, lotteryTime: '10:15', notifyTime: '10:15' }, now)
+  assert.equal(exact.lotteryAt, now + 10 * 60_000)
+  assert.equal(exact.drawReason, null)
+  const early = selectOperationPlan('2026-10-30', before, { ...before, lotteryTime: '10:14', notifyTime: '10:14' }, now)
+  assert.equal(early.lotteryTime, '13:00')
+  assert.equal(early.notifyTime, '14:00')
+})
+
+test('notification can change independently after an immutable draw, including exact confirmation time', () => {
+  const before = { ...transitionBase, lotteryTime: '09:00', notifyTime: '12:00' }, now = at('2026-10-29T10:00:00')
+  const exact = selectOperationPlan('2026-10-30', before, { ...before, notifyTime: '10:00' }, now, { drawLocked: true })
+  assert.equal(exact.notifyTime, '10:00')
+  assert.equal(exact.notifyReason, null)
+  const past = selectOperationPlan('2026-10-30', before, { ...before, notifyTime: '09:59' }, now, { drawLocked: true })
+  assert.equal(past.notifyTime, '12:00')
+  assert.match(past.notifyReason, /保存確定より前/)
+})
+
+test('old notification retention also rolls back a later proposed draw to prevent inverse dependency', () => {
+  const before = { ...transitionBase, lotteryTime: '12:09', notifyTime: '12:09' }
+  const plan = selectOperationPlan('2026-10-30', before, { ...before, lotteryTime: '14:00', notifyTime: '14:00' },
+    at('2026-10-29T09:00:00'), { notifyLocked: true })
+  assert.equal(plan.lotteryTime, '12:09')
+  assert.equal(plan.notifyTime, '12:09')
+  assert.match(plan.drawReason, /維持する通知/)
+})
+
+test('next utilization day may notify before current utilization day without relabeling dates', () => {
+  const now = at('2026-10-29T09:30:00')
+  const old = { ...transitionBase, lotteryMode: 'same-day', notifyMode: 'same-day', notifyTime: '12:00' }
+  const next = { ...old, lotteryMode: 'previous-day', lotteryTime: '09:50', notifyMode: 'previous-day', notifyTime: '10:00' }
+  const today = selectOperationPlan('2026-10-29', old, next, now, { drawLocked: true })
+  const tomorrow = selectOperationPlan('2026-10-30', old, next, now)
+  assert.equal(today.notifyAt, at('2026-10-29T12:00:00'))
+  assert.equal(tomorrow.notifyAt, at('2026-10-29T10:00:00'))
+  assert.ok(tomorrow.notifyAt < today.notifyAt)
+  assert.equal(tomorrow.date, '2026-10-30')
+})
+
+function planFixture(overrides = {}) {
+  return new FakeFirestore({ 'settings/reservation': { ...transitionBase, availableDays: [], extraDates: ['2026-10-30'],
+    timeSlots: [{ label: '09-10', value: '09:00-10:00' }], ...overrides },
+    'settings/room-preference': { notificationMode: 'post', fallbackPost: false } })
+}
+function proposedPlan(overrides = {}) {
+  return { ...transitionBase, availableDays: [], extraDates: ['2026-10-30'], excludedDates: [],
+    timeSlots: [{ label: '09-10', value: '09:00-10:00' }], perDaySchedule: { enabled: false, byWeekday: {}, byDate: {} },
+    effectiveFrom: '2026-10-30', lotteryTime: '12:01', notifyTime: '12:01', lotteryTimeOverrides: { byWeekday: {}, byDate: {} }, ...overrides }
+}
+async function savePlan(db, change, time) {
+  return db.runTransaction(async tx => {
+    const prepared = await prepareOperationPlans(db, tx, change, () => time)
+    prepared.write()
+    tx.set(db.collection('settings').doc('reservation').collection('versions').doc(change.effectiveFrom), change)
+    return prepared
+  })
+}
+
+test('settings, immutable retained dates and queue schedules are committed together and survive reconciliation', async () => {
+  const { resolveReservationSettingsForDate, resolveReservationSettingsForDates } = require('../lib/reservationSettings.ts')
+  const db = planFixture(), now = at('2026-10-29T12:00:00')
+  await queue.enqueue(db, 'lottery', '2026-10-30', at('2026-10-29T12:04:00'))
+  await queue.enqueue(db, 'notify', '2026-10-30', at('2026-10-29T12:09:00'))
+  const prepared = await savePlan(db, proposedPlan(), now)
+  assert.equal(prepared.warnings.length, 2)
+  assert.ok(db.rows.has('operation_plans/2026-10-30'))
+  const single = await resolveReservationSettingsForDate(db, '2026-10-30')
+  const batch = await resolveReservationSettingsForDates(db, ['2026-10-30'])
+  assert.equal(single.lotteryTime, '12:09')
+  assert.equal(batch['2026-10-30'].notifyTime, '12:09')
+  assert.equal((await resolveReservationSettingsForDate(db, '2026-10-30', { ignorePlan: true })).notifyTime, '12:01')
+  const originalNow = Date.now
+  Date.now = () => now + 60_000
+  try { await reconcileScheduler(db) } finally { Date.now = originalNow }
+  assert.equal(queue.milliseconds(db.rows.get('scheduled_jobs/notify_2026-10-30').dueAt), at('2026-10-29T12:09:00'))
+  assert.equal(db.rows.get('scheduled_jobs/lottery_2026-10-30').status, 'pending')
+  const { reservationDeadline } = require('../lib/lotteryOperation.ts')
+  assert.equal(reservationDeadline('2026-10-30', single.lotteryMode, single.lotteryTime).getTime(), at('2026-10-29T11:59:00'))
+})
+
+test('transaction failure cannot leave new settings with an old or missing execution snapshot', async () => {
+  const db = planFixture()
+  db.failCommit = () => true
+  await assert.rejects(savePlan(db, proposedPlan(), at('2026-10-29T12:00:00')))
+  assert.equal(db.rows.has('settings/reservation/versions/2026-10-30'), false)
+  assert.equal(db.rows.has('operation_plans/2026-10-30'), false)
+})
+
+test('preview writes nothing and actual save reevaluates the elapsed confirmation time', async () => {
+  const db = planFixture({ lotteryTime: '14:00', notifyTime: '14:00' })
+  const change = proposedPlan({ lotteryTime: '12:15', notifyTime: '12:15' }), before = db.rows.size
+  const preview = await db.runTransaction(tx => prepareOperationPlans(db, tx, change, () => at('2026-10-29T12:00:00')))
+  assert.equal(preview.warnings.length, 0)
+  assert.equal(db.rows.size, before)
+  const saved = await savePlan(db, change, at('2026-10-29T12:01:00'))
+  assert.equal(saved.warnings.length, 2)
+  assert.equal(db.rows.get('operation_plans/2026-10-30').notifyTime, '14:00')
+})
+
+test('started jobs and comment windows stay fixed on subsequent saves', async () => {
+  const db = planFixture({ lotteryTime: '14:00', notifyMode: 'same-day', notifyTime: '12:00' })
+  await queue.enqueue(db, 'lottery', '2026-10-30', at('2026-10-29T13:55:00'))
+  const claimed = await queue.claimJob(db, 'lottery_2026-10-30', at('2026-10-29T13:55:00'))
+  assert.ok(claimed)
+  await db.collection('lottery_results').doc('2026-10-30').set({ pollStatus: 'active',
+    pollStartsAt: new Date(at('2026-10-30T12:00:00')), pollEndsAt: new Date(at('2026-10-30T13:00:00')),
+    notificationMode: 'comment', fallbackPost: true, notifyMode: 'same-day', notifyTime: '12:00' })
+  await savePlan(db, proposedPlan({ lotteryTime: '15:00', notifyMode: 'same-day', notifyTime: '15:00' }), at('2026-10-29T13:55:00'))
+  const plan = db.rows.get('operation_plans/2026-10-30')
+  assert.equal(plan.lotteryTime, '14:00')
+  assert.equal(plan.notifyTime, '12:00')
+  assert.equal(plan.notificationMode, 'comment')
+  assert.equal(plan.notifyAt, at('2026-10-30T12:00:00'))
+  assert.equal(db.rows.get('scheduled_jobs/lottery_2026-10-30').token, claimed.token)
+})
+
+test('future effective dates neither change nor warn about current execution dates', async () => {
+  const db = planFixture()
+  const saved = await savePlan(db, proposedPlan({ effectiveFrom: '2026-11-05' }), at('2026-10-29T12:00:00'))
+  assert.deepEqual(saved.warnings, [])
+  assert.equal([...db.rows.keys()].some(key => key.startsWith('operation_plans/')), false)
+})
+
+test('comment notification initialization uses the preserved start date and one-hour window', async () => {
+  const { startNotification } = require('../lib/notificationService.ts')
+  const now = at('2026-10-29T12:00:00'), originalNow = Date.now, db = planFixture()
+  await db.collection('settings').doc('room-preference').set({ notificationMode: 'comment', fallbackPost: true })
+  await savePlan(db, proposedPlan({ notificationMode: 'post', fallbackPost: false }), now)
+  // The original comment mode and its confirmation window are retained together.
+  await db.collection('lottery_results').doc('2026-10-30').set({ results: {} })
+  Date.now = () => at('2026-10-29T12:08:00')
+  try { await assert.rejects(startNotification(db, '2026-10-30'), /通知日時前/) } finally { Date.now = originalNow }
+  Date.now = () => at('2026-10-29T12:09:00')
+  try { await startNotification(db, '2026-10-30') } finally { Date.now = originalNow }
+  const data = db.rows.get('lottery_results/2026-10-30')
+  assert.equal(data.notificationMode, 'comment')
+  assert.equal(data.pollStatus, 'active')
+  assert.equal(data.fallbackPost, true)
+  assert.equal(queue.milliseconds(data.pollStartsAt), at('2026-10-29T12:09:00'))
+  assert.equal(queue.milliseconds(data.pollEndsAt) - queue.milliseconds(data.pollStartsAt), 3_600_000)
+})
+
+
+async function withSchedulerClock(initial, callback) {
+  const RealDate = Date, envKeys = ['SCHEDULER_ENABLED', 'CRONJOB_ORG_SCHEDULER_JOB_ID', 'CRONJOB_ORG_API_KEY', 'CRON_SECRET', 'PUBLIC_BASE_URL']
+  const savedEnv = Object.fromEntries(envKeys.map(key => [key, process.env[key]]))
+  let fixed = initial
+  class ClockDate extends RealDate {
+    constructor(...args) { super(...(args.length ? args : [fixed])) }
+    static now() { return fixed }
+    static [Symbol.hasInstance](value) { return value instanceof RealDate }
+  }
+  global.Date = ClockDate
+  Object.assign(process.env, { SCHEDULER_ENABLED: 'true', CRONJOB_ORG_SCHEDULER_JOB_ID: '123',
+    CRONJOB_ORG_API_KEY: 'test-only', CRON_SECRET: 'test-only', PUBLIC_BASE_URL: 'https://scheduler.invalid' })
+  const oldPatch = axios.patch
+  axios.patch = async () => ({ data: {} })
+  try { await callback(next => { fixed = next }) }
+  finally {
+    global.Date = RealDate; axios.patch = oldPatch
+    for (const key of envKeys) { if (savedEnv[key] === undefined) delete process.env[key]; else process.env[key] = savedEnv[key] }
+  }
+}
+
+test('notification waits for an absent draw result without exhausting retries and sends after completion', async () => {
+  await withSchedulerClock(at('2026-10-29T12:20:00'), async advance => {
+    const db = planFixture()
+    let sends = 0
+    delivery.deliveryApi.sendPost = async () => { sends++; return 'after-draw' }
+    await queue.enqueue(db, 'lottery', '2026-10-30', at('2026-10-29T12:04:00'))
+    await db.collection('scheduled_jobs').doc('lottery_2026-10-30').update({ status: 'manual' })
+    await queue.enqueue(db, 'notify', '2026-10-30', at('2026-10-29T12:09:00'))
+    await db.collection('scheduled_jobs').doc('notify_2026-10-30').update({ attempts: 7 })
+    await runScheduler(db, true)
+    assert.equal(sends, 0)
+    assert.equal(db.rows.get('scheduled_jobs/notify_2026-10-30').status, 'pending')
+    assert.equal(db.rows.get('scheduled_jobs/notify_2026-10-30').attempts, 0)
+    assert.equal(db.rows.has('band_deliveries/anything'), false)
+    advance(at('2026-10-29T12:22:00'))
+    const data = result(); delete data.pollStatus
+    await db.collection('lottery_results').doc('2026-10-30').set(data)
+    await runScheduler(db, true)
+    assert.equal(sends, 1)
+    assert.equal(db.rows.get('scheduled_jobs/notify_2026-10-30').status, 'done')
+    await runScheduler(db, true)
+    assert.equal(sends, 1)
+  })
+})
+
+test('actual queue sends tomorrow at 10:00 and today at 12:00 using their own result dates', async () => {
+  await withSchedulerClock(at('2026-10-29T09:30:00'), async advance => {
+    const old = { ...transitionBase, lotteryMode: 'same-day', notifyMode: 'same-day', notifyTime: '12:00' }
+    const db = planFixture({ ...old, extraDates: ['2026-10-29', '2026-10-30'] })
+    const next = { ...old, lotteryMode: 'previous-day', lotteryTime: '09:50', notifyMode: 'previous-day', notifyTime: '10:00' }
+    for (const date of ['2026-10-29', '2026-10-30']) {
+      const plan = selectOperationPlan(date, old, next, Date.now(), { drawLocked: date === '2026-10-29' })
+      await db.collection('operation_plans').doc(date).set(plan)
+      const data = result(); delete data.pollStatus
+      await db.collection('lottery_results').doc(date).set(data)
+    }
+    const posted = []
+    delivery.deliveryApi.sendPost = async content => { posted.push(content); return `ordered-${posted.length}` }
+    advance(at('2026-10-29T10:00:00'))
+    await runScheduler(db, true)
+    assert.equal(posted.length, 1)
+    assert.match(posted[0], /10[\/]30/)
+    assert.equal(db.rows.get('lottery_results/2026-10-29').notificationSentAt, undefined)
+    advance(at('2026-10-29T12:00:00'))
+    await runScheduler(db, true)
+    assert.equal(posted.length, 2)
+    assert.match(posted[1], /10[\/]29/)
+  })
+})
+
+test('near midnight the day after tomorrow is included in the safety decision', async () => {
+  const db = planFixture({ lotteryTime: '13:00', notifyTime: '13:00', extraDates: ['2026-10-31'] })
+  const change = proposedPlan({ effectiveFrom: '2026-10-31', lotteryTime: '00:10', notifyTime: '00:10', extraDates: ['2026-10-31'] })
+  await savePlan(db, change, at('2026-10-29T23:59:00'))
+  const plan = db.rows.get('operation_plans/2026-10-31')
+  assert.equal(plan.lotteryTime, '13:00')
+  assert.equal(plan.notifyTime, '13:00')
+  assert.ok(plan.drawReason)
+})
+
+test('cancelling a version also atomically preserves a near execution instead of moving it backwards', async () => {
+  const db = planFixture({ lotteryTime: '12:01', notifyTime: '12:01' }), change = proposedPlan({ lotteryTime: '12:09', notifyTime: '12:09' })
+  await db.collection('settings').doc('reservation').collection('versions').doc(change.effectiveFrom).set(change)
+  await db.runTransaction(async tx => {
+    const prepared = await prepareOperationPlans(db, tx, change, () => at('2026-10-29T12:00:00'), change.effectiveFrom)
+    prepared.write()
+    tx.delete(db.collection('settings').doc('reservation').collection('versions').doc(change.effectiveFrom))
+  })
+  assert.equal(db.rows.get('operation_plans/2026-10-30').lotteryTime, '12:09')
+  assert.equal(db.rows.get('operation_plans/2026-10-30').notifyTime, '12:09')
+})
+
+
+test('stale reconciliation cannot overwrite a plan committed between its settings read and enqueue', async () => {
+  const db = planFixture({ lotteryTime: '14:00', notifyTime: '14:00' })
+  const stale = timing.executionTimes('2026-10-30', { ...transitionBase, lotteryTime: '14:00', notifyTime: '14:00' })
+  await savePlan(db, proposedPlan({ lotteryTime: '13:00', notifyTime: '13:00' }), at('2026-10-29T09:00:00'))
+  await queue.enqueue(db, 'lottery', '2026-10-30', stale.lottery, { reschedule: true })
+  await queue.enqueue(db, 'notify', '2026-10-30', stale.notify, { reschedule: true })
+  assert.equal(queue.milliseconds(db.rows.get('scheduled_jobs/lottery_2026-10-30').dueAt), at('2026-10-29T12:55:00'))
+  assert.equal(queue.milliseconds(db.rows.get('scheduled_jobs/notify_2026-10-30').dueAt), at('2026-10-29T13:00:00'))
+})
+
+test('a moved pending job cannot be claimed at the stale due time', async () => {
+  const db = planFixture({ lotteryTime: '14:00', notifyTime: '14:00' })
+  await queue.enqueue(db, 'lottery', '2026-10-30', at('2026-10-29T13:55:00'))
+  await savePlan(db, proposedPlan({ lotteryTime: '15:00', notifyTime: '15:00' }), at('2026-10-29T09:00:00'))
+  assert.equal(await queue.claimJob(db, 'lottery_2026-10-30', at('2026-10-29T13:55:00')), null)
+  assert.ok(await queue.claimJob(db, 'lottery_2026-10-30', at('2026-10-29T14:55:00')))
+})
+
+
+test('opening a previously inactive day can accept a future draw after an unrelated old default deadline', async () => {
+  const db = planFixture({ lotteryTime: '09:00', notifyTime: '09:00', extraDates: [] })
+  await savePlan(db, proposedPlan({ lotteryTime: '14:00', notifyTime: '14:00' }), at('2026-10-29T12:00:00'))
+  assert.equal(db.rows.get('operation_plans/2026-10-30').lotteryTime, '14:00')
+  assert.equal(db.rows.get('operation_plans/2026-10-30').drawReason, null)
+})
+
+
+test('a simultaneous immediate extra-date change participates in the same timing decision', async () => {
+  const db = planFixture({ lotteryTime: '14:00', notifyTime: '14:00', extraDates: [],
+    immediateDatedSettings: { extraDates: [], excludedDates: [], byDate: {} } })
+  const change = proposedPlan({ lotteryTime: '12:01', notifyTime: '12:01' })
+  await db.runTransaction(async tx => {
+    const prepared = await prepareOperationPlans(db, tx, change, () => at('2026-10-29T12:00:00'), undefined,
+      { extraDates: ['2026-10-30'], excludedDates: [], byDate: {} })
+    prepared.write()
+    tx.set(db.collection('settings').doc('reservation').collection('versions').doc(change.effectiveFrom), change)
+    tx.set(db.collection('settings').doc('reservation'), { immediateDatedSettings: { extraDates: ['2026-10-30'], excludedDates: [], byDate: {} } }, { merge: true })
+  })
+  assert.equal(db.rows.get('operation_plans/2026-10-30').lotteryTime, '14:00')
+  assert.equal(db.rows.get('operation_plans/2026-10-30').notifyTime, '14:00')
+})
+
+
+test('booking-window timing warning includes eligible usage dates from the effective date and permits save', async () => {
+  const extraDates = ['2026-10-30', '2026-11-01', '2026-11-02']
+  const db = planFixture({ extraDates })
+  const saved = await savePlan(db, proposedPlan({ effectiveFrom: '2026-11-01', extraDates, lotteryTime: '14:00', notifyTime: '14:00' }), at('2026-10-29T12:00:00'))
+  assert.deepEqual(saved.affectedOperations, [
+    { date: '2026-11-01', events: ['抽選', '通知'] }, { date: '2026-11-02', events: ['抽選', '通知'] },
+  ])
+  assert.ok(db.rows.has('settings/reservation/versions/2026-11-01'))
+  assert.equal(saved.warnings.length, 0)
+})
+
+test('BAND method-only change warns about notification but does not block setting save', async () => {
+  const db = planFixture({ lotteryTime: '14:00', notifyTime: '14:00' })
+  const saved = await savePlan(db, proposedPlan({ lotteryTime: '14:00', notifyTime: '14:00', notificationMode: 'comment' }), at('2026-10-29T12:00:00'))
+  assert.deepEqual(saved.affectedOperations, [{ date: '2026-10-30', events: ['通知'] }])
+  assert.equal(db.rows.get('settings/reservation/versions/2026-10-30').notificationMode, 'comment')
+})
+
+test('no timing warning for unchanged schedules or dates outside the existing booking window', async () => {
+  const db = planFixture()
+  const unchanged = await savePlan(db, proposedPlan({ lotteryTime: '12:09', notifyTime: '12:09' }), at('2026-10-29T12:00:00'))
+  assert.deepEqual(unchanged.affectedOperations, [])
+  const later = await savePlan(db, proposedPlan({ effectiveFrom: '2026-11-10', lotteryTime: '14:00', notifyTime: '14:00' }), at('2026-10-29T12:00:00'))
+  assert.deepEqual(later.affectedOperations, [])
+  const newDateDb = planFixture({ extraDates: [] })
+  const added = await savePlan(newDateDb, proposedPlan({ lotteryTime: '14:00', notifyTime: '14:00' }), at('2026-10-29T12:00:00'))
+  assert.deepEqual(added.affectedOperations, [])
 })

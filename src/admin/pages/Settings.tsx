@@ -1,3 +1,4 @@
+import type { PlanWarning, OperationImpact } from '../../../lib/operationPlan'
 import { useEffect, useState, useMemo, useCallback } from 'react'
 import { useBlocker } from 'react-router-dom'
 import { adminFetch } from '../auth'
@@ -10,7 +11,7 @@ import DatePicker from '../../components/DatePicker'
 import { useToast } from '../../contexts/ToastContext'
 import FacilitySettingsChanges from '../components/FacilitySettingsChanges'
 import RoomPreferenceSettings from './RoomPreferenceSettings'
-import { notificationFollowsLottery, operationChangeOnExecutionDate, timingOverridesValid } from '../../../lib/lotteryTiming'
+import { notificationFollowsLottery, timingOverridesValid } from '../../../lib/lotteryTiming'
 
 type SettingsCore = {
   availableDays: number[]
@@ -21,7 +22,7 @@ type SettingsCore = {
 }
 
 type LotteryTimeOverrides = { byWeekday: Record<string, string>; byDate: Record<string, string>; notifyByWeekday?: Record<string, string>; notifyByDate?: Record<string, string> }
-type ScheduledChange = SettingsCore & { effectiveFrom: string; lotteryTime?: string; lotteryTimeOverrides?: LotteryTimeOverrides }
+type ScheduledChange = SettingsCore & Partial<Pick<SettingsResponse, 'lotteryMode' | 'notifyMode' | 'notifyTime' | 'notificationMode' | 'fallbackPost'>> & { effectiveFrom: string; lotteryTime?: string; lotteryTimeOverrides?: LotteryTimeOverrides }
 type RoomModeVersion = { effectiveFrom: string; enabled: boolean }
 type LegacyDayOverride = { date: string; type: 'blocked' | 'opened'; reason?: string; timeSlots?: TimeSlot[] }
 type LegacyLotteryOverride = { date: string; lotteryTime: string }
@@ -36,6 +37,8 @@ type SettingsResponse = SettingsCore & {
   lotteryMode: 'previous-day' | 'same-day'
   notifyMode: 'previous-day' | 'same-day'
   notifyTime: string
+  notificationMode?: 'post' | 'comment'
+  fallbackPost?: boolean
   hamoaniStartDate?: string | null
   hamoaniEndDate?: string | null
   roomModeVersions?: RoomModeVersion[]
@@ -103,6 +106,10 @@ export default function Settings() {
   const [hamoaniEndDate,   setHamoaniEndDate]   = useState<string>(cached?.hamoaniEndDate ?? '')
   const [roomModeVersions, setRoomModeVersions] = useState<RoomModeVersion[]>(cached?.roomModeVersions ?? [])
   const [roomModeEnabled, setRoomModeEnabled] = useState(() => roomModeAtDate(minEffectiveDate(), cached?.roomModeVersions ?? []))
+  const [affectedOperations, setAffectedOperations] = useState<OperationImpact[]>([])
+  const [operationWarnings, setOperationWarnings] = useState<PlanWarning[]>([])
+  const [savedOperationWarnings, setSavedOperationWarnings] = useState<PlanWarning[]>([])
+  const [checkingPlan, setCheckingPlan] = useState(false)
   const [notificationMode, setNotificationMode] = useState<'post' | 'comment'>('post')
   const [fallbackPost, setFallbackPost] = useState(false)
   const [savedNotification, setSavedNotification] = useState<{ mode: 'post' | 'comment'; fallback: boolean } | null>(null)
@@ -200,11 +207,11 @@ export default function Settings() {
     if (!res.ok) { setMessage({ type: 'error', text: '設定の取得に失敗しました' }); return }
     if (!roomConfigRes.ok) { setMessage({ type: 'error', text: '通知方式を取得できませんでした' }); return }
     const roomConfig = await roomConfigRes.json()
-    setNotificationMode(roomConfig.notificationMode ?? 'post')
-    setFallbackPost(roomConfig.fallbackPost === true)
-    setSavedNotification({ mode: roomConfig.notificationMode ?? 'post', fallback: roomConfig.fallbackPost === true })
     setCommentConfigured(roomConfig.commentBandConfigured === true)
     const data = (await res.json()) as SettingsResponse
+    setNotificationMode(data.notificationMode ?? roomConfig.notificationMode ?? 'post')
+    setFallbackPost(data.fallbackPost ?? roomConfig.fallbackPost === true)
+    setSavedNotification({ mode: data.notificationMode ?? roomConfig.notificationMode ?? 'post', fallback: data.fallbackPost ?? roomConfig.fallbackPost === true })
     setCurrent(data)
     setRoomModeVersions(data.roomModeVersions ?? [])
     if (resetRoomMode) setRoomModeEnabled(roomModeAtDate(effectiveFrom, data.roomModeVersions ?? []))
@@ -226,6 +233,11 @@ export default function Settings() {
     applyToForm(change)
     setLotteryTime(change.lotteryTime ?? current?.defaultLotteryTime ?? current?.lotteryTime ?? '21:00')
     setLotteryTimeOverrides(change.lotteryTimeOverrides ?? { byWeekday: {}, byDate: {} })
+    setLotteryMode(change.lotteryMode ?? current?.lotteryMode ?? 'previous-day')
+    setNotifyMode(change.notifyMode ?? current?.notifyMode ?? 'previous-day')
+    setNotifyTime(change.notifyTime ?? current?.notifyTime ?? '21:00')
+    setNotificationMode(change.notificationMode ?? current?.notificationMode ?? savedNotification?.mode ?? 'post')
+    setFallbackPost(change.fallbackPost ?? current?.fallbackPost ?? savedNotification?.fallback ?? false)
     setEffectiveFrom(change.effectiveFrom)
     setRoomModeEnabled(roomModeAtDate(change.effectiveFrom, roomModeVersions))
     setEditingScheduled(true)
@@ -238,6 +250,11 @@ export default function Settings() {
     applyToForm(current)
     setLotteryTime(current.defaultLotteryTime ?? current.lotteryTime ?? '21:00')
     setLotteryTimeOverrides(current.lotteryTimeOverrides ?? { byWeekday: {}, byDate: {} })
+    setLotteryMode(current.lotteryMode)
+    setNotifyMode(current.notifyMode)
+    setNotifyTime(current.notifyTime)
+    setNotificationMode(current.notificationMode ?? savedNotification?.mode ?? 'post')
+    setFallbackPost(current.fallbackPost ?? savedNotification?.fallback ?? false)
     setEffectiveFrom(minEffectiveDate())
     setRoomModeEnabled(roomModeAtDate(minEffectiveDate(), roomModeVersions))
     setEditingScheduled(false)
@@ -262,21 +279,16 @@ export default function Settings() {
   const lotteryTimeInvalid = !lotteryTime || lotteryTime < '00:10' ||
     [...Object.values(lotteryTimeOverrides.byWeekday), ...Object.values(lotteryTimeOverrides.byDate)].some((time) => !time || time < '00:10') ||
     !timingOverridesValid({ lotteryMode, lotteryTime, notifyMode, notifyTime }, lotteryTimeOverrides, effectiveFrom)
-  const operationDirty = !!current && (lotteryMode !== current.lotteryMode ||
-    notifyMode !== (current.notifyMode ?? current.lotteryMode) || notifyTime !== current.notifyTime)
+  const operationBaseline = editingScheduled ? scheduledChanges.find((change) => change.effectiveFrom === editingScheduledDate) : undefined
+  const operationDirty = !!current && (lotteryMode !== (operationBaseline?.lotteryMode ?? current.lotteryMode) ||
+    notifyMode !== (operationBaseline?.notifyMode ?? current.notifyMode ?? current.lotteryMode) || notifyTime !== (operationBaseline?.notifyTime ?? current.notifyTime))
   const editDate = todayJST()
   const followingDate = new Date(Date.parse(`${editDate}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10)
-  const activeExecutionDates = [editDate, followingDate].filter((date) =>
-    current?.reservableDatesInWindow?.includes(date))
-  const operationBlockedEvent = operationDirty && current
-    ? operationChangeOnExecutionDate(editDate, activeExecutionDates, current, {
-      lotteryMode, lotteryTime: current.lotteryTime, notifyMode, notifyTime,
-    }) : null
   const hamoaniDirty = !!current && (hamoaniStartDate !== (current.hamoaniStartDate ?? '') ||
     hamoaniEndDate !== (current.hamoaniEndDate ?? ''))
   const hamoaniRangeInvalid = !!hamoaniStartDate && !!hamoaniEndDate && hamoaniStartDate > hamoaniEndDate
   const hamoaniIncomplete = (!!hamoaniStartDate && !hamoaniEndDate) || (!hamoaniStartDate && !!hamoaniEndDate)
-  const notificationDirty = !!savedNotification && (notificationMode !== savedNotification.mode || fallbackPost !== savedNotification.fallback)
+  const notificationDirty = !!savedNotification && (notificationMode !== (operationBaseline?.notificationMode ?? savedNotification.mode) || fallbackPost !== (operationBaseline?.fallbackPost ?? savedNotification.fallback))
 
   const { recurringChangeCount, datedChangeCount, changedDatedDates } = useMemo(() => {
     if (!current) return { recurringChangeCount: 0, datedChangeCount: 0, changedDatedDates: [] as string[] }
@@ -319,26 +331,7 @@ export default function Settings() {
     return { recurringChangeCount, datedChangeCount, changedDatedDates }
   }, [current, scheduledChanges, editingScheduled, editingScheduledDate, availableDays, timeSlots, extraDates, excludedDates, perDaySchedule, lotteryTime, lotteryTimeOverrides, roomModeEnabled, effectiveFrom, roomModeVersions])
 
-  const recurringDirty = recurringChangeCount > 0
-  const previousLotteryOverrides = current?.lotteryTimeOverrides ?? { byWeekday: {}, byDate: {} }
-  const recurringBlockedEvent = recurringDirty && current
-    ? [editDate, followingDate].filter((date) => date >= effectiveFrom).map((date) => {
-      const weekday = String(new Date(`${date}T00:00:00Z`).getUTCDay())
-      const active = current.reservableDatesInWindow?.includes(date) ||
-        (isDateAvailableInForm(date, availableDays, extraDates, excludedDates) && timeSlotsForDateInForm(date, timeSlots, perDaySchedule).length > 0)
-      return operationChangeOnExecutionDate(editDate, active ? [date] : [], {
-        lotteryMode: current.lotteryMode,
-        lotteryTime: previousLotteryOverrides.byDate[date] ?? previousLotteryOverrides.byWeekday[weekday] ?? current.defaultLotteryTime ?? current.lotteryTime,
-        notifyMode: current.notifyMode,
-        notifyTime: previousLotteryOverrides.notifyByDate?.[date] ?? previousLotteryOverrides.notifyByWeekday?.[weekday] ?? current.notifyTime,
-      }, {
-        lotteryMode: current.lotteryMode,
-        lotteryTime: lotteryTimeOverrides.byDate[date] ?? lotteryTimeOverrides.byWeekday[weekday] ?? lotteryTime,
-        notifyMode: current.notifyMode,
-        notifyTime: lotteryTimeOverrides.notifyByDate?.[date] ?? lotteryTimeOverrides.notifyByWeekday?.[weekday] ?? current.notifyTime,
-      })
-    }).find((event) => event !== null) ?? null : null
-  const blockedEvent = operationBlockedEvent ?? recurringBlockedEvent
+  const recurringDirty = recurringChangeCount > 0 || operationDirty || notificationDirty
   const datedDirty = datedChangeCount > 0
   const reservationScheduleDirty = recurringDirty || datedDirty
   const changeCount = recurringChangeCount + datedChangeCount + Number(operationDirty) + Number(hamoaniDirty) + Number(notificationDirty)
@@ -390,18 +383,25 @@ export default function Settings() {
     (Boolean(current?.hamoaniStartDate && current?.hamoaniEndDate) &&
       date >= current!.hamoaniStartDate! && date <= current!.hamoaniEndDate!)) : []
 
-  function goToConfirm() {
+  function settingsPayload(finalEffective = effectiveFrom) {
+    return { availableDays, timeSlots, extraDates, excludedDates, perDaySchedule, effectiveFrom: finalEffective,
+      lotteryTime, lotteryMode, notifyMode, notifyTime, notificationMode, fallbackPost,
+      applyRecurring: recurringDirty, applyDated: datedDirty,
+      lotteryTimeOverrides: { byWeekday: lotteryTimeOverrides.byWeekday,
+        byDate: Object.fromEntries(Object.entries(lotteryTimeOverrides.byDate).filter(([date]) => date >= finalEffective)),
+        notifyByWeekday: lotteryTimeOverrides.notifyByWeekday ?? {},
+        notifyByDate: Object.fromEntries(Object.entries(lotteryTimeOverrides.notifyByDate ?? {}).filter(([date]) => date >= finalEffective)) },
+      roomPreferenceEnabled: roomModeEnabled }
+  }
+
+  async function goToConfirm() {
     if (!isDirty) return
     setMessage(null)
-    if (blockedEvent) {
-      setMessage({ type: 'error', text: `変更前または変更後の${blockedEvent}日が本日のため、この変更は適用できません。抽選時刻は適用日を後ろにずらしてください` })
-      return
-    }
     if (!savedNotification || (notificationMode === 'comment' && !commentConfigured)) {
       setMessage({ type: 'error', text: !savedNotification ? '通知方式を取得できませんでした' : 'コメント先BANDのキーが未設定です' })
       return
     }
-    if (!current || !notifyTime || !notificationFollowsLottery(lotteryMode, current.lotteryTime, notifyMode, notifyTime)) {
+    if (!current || !notifyTime || !notificationFollowsLottery(lotteryMode, lotteryTime, notifyMode, notifyTime)) {
       setMessage({ type: 'error', text: '通知日は抽選日と同日以降、通知時刻は抽選以降に設定してください' })
       return
     }
@@ -444,17 +444,24 @@ export default function Settings() {
       setMessage({ type: 'error', text: '追加日・除外日・特定日ルールの日付を、登録可能曜日に合わせて修正してください' })
       return
     }
-    setStep('confirming')
+    setCheckingPlan(true)
+    try {
+      if (reservationScheduleDirty) {
+        const response = await adminFetch('/api/admin/settings/operation-preview', { method: 'POST',
+          headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(settingsPayload()) })
+        const result = await response.json()
+        if (!response.ok) throw new Error(result.error ?? '実行予定を確認できませんでした')
+        setOperationWarnings(result.operationWarnings ?? [])
+        setAffectedOperations(result.affectedOperations ?? [])
+      } else { setOperationWarnings([]); setAffectedOperations([]) }
+      setStep('confirming')
+    } catch (error: any) { setMessage({ type: 'error', text: error.message }) }
+    finally { setCheckingPlan(false) }
   }
 
 
   async function save() {
     setMessage(null)
-    if (blockedEvent) {
-      setMessage({ type: 'error', text: `変更前または変更後の${blockedEvent}日が本日のため、この変更は適用できません` })
-      setStep('editing')
-      return
-    }
     const currentMin = minEffectiveDate()
     let finalEffective = effectiveFrom
     if (finalEffective < currentMin && recurringDirty) {
@@ -468,25 +475,8 @@ export default function Settings() {
 
     setSaving(true)
     const applied: string[] = []
+    let retainedWarnings: PlanWarning[] = []
     try {
-      if (notificationDirty) {
-        const notificationRes = await adminFetch('/api/room/config', {
-          method: 'PUT', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ notificationMode, fallbackPost }),
-        })
-        const notificationResult = await notificationRes.json()
-        if (!notificationRes.ok) throw new Error(notificationResult.error ?? '通知方式の保存に失敗しました')
-        applied.push('BAND通知方式')
-      }
-      if (operationDirty) {
-        const operationRes = await adminFetch('/api/admin/settings/lottery-operation', {
-          method: 'PUT', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ lotteryMode, lotteryTime: current!.lotteryTime, notifyMode, notifyTime }),
-        })
-        const operationResult = await operationRes.json()
-        if (!operationRes.ok) throw new Error(operationResult.error ?? '抽選運用の保存に失敗しました')
-        applied.push('抽選運用')
-      }
       if (hamoaniDirty) {
         const hamoaniRes = await adminFetch('/api/admin/settings/hamoani-period', {
           method: 'PUT', headers: { 'Content-Type': 'application/json' },
@@ -500,16 +490,11 @@ export default function Settings() {
         const res = await adminFetch('/api/admin/settings', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ availableDays, timeSlots, extraDates, excludedDates, perDaySchedule, effectiveFrom: finalEffective, lotteryTime,
-            applyRecurring: recurringDirty, applyDated: datedDirty,
-            lotteryTimeOverrides: { byWeekday: lotteryTimeOverrides.byWeekday,
-              notifyByWeekday: lotteryTimeOverrides.notifyByWeekday ?? {},
-              notifyByDate: Object.fromEntries(Object.entries(lotteryTimeOverrides.notifyByDate ?? {}).filter(([date]) => date >= finalEffective)),
-              byDate: Object.fromEntries(Object.entries(lotteryTimeOverrides.byDate).filter(([date]) => date >= finalEffective)) },
-            roomPreferenceEnabled: roomModeEnabled }),
+          body: JSON.stringify(settingsPayload(finalEffective)),
         })
         const result = await res.json()
         if (!res.ok) throw new Error(result.error ?? '保存に失敗しました')
+        retainedWarnings = result.operationWarnings ?? []
         showToast(recurringDirty && datedDirty
           ? `設定を保存しました（日付設定は即時反映、その他は${result.effectiveFrom}から適用）`
           : recurringDirty ? `設定を保存しました（${result.effectiveFrom}から適用）` : '日付設定を保存しました（即時反映）')
@@ -521,6 +506,7 @@ export default function Settings() {
       setEditingScheduledDate(null)
       setStep('editing')
       await Promise.all([load(), loadLegacyOverrides()])
+      setSavedOperationWarnings(retainedWarnings)
     } catch (err: any) {
       setMessage({ type: 'error', text: applied.length
         ? `${applied.join('・')}は保存されました。残りは保存できませんでした: ${err.message}`
@@ -536,12 +522,15 @@ export default function Settings() {
   async function execCancelScheduled() {
     if (!cancelTarget) return
     const res = await adminFetch(`/api/admin/settings/scheduled?date=${encodeURIComponent(cancelTarget)}`, { method: 'DELETE' })
-    if (!res.ok) throw new Error('取り消しに失敗しました')
+    const result = await res.json()
+    if (!res.ok) throw new Error(result.error ?? '取り消しに失敗しました')
+    setSavedOperationWarnings(result.operationWarnings ?? [])
+    if (result.cronWarning) setMessage({ type: 'error', text: result.cronWarning })
     setCancelTarget(null)
     showToast('予約済みの変更を取り消しました')
     setEditingScheduled(false)
     setEditingScheduledDate(null)
-    load(true)
+    await load(true)
   }
 
   if (step === 'confirming') return (
@@ -569,7 +558,7 @@ export default function Settings() {
               ['曜日ルール', Object.keys(perDaySchedule.byWeekday).length + '件'],
               ['特定日ルール（即時反映）', Object.keys(perDaySchedule.byDate).length + '件'],
               ['希望部屋モード',        roomModeEnabled ? 'オン' : 'オフ'],
-              ['BAND通知方式（即時反映）', notificationMode === 'comment' ? 'メンション投稿にコメント' : '新規投稿'],
+              ['BAND通知方式', notificationMode === 'comment' ? 'メンション投稿にコメント' : '新規投稿'],
               ...(notificationMode === 'comment' ? [['対象投稿がない場合', fallbackPost ? '1時間後に自動投稿' : '手動通知']] : []),
               ['ハモアニ期間（即時反映）', hamoaniStartDate && hamoaniEndDate ? `${hamoaniStartDate} 〜 ${hamoaniEndDate}` : '無効'],
             ] as [string, string][]).map(([label, value]) => (
@@ -582,6 +571,13 @@ export default function Settings() {
         </table>
       </div>
 
+      {affectedOperations.length > 0 && <div className="banner-warn mb-4" role="alert">
+        <strong>現在予約可能な利用日の抽選・通知設定が変更対象になります。</strong>
+        <ul className="list-disc pl-5 mt-2">{affectedOperations.map(({ date, events }) =>
+          <li key={date}>{date}利用分：{events.join('・')}</li>)}</ul>
+        <p className="mt-2">警告を確認したうえで保存できます。安全のため旧予定を維持する場合は、下の警告に表示します。</p>
+      </div>}
+      <OperationWarnings warnings={operationWarnings} preview />
       {recurringDirty && affectedDates.length > 0 && <div className="banner-warn mb-4" role="alert">
         <strong>予約可能期間内の設定が変わります。</strong>
         {' '}対象日: {affectedDates.join('、')}。既存予約は自動では変更されません。
@@ -799,6 +795,7 @@ export default function Settings() {
         </div>
       </div>
 
+      <OperationWarnings warnings={savedOperationWarnings} />
       <RoomPreferenceSettings enabled={roomModeEnabled} onEnabledChange={setRoomModeEnabled}
         mode={notificationMode} onModeChange={setNotificationMode} fallback={fallbackPost}
         onFallbackChange={setFallbackPost} commentConfigured={commentConfigured} />
@@ -807,7 +804,7 @@ export default function Settings() {
       <div className="admin-card">
         <h2 className="text-base font-bold mb-3">抽選・通知時刻</h2>
         <h3 className="font-bold mb-1">抽選時刻</h3>
-        <p className="text-[0.85rem] text-ink-sub mb-3">抽選日は保存すると即時反映し、時刻は下の「適用日」以降の利用日から反映します。</p>
+        <p className="text-[0.85rem] text-ink-sub mb-3">抽選日と時刻は、下の「適用日」以降の利用日から反映します。</p>
         <div className="flex flex-wrap items-end gap-3">
           <label className="block w-48 text-[0.8rem] text-ink-sub">利用日を基準にした抽選日
             <select className="text-input mt-1 w-full" value={lotteryMode} onChange={(e) => {
@@ -837,7 +834,7 @@ export default function Settings() {
         )}
         <div className="mt-5 border-t border-line pt-4">
           <h3 className="font-bold mb-1">通知時刻</h3>
-          <p className="text-[0.85rem] text-ink-sub mb-3">利用日を基準にした通知日と時刻を指定します。保存すると即時反映されます。</p>
+          <p className="text-[0.85rem] text-ink-sub mb-3">利用日を基準にした通知日と時刻を指定します。下の「適用日」以降の利用日から反映します。</p>
           <div className="flex flex-wrap items-end gap-3">
             <label className="block w-48 text-[0.8rem] text-ink-sub">通知日
               <select className="text-input mt-1 w-full" value={notifyMode} onChange={(e) => {
@@ -965,10 +962,6 @@ export default function Settings() {
           setEffectiveFrom(date)
           setRoomModeEnabled(roomModeAtDate(date, roomModeVersions))
         }} min={minDate} />
-        {blockedEvent && <div className="banner-warn mt-3" role="alert">
-          変更前または変更後の{blockedEvent}日が本日のため、この変更は適用できません。
-          {operationBlockedEvent ? ' 抽選・通知日の変更は即時反映のため、実行日のない日に変更してください。' : ' 抽選時刻の適用日を後ろにずらしてください。'}
-        </div>}
         {recurringDirty && affectedDates.length > 0 && <div className="banner-warn mt-3" role="alert">
           <strong>予約可能期間内の設定が変わります。</strong>
           {' '}現在または変更後に予約可能な日付: {affectedDates.join('、')}。既存予約は自動では変更されません。
@@ -983,7 +976,7 @@ export default function Settings() {
         </div>}
       </div>
 
-      <button className="btn-primary max-w-[300px]" onClick={goToConfirm} disabled={!isDirty || !!blockedEvent}>
+      <button className="btn-primary max-w-[300px]" onClick={goToConfirm} disabled={!isDirty || checkingPlan || saving}>
         {editingScheduled ? '上書き内容を確認する' : '確認する'}
       </button>
 
@@ -1012,4 +1005,18 @@ export default function Settings() {
 
     </div>
   )
+}
+
+
+function OperationWarnings({ warnings, preview = false }: { warnings: PlanWarning[]; preview?: boolean }) {
+  if (!warnings.length) return null
+  const dateTime = (at: number) => new Intl.DateTimeFormat('ja-JP', { timeZone: 'Asia/Tokyo',
+    month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(at))
+  return <div className="banner-warn mb-4" role="alert">
+    <strong>{preview ? '一部の抽選・通知は旧予定を維持します' : '保存時に維持した予定'}</strong>
+    <ul className="list-disc pl-5 mt-2">{warnings.map((warning) => <li key={`${warning.date}-${warning.event}`}>
+      {warning.date}利用分の{warning.event}：{dateTime(warning.at)}（{warning.reason}）
+    </li>)}</ul>
+    {preview && <p className="mt-2">保存確定時に再判定します。抽選が完了するまで通知は送信しません。</p>}
+  </div>
 }

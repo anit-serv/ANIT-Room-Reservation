@@ -9,7 +9,7 @@ import { nextMinute } from './schedulerTiming'
 import { resolveReservationSettingsForDate } from './reservationSettings'
 
 export async function startNotification(db: Firestore, date: string) {
-  const [config, settings] = await Promise.all([getRoomPreferenceConfig(db), resolveReservationSettingsForDate(db, date)])
+  const [config, settings] = await Promise.all([getRoomPreferenceConfig(db, date), resolveReservationSettingsForDate(db, date)])
   const ref = db.collection('lottery_results').doc(date)
   await db.runTransaction(async (tx) => {
     const snap = await tx.get(ref), data = snap.data()

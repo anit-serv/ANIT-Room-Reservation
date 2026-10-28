@@ -19,19 +19,25 @@ export function schedulerEnabled() {
 export async function enqueue(db: Firestore, kind: JobKind, date: string, dueAt: number, options: { repeat?: boolean; reschedule?: boolean } = {}) {
   const ref = db.collection(QUEUE).doc(`${kind}_${date}`)
   await db.runTransaction(async (tx) => {
-    const snap = await tx.get(ref), data = snap.data()
+    const [snap, plan] = await Promise.all([tx.get(ref),
+      kind === 'lottery' || kind === 'notify' ? tx.get(db.collection('operation_plans').doc(date)) : Promise.resolve(null)])
+    const data = snap.data()
+    // A reconciler may have read settings just before a save. Read the committed per-day
+    // plan here too, so that stale reconciliation cannot undo an atomic schedule change.
+    const recorded = kind === 'lottery' ? plan?.data()?.lotteryAt : plan?.data()?.notifyAt
+    const effectiveDueAt = typeof recorded === 'number' ? recorded : dueAt
     if (data?.status === 'manual') return
     if (data?.status === 'running') {
-      if (options.repeat) tx.update(ref, { generation: (data.generation ?? 0) + 1, requestedAt: new Date(dueAt) })
+      if (options.repeat) tx.update(ref, { generation: (data.generation ?? 0) + 1, requestedAt: new Date(effectiveDueAt) })
       return
     }
     if (data?.status === 'done' && !options.repeat) return
     // Recovery must not pull a scheduled poll forward and cause two BAND reads in one minute.
     // Real cancellations update generation/availableAt in their own result transaction.
     if (data?.status === 'pending' && options.repeat) return
-    if (data?.status === 'pending' && options.reschedule && milliseconds(data.dueAt) === dueAt) return
-    if (data?.status === 'pending' && !options.reschedule && milliseconds(data.availableAt) <= dueAt) return
-    tx.set(ref, { kind, date, status: 'pending', dueAt: new Date(dueAt), availableAt: new Date(dueAt),
+    if (data?.status === 'pending' && options.reschedule && milliseconds(data.dueAt) === effectiveDueAt) return
+    if (data?.status === 'pending' && !options.reschedule && milliseconds(data.availableAt) <= effectiveDueAt) return
+    tx.set(ref, { kind, date, status: 'pending', dueAt: new Date(effectiveDueAt), availableAt: new Date(effectiveDueAt),
       generation: (data?.generation ?? 0) + 1, attempts: 0, lastError: null, updatedAt: new Date() }, { merge: true })
   })
 }

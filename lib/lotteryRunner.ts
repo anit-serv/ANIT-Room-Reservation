@@ -13,7 +13,7 @@ export async function runLotteryForDate(db: Firestore, targetDateStr: string, fo
     console.log(`Running lottery for target date: ${targetDateStr}`);
     const [roomPreferenceEnabled, notificationConfig, dateSettings] = await Promise.all([
       isRoomPreferenceEnabled(db, targetDateStr),
-      getRoomPreferenceConfig(db),
+      getRoomPreferenceConfig(db, targetDateStr),
       resolveReservationSettingsForDate(db, targetDateStr),
     ]);
     const resultRef = db.collection('lottery_results').doc(targetDateStr);

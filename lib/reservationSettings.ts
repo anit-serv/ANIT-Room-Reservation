@@ -1,3 +1,4 @@
+import { applyStoredOperationPlan } from './operationPlan'
 import type { Firestore } from 'firebase-admin/firestore'
 
 export type TimeSlot = { label: string; value: string; deleted?: boolean }
@@ -24,6 +25,8 @@ export type ReservationSettings = ReservationSettingsCore & {
   lotteryMode: 'previous-day' | 'same-day'
   notifyMode: 'previous-day' | 'same-day'
   notifyTime: string
+  notificationMode?: 'post' | 'comment'
+  fallbackPost?: boolean
   defaultNotifyTime?: string
   dayOverride?: ReservationDayOverride | null
   /** 適用日を待たずに反映する特定日の時間枠。 */
@@ -38,6 +41,11 @@ export type ReservationSettingsVersion = ReservationSettingsCore & {
   effectiveFrom: string
   /** このバージョンが適用される日以降の抽選時刻（HH:MM）。未設定なら base 値にフォールバック */
   lotteryTime?: string
+  lotteryMode?: 'previous-day' | 'same-day'
+  notifyMode?: 'previous-day' | 'same-day'
+  notifyTime?: string
+  notificationMode?: 'post' | 'comment'
+  fallbackPost?: boolean
   lotteryTimeOverrides: LotteryTimeOverrides
 }
 
@@ -246,6 +254,11 @@ function normalizeVersion(data: any): ReservationSettingsVersion | null {
     ...normalizeReservationSettingsCore(data),
     effectiveFrom: data.effectiveFrom,
     ...(lotteryTime ? { lotteryTime } : {}),
+    ...(data.lotteryMode === 'same-day' || data.lotteryMode === 'previous-day' ? { lotteryMode: data.lotteryMode } : {}),
+    ...(data.notifyMode === 'same-day' || data.notifyMode === 'previous-day' ? { notifyMode: data.notifyMode } : {}),
+    ...(typeof data.notifyTime === 'string' && LOTTERY_TIME_RE.test(data.notifyTime) ? { notifyTime: data.notifyTime } : {}),
+    ...(data.notificationMode === 'post' || data.notificationMode === 'comment' ? { notificationMode: data.notificationMode } : {}),
+    ...(typeof data.fallbackPost === 'boolean' ? { fallbackPost: data.fallbackPost } : {}),
     lotteryTimeOverrides: normalizeLotteryTimeOverrides(data?.lotteryTimeOverrides),
   }
 }
@@ -388,9 +401,23 @@ export async function listPendingReservationSettingsChanges(
   return candidates.sort(compareEffectiveFrom).map((change) => withImmediateDatedSettings(change, data))
 }
 
+function versionedOperation(base: ReservationSettings, versions: ReservationSettingsVersion[]) {
+  const operation = { lotteryMode: base.lotteryMode, notifyMode: base.notifyMode, notifyTime: base.notifyTime,
+    notificationMode: base.notificationMode, fallbackPost: base.fallbackPost }
+  for (const version of versions) {
+    if (version.lotteryMode !== undefined) operation.lotteryMode = version.lotteryMode
+    if (version.notifyMode !== undefined) operation.notifyMode = version.notifyMode
+    if (version.notifyTime !== undefined) operation.notifyTime = version.notifyTime
+    if (version.notificationMode !== undefined) operation.notificationMode = version.notificationMode
+    if (version.fallbackPost !== undefined) operation.fallbackPost = version.fallbackPost
+  }
+  return operation
+}
+
 export async function resolveReservationSettingsForDate(
   db: Firestore,
   date: string,
+  options: { ignorePlan?: boolean; proposedVersion?: ReservationSettingsVersion; deletedVersion?: string; proposedDatedSettings?: { extraDates: string[]; excludedDates: string[]; byDate: Record<string, TimeSlot[]> } } = {},
 ): Promise<ReservationSettings> {
   const docRef = db.collection('settings').doc('reservation')
   const [doc, versions, dayOverride, lotteryOverride] = await Promise.all([
@@ -399,38 +426,42 @@ export async function resolveReservationSettingsForDate(
     getReservationDayOverride(db, date),
     getReservationLotteryOverride(db, date),
   ])
-  const data = doc.exists ? doc.data() : {}
+  const rawData = doc.exists ? doc.data() : {}
+  const data = options.proposedDatedSettings ? { ...rawData, immediateDatedSettings: options.proposedDatedSettings } : rawData
   const base = normalizeReservationSettings(data, BASE_EFFECTIVE_FROM)
   const legacy = normalizeVersion(data?.nextChange)
 
-  const applicable = [...versions]
-  if (legacy && legacy.effectiveFrom <= date) applicable.push(legacy)
+  let applicable = [...versions]
+  if (legacy && legacy.effectiveFrom <= date && !options.proposedVersion && legacy.effectiveFrom !== options.deletedVersion) applicable.push(legacy)
+  if (options.deletedVersion) applicable = applicable.filter(version => version.effectiveFrom !== options.deletedVersion)
+  if (options.proposedVersion && options.proposedVersion.effectiveFrom <= date) {
+    applicable = applicable.filter(version => version.effectiveFrom !== options.proposedVersion!.effectiveFrom)
+    applicable.push(options.proposedVersion)
+  }
 
   const sortedApplicable = applicable.sort(compareEffectiveFrom)
   const latest = sortedApplicable[sortedApplicable.length - 1]
+  const operation = versionedOperation(base, sortedApplicable)
   // 抽選時刻の優先順位: 日付別緊急上書き > 適用中バージョン > base
   const defaultLotteryTime = latest?.lotteryTime ?? base.defaultLotteryTime
   const lotteryTimeOverrides = latest?.lotteryTimeOverrides ?? base.lotteryTimeOverrides
-  const lotteryTime = lotteryOverride?.lotteryTime ?? lotteryTimeForDate(date, defaultLotteryTime, lotteryTimeOverrides)
-  const notifyTime = notificationTimeForDate(date, typeof data?.notifyTime === 'string' && LOTTERY_TIME_RE.test(data.notifyTime)
-    ? base.notifyTime : lotteryTime, lotteryTimeOverrides)
+  const lotteryTime = (options.proposedVersion && date >= options.proposedVersion.effectiveFrom ? undefined : lotteryOverride?.lotteryTime) ?? lotteryTimeForDate(date, defaultLotteryTime, lotteryTimeOverrides)
+  const notifyTime = notificationTimeForDate(date, operation.notifyTime, lotteryTimeOverrides)
   // ハモアニ期間はバージョン管理せず base の値をそのまま使う（管理画面から自由に即時変更する運用のため）
   const { hamoaniStartDate, hamoaniEndDate } = base
-  if (!latest) return withImmediateDatedSettings({ ...base, lotteryTime, notifyTime, defaultNotifyTime: base.notifyTime, dayOverride }, data)
-
-  return withImmediateDatedSettings({
+  const resolved = !latest ? withImmediateDatedSettings({ ...base, ...operation, lotteryTime, notifyTime, defaultNotifyTime: operation.notifyTime, dayOverride }, data) : withImmediateDatedSettings({
     ...latest,
     lotteryTime,
     defaultLotteryTime,
     lotteryTimeOverrides,
-    lotteryMode: base.lotteryMode,
-    notifyMode: base.notifyMode,
+    ...operation,
     notifyTime,
-    defaultNotifyTime: base.notifyTime,
+    defaultNotifyTime: operation.notifyTime,
     dayOverride,
     hamoaniStartDate,
     hamoaniEndDate,
   }, data)
+  return options.ignorePlan ? resolved : applyStoredOperationPlan(db, date, resolved)
 }
 
 // ─── 汎用施設設定バージョン管理 (工部室・農部室) ───────────
@@ -504,15 +535,16 @@ export async function resolveReservationSettingsForDates(
   for (const date of sortedDates) {
     const candidates = allVersions.filter((version) => version.effectiveFrom <= date)
     const latest = candidates[candidates.length - 1]
+    const operation = versionedOperation(base, candidates)
     // 抽選時刻の優先順位: 日付別緊急上書き > 適用中バージョン > base
     const defaultLotteryTime = latest?.lotteryTime ?? base.defaultLotteryTime
     const lotteryTimeOverrides = latest?.lotteryTimeOverrides ?? base.lotteryTimeOverrides
     const lotteryTime = lotteryOverridesByDate[date]?.lotteryTime ?? lotteryTimeForDate(date, defaultLotteryTime, lotteryTimeOverrides)
-    const notifyTime = notificationTimeForDate(date, typeof data?.notifyTime === 'string' && LOTTERY_TIME_RE.test(data.notifyTime)
-      ? base.notifyTime : lotteryTime, lotteryTimeOverrides)
+    const notifyTime = notificationTimeForDate(date, operation.notifyTime, lotteryTimeOverrides)
     result[date] = withImmediateDatedSettings(latest
-      ? { ...latest, lotteryTime, defaultLotteryTime, lotteryTimeOverrides, lotteryMode: base.lotteryMode, notifyMode: base.notifyMode, notifyTime, defaultNotifyTime: base.notifyTime, dayOverride: overridesByDate[date], hamoaniStartDate: base.hamoaniStartDate, hamoaniEndDate: base.hamoaniEndDate }
-      : { ...base, lotteryTime, notifyTime, defaultNotifyTime: base.notifyTime, dayOverride: overridesByDate[date] }, data)
+      ? { ...latest, lotteryTime, defaultLotteryTime, lotteryTimeOverrides, ...operation, notifyTime, defaultNotifyTime: operation.notifyTime, dayOverride: overridesByDate[date], hamoaniStartDate: base.hamoaniStartDate, hamoaniEndDate: base.hamoaniEndDate }
+      : { ...base, ...operation, lotteryTime, notifyTime, defaultNotifyTime: operation.notifyTime, dayOverride: overridesByDate[date] }, data)
   }
+  await Promise.all(sortedDates.map(async date => { result[date] = await applyStoredOperationPlan(db, date, result[date]) }))
   return result
 }

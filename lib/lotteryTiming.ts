@@ -17,11 +17,13 @@ export function operationChangeOnExecutionDate(
   reservationDates: string[],
   before: OperationTiming,
   after: OperationTiming,
+  effectiveFrom = applicationDate,
 ): '抽選' | '通知' | null {
   const drawChanged = before.lotteryMode !== after.lotteryMode ||
     (after.lotteryMode === 'previous-day' && before.lotteryTime !== after.lotteryTime)
   const notifyChanged = before.notifyMode !== after.notifyMode || before.notifyTime !== after.notifyTime
   for (const reservationDate of reservationDates) {
+    if (reservationDate < effectiveFrom) continue
     // どちらの抽選モードも、実際の実行日は利用日の前日。
     if (drawChanged && previousDate(reservationDate) === applicationDate) return '抽選'
     if (notifyChanged && (
