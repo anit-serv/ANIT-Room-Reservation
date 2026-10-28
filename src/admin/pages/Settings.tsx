@@ -5,11 +5,12 @@ import { getPageCache, setPageCache } from '../pageCache'
 import TimeSlotsEditor, { findConflicts, toMinutes, type TimeSlot, type TimeSlotPreset } from '../components/TimeSlotsEditor'
 import DateListEditor from '../components/DateListEditor'
 import PerDayScheduleEditor, { findAllConflicts, type PerDaySchedule } from '../components/PerDayScheduleEditor'
-import Skeleton from '../../components/Skeleton'
 import ConfirmDialog from '../../components/ConfirmDialog'
 import DatePicker from '../../components/DatePicker'
 import { useToast } from '../../contexts/ToastContext'
+import FacilitySettingsChanges from '../components/FacilitySettingsChanges'
 import RoomPreferenceSettings from './RoomPreferenceSettings'
+import { notificationFollowsLottery, operationChangeOnExecutionDate } from '../../../lib/lotteryTiming'
 
 type SettingsCore = {
   availableDays: number[]
@@ -22,14 +23,18 @@ type SettingsCore = {
 type LotteryTimeOverrides = { byWeekday: Record<string, string>; byDate: Record<string, string> }
 type ScheduledChange = SettingsCore & { effectiveFrom: string; lotteryTime?: string; lotteryTimeOverrides?: LotteryTimeOverrides }
 type RoomModeVersion = { effectiveFrom: string; enabled: boolean }
+type LegacyDayOverride = { date: string; type: 'blocked' | 'opened'; reason?: string; timeSlots?: TimeSlot[] }
+type LegacyLotteryOverride = { date: string; lotteryTime: string }
 
 type SettingsResponse = SettingsCore & {
   nextChange: ScheduledChange | null
   scheduledChanges?: ScheduledChange[]
+  reservableDatesInWindow?: string[]
   lotteryTime: string
   defaultLotteryTime?: string
   lotteryTimeOverrides?: LotteryTimeOverrides
   lotteryMode: 'previous-day' | 'same-day'
+  notifyMode: 'previous-day' | 'same-day'
   notifyTime: string
   hamoaniStartDate?: string | null
   hamoaniEndDate?: string | null
@@ -43,9 +48,7 @@ function todayJST(): string {
 }
 
 function minEffectiveDate(): string {
-  const d = new Date(Date.now() + 9 * 60 * 60 * 1000)
-  d.setUTCDate(d.getUTCDate() + 8)
-  return d.toISOString().slice(0, 10)
+  return new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10)
 }
 
 function roomModeAtDate(date: string, versions: RoomModeVersion[]): boolean {
@@ -54,6 +57,19 @@ function roomModeAtDate(date: string, versions: RoomModeVersion[]): boolean {
 
 function emptySchedule(): PerDaySchedule {
   return { enabled: false, byWeekday: {}, byDate: {} }
+}
+
+function isDateAvailableInForm(date: string, availableDays: number[], extraDates: string[], excludedDates: string[]): boolean {
+  if (excludedDates.includes(date)) return false
+  const weekday = new Date(`${date}T00:00:00Z`).getUTCDay()
+  return availableDays.includes(weekday) || extraDates.includes(date)
+}
+
+function timeSlotsForDateInForm(date: string, defaults: TimeSlot[], schedule: PerDaySchedule): TimeSlot[] {
+  if (!schedule.enabled) return defaults
+  if (schedule.byDate?.[date]?.length) return schedule.byDate[date]
+  const weekday = String(new Date(`${date}T00:00:00Z`).getUTCDay())
+  return schedule.byWeekday?.[weekday]?.length ? schedule.byWeekday[weekday] : defaults
 }
 
 const SETTINGS_CACHE_KEY = 'settings:nobu'
@@ -77,9 +93,11 @@ export default function Settings() {
   const [cancelTarget, setCancelTarget]   = useState<string | null>(null)
   const [lotteryTime, setLotteryTime] = useState(cached?.defaultLotteryTime ?? cached?.lotteryTime ?? '21:00')
   const [lotteryTimeOverrides, setLotteryTimeOverrides] = useState<LotteryTimeOverrides>(cached?.lotteryTimeOverrides ?? { byWeekday: {}, byDate: {} })
+  const [addingLotteryRule, setAddingLotteryRule] = useState<'weekday' | 'date' | null>(null)
+  const [pickLotteryWeekday, setPickLotteryWeekday] = useState('')
   const [exceptionDate, setExceptionDate] = useState('')
-  const [exceptionTime, setExceptionTime] = useState('21:00')
   const [lotteryMode, setLotteryMode] = useState<'previous-day' | 'same-day'>(cached?.lotteryMode ?? 'previous-day')
+  const [notifyMode, setNotifyMode] = useState<'previous-day' | 'same-day'>(cached?.notifyMode ?? cached?.lotteryMode ?? 'previous-day')
   const [notifyTime, setNotifyTime] = useState(cached?.notifyTime ?? cached?.lotteryTime ?? '21:00')
   const [hamoaniStartDate, setHamoaniStartDate] = useState<string>(cached?.hamoaniStartDate ?? '')
   const [hamoaniEndDate,   setHamoaniEndDate]   = useState<string>(cached?.hamoaniEndDate ?? '')
@@ -89,9 +107,42 @@ export default function Settings() {
   const [fallbackPost, setFallbackPost] = useState(false)
   const [savedNotification, setSavedNotification] = useState<{ mode: 'post' | 'comment'; fallback: boolean } | null>(null)
   const [commentConfigured, setCommentConfigured] = useState(false)
+  const [legacyDayOverrides, setLegacyDayOverrides] = useState<LegacyDayOverride[]>([])
+  const [legacyLotteryOverrides, setLegacyLotteryOverrides] = useState<LegacyLotteryOverride[]>([])
+  const [deletingOverride, setDeletingOverride] = useState<string | null>(null)
   const { showToast } = useToast()
 
-  useEffect(() => { load(true); loadPresets() }, [])
+  useEffect(() => { load(true); loadPresets(); loadLegacyOverrides() }, [])
+
+  async function loadLegacyOverrides() {
+    try {
+      const [dayRes, lotteryRes] = await Promise.all([
+        adminFetch('/api/admin/settings/day-overrides'),
+        adminFetch('/api/admin/settings/lottery-overrides'),
+      ])
+      if (!dayRes.ok || !lotteryRes.ok) return
+      const [dayData, lotteryData] = await Promise.all([dayRes.json(), lotteryRes.json()])
+      setLegacyDayOverrides(dayData.overrides ?? [])
+      setLegacyLotteryOverrides(lotteryData.overrides ?? [])
+    } catch { /* Main settings remain available even if legacy overrides cannot be loaded. */ }
+  }
+
+  async function removeLegacyOverride(type: 'day' | 'lottery', date: string) {
+    const path = type === 'day' ? 'day-overrides' : 'lottery-overrides'
+    setDeletingOverride(`${type}:${date}`)
+    try {
+      const res = await adminFetch(`/api/admin/settings/${path}/${date}`, { method: 'DELETE' })
+      const result = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(result.error ?? '解除に失敗しました')
+      showToast(`${date} の旧設定を解除しました`)
+      if (result.cronWarning) setMessage({ type: 'error', text: result.cronWarning })
+      await Promise.all([load(true), loadLegacyOverrides()])
+    } catch (err: any) {
+      setMessage({ type: 'error', text: err.message ?? '解除に失敗しました' })
+    } finally {
+      setDeletingOverride(null)
+    }
+  }
 
   async function loadPresets() {
     try {
@@ -161,6 +212,7 @@ export default function Settings() {
     setLotteryTime(data.defaultLotteryTime ?? data.lotteryTime ?? '21:00')
     setLotteryTimeOverrides(data.lotteryTimeOverrides ?? { byWeekday: {}, byDate: {} })
     setLotteryMode(data.lotteryMode ?? 'previous-day')
+    setNotifyMode(data.notifyMode ?? data.lotteryMode ?? 'previous-day')
     setNotifyTime(data.notifyTime ?? data.lotteryTime ?? '21:00')
     const hStart = data.hamoaniStartDate ?? ''
     const hEnd   = data.hamoaniEndDate ?? ''
@@ -207,31 +259,89 @@ export default function Settings() {
 
   const exceptionTimes = [...Object.values(lotteryTimeOverrides.byWeekday),
     ...Object.entries(lotteryTimeOverrides.byDate).filter(([date]) => date >= effectiveFrom).map(([, time]) => time)]
-  const lotteryTimeInvalid = !lotteryTime || lotteryTime < '03:00' || lotteryTime > notifyTime ||
-    exceptionTimes.some((time) => !time || time < '03:00' || time > notifyTime)
+  const lotteryTimeInvalid = !lotteryTime || lotteryTime < '03:00' ||
+    [lotteryTime, ...exceptionTimes].some((time) => !time || time < '03:00' ||
+      !notificationFollowsLottery(lotteryMode, time, notifyMode, notifyTime))
   const operationDirty = !!current && (lotteryMode !== current.lotteryMode ||
-    notifyTime !== current.notifyTime)
+    notifyMode !== (current.notifyMode ?? current.lotteryMode) || notifyTime !== current.notifyTime)
+  const editDate = todayJST()
+  const followingDate = new Date(Date.parse(`${editDate}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10)
+  const activeExecutionDates = [editDate, followingDate].filter((date) =>
+    current?.reservableDatesInWindow?.includes(date))
+  const operationBlockedEvent = operationDirty && current
+    ? operationChangeOnExecutionDate(editDate, activeExecutionDates, current, {
+      lotteryMode, lotteryTime: current.lotteryTime, notifyMode, notifyTime,
+    }) : null
   const hamoaniDirty = !!current && (hamoaniStartDate !== (current.hamoaniStartDate ?? '') ||
     hamoaniEndDate !== (current.hamoaniEndDate ?? ''))
   const hamoaniRangeInvalid = !!hamoaniStartDate && !!hamoaniEndDate && hamoaniStartDate > hamoaniEndDate
   const hamoaniIncomplete = (!!hamoaniStartDate && !hamoaniEndDate) || (!hamoaniStartDate && !!hamoaniEndDate)
   const notificationDirty = !!savedNotification && (notificationMode !== savedNotification.mode || fallbackPost !== savedNotification.fallback)
 
-  const isDirty = useMemo(() => {
-    if (!current) return false
+  const { recurringChangeCount, datedChangeCount, changedDatedDates } = useMemo(() => {
+    if (!current) return { recurringChangeCount: 0, datedChangeCount: 0, changedDatedDates: [] as string[] }
+    const baseline = editingScheduled
+      ? scheduledChanges.find((change) => change.effectiveFrom === editingScheduledDate) ?? current
+      : current
     const sortedStr = (arr: string[]) => JSON.stringify([...arr].sort())
-    return (
-      JSON.stringify(availableDays) !== JSON.stringify(current.availableDays ?? [3, 4, 6]) ||
-      JSON.stringify(timeSlots)     !== JSON.stringify(current.timeSlots ?? []) ||
-      sortedStr(extraDates)         !== sortedStr(current.extraDates ?? []) ||
-      sortedStr(excludedDates)      !== sortedStr(current.excludedDates ?? []) ||
-      JSON.stringify(perDaySchedule) !== JSON.stringify(current.perDaySchedule ?? emptySchedule()) ||
-      lotteryTime !== (current.defaultLotteryTime ?? current.lotteryTime ?? '21:00') ||
-      JSON.stringify(lotteryTimeOverrides) !== JSON.stringify(current.lotteryTimeOverrides ?? { byWeekday: {}, byDate: {} }) ||
-      roomModeEnabled !== roomModeAtDate(effectiveFrom, roomModeVersions) ||
-      operationDirty || hamoaniDirty || notificationDirty
-    )
-  }, [current, availableDays, timeSlots, extraDates, excludedDates, perDaySchedule, lotteryTime, lotteryTimeOverrides, roomModeEnabled, effectiveFrom, roomModeVersions, operationDirty, hamoaniDirty, notificationDirty])
+    const baselineSchedule = baseline.perDaySchedule ?? emptySchedule()
+    const recurringChangeCount = [
+      JSON.stringify(availableDays) !== JSON.stringify(baseline.availableDays ?? [3, 4, 6]),
+      JSON.stringify(timeSlots)     !== JSON.stringify(baseline.timeSlots ?? []),
+      JSON.stringify(perDaySchedule.byWeekday) !== JSON.stringify(baselineSchedule.byWeekday),
+      (Object.keys(perDaySchedule.byWeekday).length > 0 || Object.keys(baselineSchedule.byWeekday).length > 0) &&
+        perDaySchedule.enabled !== baselineSchedule.enabled,
+      lotteryTime !== (editingScheduled
+        ? baseline.lotteryTime ?? current.defaultLotteryTime ?? current.lotteryTime ?? '21:00'
+        : current.defaultLotteryTime ?? current.lotteryTime ?? '21:00'),
+      JSON.stringify(lotteryTimeOverrides) !== JSON.stringify(baseline.lotteryTimeOverrides ?? { byWeekday: {}, byDate: {} }),
+      roomModeEnabled !== roomModeAtDate(effectiveFrom, roomModeVersions),
+      editingScheduled && effectiveFrom !== editingScheduledDate,
+    ].filter(Boolean).length
+    const extraChanged = sortedStr(extraDates) !== sortedStr(baseline.extraDates ?? [])
+    const excludedChanged = sortedStr(excludedDates) !== sortedStr(baseline.excludedDates ?? [])
+    const byDateChanged = JSON.stringify(perDaySchedule.byDate) !== JSON.stringify(baselineSchedule.byDate)
+    const datedChangeCount = [extraChanged, excludedChanged, byDateChanged].filter(Boolean).length
+    const previousDates = baselineSchedule.byDate ?? {}
+    const changedDatedDates = [
+      ...new Set([
+        ...extraDates.filter((date) => !(baseline.extraDates ?? []).includes(date)),
+        ...(baseline.extraDates ?? []).filter((date) => !extraDates.includes(date)),
+        ...excludedDates.filter((date) => !(baseline.excludedDates ?? []).includes(date)),
+        ...(baseline.excludedDates ?? []).filter((date) => !excludedDates.includes(date)),
+        ...Object.keys(perDaySchedule.byDate), ...Object.keys(previousDates),
+      ]),
+    ].filter((date) =>
+      extraDates.includes(date) !== (baseline.extraDates ?? []).includes(date) ||
+      excludedDates.includes(date) !== (baseline.excludedDates ?? []).includes(date) ||
+      JSON.stringify(perDaySchedule.byDate[date] ?? null) !== JSON.stringify(previousDates[date] ?? null),
+    ).sort()
+    return { recurringChangeCount, datedChangeCount, changedDatedDates }
+  }, [current, scheduledChanges, editingScheduled, editingScheduledDate, availableDays, timeSlots, extraDates, excludedDates, perDaySchedule, lotteryTime, lotteryTimeOverrides, roomModeEnabled, effectiveFrom, roomModeVersions])
+
+  const recurringDirty = recurringChangeCount > 0
+  const tomorrowWeekday = String(new Date(`${followingDate}T00:00:00Z`).getUTCDay())
+  const previousLotteryOverrides = current?.lotteryTimeOverrides ?? { byWeekday: {}, byDate: {} }
+  const previousTomorrowTime = previousLotteryOverrides.byDate[followingDate] ??
+    previousLotteryOverrides.byWeekday[tomorrowWeekday] ?? current?.defaultLotteryTime ?? current?.lotteryTime ?? lotteryTime
+  const nextTomorrowTime = lotteryTimeOverrides.byDate[followingDate] ??
+    lotteryTimeOverrides.byWeekday[tomorrowWeekday] ?? lotteryTime
+  const tomorrowAvailable = current?.reservableDatesInWindow?.includes(followingDate) ||
+    (isDateAvailableInForm(followingDate, availableDays, extraDates, excludedDates) &&
+      timeSlotsForDateInForm(followingDate, timeSlots, perDaySchedule).length > 0)
+  const recurringBlockedEvent = recurringDirty && current && effectiveFrom <= followingDate && tomorrowAvailable
+    ? operationChangeOnExecutionDate(editDate, [followingDate], {
+      lotteryMode: current.lotteryMode, lotteryTime: previousTomorrowTime,
+      notifyMode: current.notifyMode, notifyTime: current.notifyTime,
+    }, {
+      lotteryMode: current.lotteryMode, lotteryTime: nextTomorrowTime,
+      notifyMode: current.notifyMode, notifyTime: current.notifyTime,
+    }) : null
+  const blockedEvent = operationBlockedEvent ?? recurringBlockedEvent
+  const datedDirty = datedChangeCount > 0
+  const reservationScheduleDirty = recurringDirty || datedDirty
+  const changeCount = recurringChangeCount + datedChangeCount + Number(operationDirty) + Number(hamoaniDirty) + Number(notificationDirty)
+  const isDirty = changeCount > 0
 
   const effectiveDirty = isDirty
 
@@ -252,18 +362,46 @@ export default function Settings() {
   const defaultConflicts = findConflicts(timeSlots)
   const hasOverrideConflict = findAllConflicts(perDaySchedule)
   const hasDateOverlap = extraDates.some((d) => excludedDates.includes(d))
-  const earlyExtraDates    = extraDates.filter((d) => d < effectiveFrom)
-  const earlyExcludedDates = excludedDates.filter((d) => d < effectiveFrom)
-  const earlyPerDayDates   = Object.keys(perDaySchedule.byDate ?? {}).filter((d) => d < effectiveFrom)
+  const invalidExtraDates = extraDates.filter((date) => availableDays.includes(new Date(`${date}T00:00:00Z`).getUTCDay()))
+  const invalidExcludedDates = excludedDates.filter((date) => !availableDays.includes(new Date(`${date}T00:00:00Z`).getUTCDay()))
+  const invalidRuleDates = Object.keys(perDaySchedule.byDate ?? {}).filter((date) =>
+    excludedDates.includes(date) || (!extraDates.includes(date) && !availableDays.includes(new Date(`${date}T00:00:00Z`).getUTCDay())))
+  const lastReservableDate = (() => {
+    const date = new Date(`${minDate}T00:00:00Z`)
+    date.setUTCDate(date.getUTCDate() + 7)
+    return date.toISOString().slice(0, 10)
+  })()
+  const affectedDates = recurringDirty && effectiveFrom <= lastReservableDate
+    ? Array.from(new Set([
+      ...(current?.reservableDatesInWindow ?? []).filter((date) => date >= effectiveFrom),
+      ...Array.from({ length: 8 }, (_, index) => {
+        const date = new Date(`${minDate}T00:00:00Z`)
+        date.setUTCDate(date.getUTCDate() + index)
+        return date.toISOString().slice(0, 10)
+      }).filter((date) => date >= effectiveFrom &&
+        isDateAvailableInForm(date, availableDays, extraDates, excludedDates) &&
+        timeSlotsForDateInForm(date, timeSlots, perDaySchedule).length > 0),
+    ])).sort()
+    : []
+  const immediateAffectedDates = changedDatedDates.filter((date) => current?.reservableDatesInWindow?.includes(date))
+  const hamoaniAffectedDates = hamoaniDirty ? (current?.reservableDatesInWindow ?? []).filter((date) =>
+    (Boolean(hamoaniStartDate && hamoaniEndDate) && date >= hamoaniStartDate && date <= hamoaniEndDate) ||
+    (Boolean(current?.hamoaniStartDate && current?.hamoaniEndDate) &&
+      date >= current!.hamoaniStartDate! && date <= current!.hamoaniEndDate!)) : []
 
   function goToConfirm() {
+    if (!isDirty) return
     setMessage(null)
+    if (blockedEvent) {
+      setMessage({ type: 'error', text: `変更前または変更後の${blockedEvent}日が本日のため、この変更は適用できません。抽選時刻は適用日を後ろにずらしてください` })
+      return
+    }
     if (!savedNotification || (notificationMode === 'comment' && !commentConfigured)) {
       setMessage({ type: 'error', text: !savedNotification ? '通知方式を取得できませんでした' : 'コメント先BANDのキーが未設定です' })
       return
     }
-    if (!current || !notifyTime || current.lotteryTime > notifyTime) {
-      setMessage({ type: 'error', text: '通知時刻は抽選時刻以降に設定してください' })
+    if (!current || !notifyTime || !notificationFollowsLottery(lotteryMode, current.lotteryTime, notifyMode, notifyTime)) {
+      setMessage({ type: 'error', text: '通知日は抽選日と同日以降、通知時刻は抽選以降に設定してください' })
       return
     }
     if (hamoaniIncomplete || hamoaniRangeInvalid) {
@@ -271,7 +409,7 @@ export default function Settings() {
       return
     }
     if (lotteryTimeInvalid) {
-      setMessage({ type: 'error', text: '抽選時刻は03:00以降、通知時刻以前に設定してください' })
+      setMessage({ type: 'error', text: '抽選時刻は03:00以降にし、通知日時は抽選以降に設定してください' })
       return
     }
     if (availableDays.length === 0 && extraDates.length === 0) {
@@ -301,21 +439,31 @@ export default function Settings() {
       setMessage({ type: 'error', text: '同じ日付が追加日と除外日の両方に指定されています' })
       return
     }
+    if (invalidExtraDates.length || invalidExcludedDates.length || invalidRuleDates.length) {
+      setMessage({ type: 'error', text: '追加日・除外日・特定日ルールの日付を、登録可能曜日に合わせて修正してください' })
+      return
+    }
     setStep('confirming')
   }
 
 
   async function save() {
     setMessage(null)
+    if (blockedEvent) {
+      setMessage({ type: 'error', text: `変更前または変更後の${blockedEvent}日が本日のため、この変更は適用できません` })
+      setStep('editing')
+      return
+    }
     const currentMin = minEffectiveDate()
     let finalEffective = effectiveFrom
-    if (finalEffective < currentMin) {
+    if (finalEffective < currentMin && recurringDirty) {
       finalEffective = currentMin
       setEffectiveFrom(currentMin)
       setMinDate(currentMin)
       setMessage({ type: 'error', text: `日付が変わったため適用日を ${currentMin} に繰り上げました。内容を確認してもう一度「保存」を押してください` })
       return
     }
+    if (finalEffective < currentMin) finalEffective = currentMin
 
     setSaving(true)
     const applied: string[] = []
@@ -332,7 +480,7 @@ export default function Settings() {
       if (operationDirty) {
         const operationRes = await adminFetch('/api/admin/settings/lottery-operation', {
           method: 'PUT', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ lotteryMode, lotteryTime: current!.lotteryTime, notifyTime }),
+          body: JSON.stringify({ lotteryMode, lotteryTime: current!.lotteryTime, notifyMode, notifyTime }),
         })
         const operationResult = await operationRes.json()
         if (!operationRes.ok) throw new Error(operationResult.error ?? '抽選運用の保存に失敗しました')
@@ -347,21 +495,29 @@ export default function Settings() {
         if (!hamoaniRes.ok) throw new Error(hamoaniResult.error ?? 'ハモアニ期間の保存に失敗しました')
         applied.push('ハモアニ期間')
       }
-      const res = await adminFetch('/api/admin/settings', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ availableDays, timeSlots, extraDates, excludedDates, perDaySchedule, effectiveFrom: finalEffective, lotteryTime,
-          lotteryTimeOverrides: { byWeekday: lotteryTimeOverrides.byWeekday,
-            byDate: Object.fromEntries(Object.entries(lotteryTimeOverrides.byDate).filter(([date]) => date >= finalEffective)) },
-          roomPreferenceEnabled: roomModeEnabled }),
-      })
-      const result = await res.json()
-      if (!res.ok) throw new Error(result.error ?? '保存に失敗しました')
-      showToast(`設定を保存しました（${result.effectiveFrom} から適用予定）`)
+      if (reservationScheduleDirty) {
+        const res = await adminFetch('/api/admin/settings', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ availableDays, timeSlots, extraDates, excludedDates, perDaySchedule, effectiveFrom: finalEffective, lotteryTime,
+            applyRecurring: recurringDirty, applyDated: datedDirty,
+            lotteryTimeOverrides: { byWeekday: lotteryTimeOverrides.byWeekday,
+              byDate: Object.fromEntries(Object.entries(lotteryTimeOverrides.byDate).filter(([date]) => date >= finalEffective)) },
+            roomPreferenceEnabled: roomModeEnabled }),
+        })
+        const result = await res.json()
+        if (!res.ok) throw new Error(result.error ?? '保存に失敗しました')
+        showToast(recurringDirty && datedDirty
+          ? `設定を保存しました（日付設定は即時反映、その他は${result.effectiveFrom}から適用）`
+          : recurringDirty ? `設定を保存しました（${result.effectiveFrom}から適用）` : '日付設定を保存しました（即時反映）')
+        if (result.cronWarning) setMessage({ type: 'error', text: result.cronWarning })
+      } else {
+        showToast('設定を保存しました')
+      }
       setEditingScheduled(false)
       setEditingScheduledDate(null)
       setStep('editing')
-      load()
+      await Promise.all([load(), loadLegacyOverrides()])
     } catch (err: any) {
       setMessage({ type: 'error', text: applied.length
         ? `${applied.join('・')}は保存されました。残りは保存できませんでした: ${err.message}`
@@ -385,49 +541,6 @@ export default function Settings() {
     load(true)
   }
 
-  if (!current) return (
-    <div>
-      <Skeleton width="160px" height="28px" className="mb-6" />
-      {/* 抽選時刻 */}
-      <div className="admin-card">
-        <Skeleton width="72px" height="18px" className="mb-3" />
-        <Skeleton width="130px" height="40px" />
-      </div>
-      {/* 登録可能曜日 */}
-      <div className="admin-card">
-        <Skeleton width="110px" height="18px" className="mb-3" />
-        <div className="flex gap-2">
-          {[0,1,2,3,4,5,6].map((i) => <Skeleton key={i} width={48} height={48} circle />)}
-        </div>
-      </div>
-      {/* 追加日・除外日 (lg で2列) */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {[0,1].map((i) => (
-          <div key={i} className="admin-card">
-            <Skeleton width={i === 0 ? '52px' : '52px'} height="18px" className="mb-3" />
-            <Skeleton width="100%" height="72px" />
-          </div>
-        ))}
-      </div>
-      {/* デフォルト時間枠 */}
-      <div className="admin-card">
-        <Skeleton width="130px" height="18px" className="mb-3" />
-        <Skeleton width="100%" height="80px" />
-      </div>
-      {/* 時間枠の例外設定 */}
-      <div className="admin-card">
-        <Skeleton width="150px" height="18px" className="mb-3" />
-        <Skeleton width="100%" height="60px" />
-      </div>
-      {/* 適用日 */}
-      <div className="admin-card">
-        <Skeleton width="52px" height="18px" className="mb-3" />
-        <Skeleton width="160px" height="40px" />
-      </div>
-      <Skeleton width="200px" height="42px" style={{ borderRadius: 12 }} />
-    </div>
-  )
-
   if (step === 'confirming') return (
     <div>
       <div className="flex items-center gap-2 mb-1">
@@ -444,17 +557,17 @@ export default function Settings() {
             {([
               ['適用日',               effectiveFrom],
               ['登録可能曜日',          availableDays.length === 0 ? 'なし' : availableDays.map(d => WEEK_DAYS[d]).join('・')],
-              ['抽選時刻',              lotteryTime],
+              ['抽選時刻',              lotteryMode === 'same-day' ? '前日 23:55（固定）' : `前日 ${lotteryTime} の5分前に実行`],
+              ['通知時刻',              `${notifyMode === 'previous-day' ? '前日' : '当日'} ${notifyTime}`],
               ['抽選時刻の例外',        `${Object.keys(lotteryTimeOverrides.byWeekday).length}曜日・${Object.keys(lotteryTimeOverrides.byDate).filter((date) => date >= effectiveFrom).length}日`],
               ['デフォルト時間枠',       `${timeSlots.length}件`],
-              ['追加日',               `${extraDates.length}件`],
-              ['除外日',               `${excludedDates.length}件`],
-              ['曜日/日付別スケジュール', perDaySchedule.enabled ? '有効' : '無効'],
+              ['追加日（即時反映）',               `${extraDates.length}件`],
+              ['除外日（即時反映）',               `${excludedDates.length}件`],
+              ['曜日ルール', Object.keys(perDaySchedule.byWeekday).length + '件'],
+              ['特定日ルール（即時反映）', Object.keys(perDaySchedule.byDate).length + '件'],
               ['希望部屋モード',        roomModeEnabled ? 'オン' : 'オフ'],
-              ['BAND通知方式',         notificationMode === 'comment' ? 'メンション投稿にコメント' : '新規投稿'],
+              ['BAND通知方式（即時反映）', notificationMode === 'comment' ? 'メンション投稿にコメント' : '新規投稿'],
               ...(notificationMode === 'comment' ? [['対象投稿がない場合', fallbackPost ? '1時間後に自動投稿' : '手動通知']] : []),
-              ['抽選日（即時反映）',    lotteryMode === 'previous-day' ? '利用日の前日' : '利用日当日'],
-              ['通知時刻（即時反映）', notifyTime],
               ['ハモアニ期間（即時反映）', hamoaniStartDate && hamoaniEndDate ? `${hamoaniStartDate} 〜 ${hamoaniEndDate}` : '無効'],
             ] as [string, string][]).map(([label, value]) => (
               <tr key={label} className="border-b border-line last:border-0">
@@ -465,6 +578,19 @@ export default function Settings() {
           </tbody>
         </table>
       </div>
+
+      {recurringDirty && affectedDates.length > 0 && <div className="banner-warn mb-4" role="alert">
+        <strong>予約可能期間内の設定が変わります。</strong>
+        {' '}対象日: {affectedDates.join('、')}。既存予約は自動では変更されません。
+      </div>}
+      {datedDirty && immediateAffectedDates.length > 0 && <div className="banner-warn mb-4" role="alert">
+        <strong>現在予約可能な日付の設定が即時反映されます。</strong>
+        {' '}対象日: {immediateAffectedDates.join('、')}。既存予約は自動では変更されません。
+      </div>}
+      {hamoaniAffectedDates.length > 0 && <div className="banner-warn mb-4" role="alert">
+        <strong>ハモアニ期間の変更が現在予約可能な日付に即時反映されます。</strong>
+        {' '}対象日: {hamoaniAffectedDates.join('、')}。既存予約は自動では変更されません。
+      </div>}
 
       {message && <div className="banner-error">{message.text}</div>}
 
@@ -480,12 +606,9 @@ export default function Settings() {
   )
 
   return (
-    <div className="pb-80">
+    <div className={`pb-80 ${!current ? 'skeleton-layout' : ''}`} aria-busy={!current} ref={(el) => { if (el) el.inert = !current }}>
+      <FacilitySettingsChanges count={changeCount} />
       <h1 className="text-2xl font-bold mb-6">設定 - 農部生協</h1>
-
-      <RoomPreferenceSettings enabled={roomModeEnabled} onEnabledChange={setRoomModeEnabled}
-        mode={notificationMode} onModeChange={setNotificationMode} fallback={fallbackPost}
-        onFallbackChange={setFallbackPost} commentConfigured={commentConfigured} />
 
       {message && <div className="banner-error">{message.text}</div>}
 
@@ -548,89 +671,258 @@ export default function Settings() {
       )}
 
       <div className="admin-card">
-        <h2 className="text-base font-bold mb-1">抽選の運用</h2>
-        <p className="text-[0.85rem] text-ink-sub mb-3">当日モードでも予約受付は前日中に終了します。この設定は保存すると即時反映されます。</p>
-        <div className="flex gap-3 flex-wrap items-end">
-          <div>
-            <label className="block text-[0.8rem] text-ink-sub mb-1">抽選日</label>
-            <select className="text-input" value={lotteryMode} onChange={(e) => setLotteryMode(e.target.value as 'previous-day' | 'same-day')}>
-              <option value="previous-day">利用日の前日</option>
-              <option value="same-day">利用日当日</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-[0.8rem] text-ink-sub mb-1">通知時刻</label>
-            <input type="time" className="text-input" min="00:00" max="23:59" value={notifyTime} onChange={(e) => setNotifyTime(e.target.value)} />
-          </div>
+        <h2 className="text-base font-bold mb-3">登録可能曜日</h2>
+        <div className="flex gap-2 flex-wrap">
+          {WEEK_DAYS.map((label, i) => {
+            const selected = availableDays.includes(i)
+            return (
+              <label key={i}
+                className={
+                  'flex items-center justify-center w-12 h-12 rounded-full border-2 font-semibold cursor-pointer transition select-none ' +
+                  (selected ? 'bg-brand border-brand text-white' : 'bg-[#fafafa] border-line hover:border-brand')
+                }>
+                <input type="checkbox" checked={selected} onChange={() => toggleDay(i)} className="hidden" />
+                {label}
+              </label>
+            )
+          })}
         </div>
-        <p className="mt-2 text-[0.82rem] text-ink-sub">通知時刻は抽選時刻以降。当日モードの抽選は最初の利用枠より前に設定してください。</p>
       </div>
 
-      {/* 抽選時刻 */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="admin-card">
+          <h2 className="text-base font-bold mb-3">追加日 <span className="text-xs font-medium text-brand">即時反映</span></h2>
+          <p className="text-[0.85rem] text-ink-sub mb-3">
+            上記の曜日に該当しない日でも、ここに追加した日は予約可能になります。
+            今日以降で、登録可能曜日以外の日付を選択できます。保存すると即時反映します。
+          </p>
+          <DateListEditor
+            dates={extraDates}
+            onChange={setExtraDates}
+            min={minDate}
+            isDateDisabled={(date) => availableDays.includes(new Date(`${date}T00:00:00Z`).getUTCDay())}
+            emptyText="追加日なし"
+            label="予約可能にする日を選択"
+            conflictDates={excludedDates}
+            conflictLabel="除外日"
+            onMoveConflict={(date) => setExcludedDates((prev) => prev.filter((d) => d !== date))}
+          />
+          {invalidExtraDates.length > 0 && (
+            <p className="mt-2 text-warn text-[0.85rem]">
+              <span className="icon icon-sm align-middle">warning</span>
+              {' '}登録可能曜日に含まれるため追加日には指定できません：{invalidExtraDates.join('、')}
+            </p>
+          )}
+        </div>
+
+        <div className="admin-card">
+          <h2 className="text-base font-bold mb-3">除外日 <span className="text-xs font-medium text-brand">即時反映</span></h2>
+          <p className="text-[0.85rem] text-ink-sub mb-3">
+            通常は予約可能曜日でも、ここに登録した日は予約できなくなります（祝日や臨時休業など）。
+            今日以降で、登録可能曜日の日付だけを選択できます。保存すると即時反映します。
+          </p>
+          <DateListEditor
+            dates={excludedDates}
+            onChange={setExcludedDates}
+            min={minDate}
+            isDateDisabled={(date) => !availableDays.includes(new Date(`${date}T00:00:00Z`).getUTCDay())}
+            emptyText="除外日なし"
+            label="予約不可にする日を選択"
+            conflictDates={extraDates}
+            conflictLabel="追加日"
+            onMoveConflict={(date) => setExtraDates((prev) => prev.filter((d) => d !== date))}
+          />
+          {invalidExcludedDates.length > 0 && (
+            <p className="mt-2 text-warn text-[0.85rem]">
+              <span className="icon icon-sm align-middle">warning</span>
+              {' '}登録可能曜日以外の日付は除外日に指定できません：{invalidExcludedDates.join('、')}
+            </p>
+          )}
+        </div>
+      </div>
+
+      {legacyDayOverrides.length > 0 && <div className="admin-card">
+        <h3 className="font-bold mb-2">以前に登録した日別設定</h3>
+        <p className="text-[0.85rem] text-ink-sub mb-3">この設定は通常の追加日・除外日・時間枠より優先されます。新しい設定を保存すると、適用日以降の登録は置き換わります。</p>
+        <div className="flex flex-col gap-2">
+          {legacyDayOverrides.map((entry) => <div key={entry.date} className="flex items-center justify-between gap-3 rounded-lg border border-line p-3">
+            <span className="text-sm">{entry.date}：{entry.type === 'blocked' ? '予約不可' : `予約可能${entry.timeSlots?.length ? `（時間枠 ${entry.timeSlots.length} 件）` : ''}`}{entry.reason ? ` / ${entry.reason}` : ''}</span>
+            <button type="button" className="btn-outline w-auto px-3 py-1.5 shrink-0" disabled={deletingOverride !== null}
+              onClick={() => { if (window.confirm(`${entry.date} の日別設定を解除しますか？`)) void removeLegacyOverride('day', entry.date) }}>解除</button>
+          </div>)}
+        </div>
+      </div>}
+
       <div className="admin-card">
-        <h2 className="text-base font-bold mb-1">抽選時刻</h2>
+        <h2 className="text-base font-bold mb-4">時間枠</h2>
+        <h3 className="font-bold mb-2">デフォルト時間枠</h3>
         <p className="text-[0.85rem] text-ink-sub mb-3">
-          下の「適用日」以降の利用日から反映されます（抽選日に cron-job.org のスケジュールを自動更新）。
+          全ての日で使用される基本の時間枠です。曜日や日付別に上書きする場合は下の設定で。
         </p>
-        <input
-          type="time"
-          className="text-input w-auto"
-          min="03:00"
-          max="23:59"
-          value={lotteryTime}
-          onChange={(e) => setLotteryTime(e.target.value)}
+        <TimeSlotsEditor
+          slots={timeSlots}
+          onChange={setTimeSlots}
+          conflictSet={defaultConflicts}
+          presets={presets}
+          onSavePreset={savePreset}
+          onDeletePreset={deletePreset}
         />
+        {defaultConflicts.size > 0 && (
+          <div className="mt-2 text-danger text-[0.85rem]">
+            <span className="icon icon-sm align-middle">warning</span>
+            {' '}時間枠が重複しています
+          </div>
+        )}
+        <div className="mt-5 border-t border-line pt-4">
+          <h3 className="font-bold mb-3">時間枠の例外設定</h3>
+          <PerDayScheduleEditor
+          immediateDateRules
+          schedule={perDaySchedule}
+          onChange={setPerDaySchedule}
+          defaultSlots={timeSlots}
+          availableDays={availableDays}
+          extraDates={extraDates}
+          excludedDates={excludedDates}
+          presets={presets}
+          onSavePreset={savePreset}
+          onDeletePreset={deletePreset}
+          />
+          {invalidRuleDates.length > 0 && (
+            <p className="mt-3 text-warn text-[0.85rem]">
+              <span className="icon icon-sm align-middle">warning</span>
+              {' '}特定日ルールは除外日を除く登録可能曜日・追加日から指定してください：{invalidRuleDates.join('、')}
+            </p>
+          )}
+        </div>
+      </div>
+
+      <RoomPreferenceSettings enabled={roomModeEnabled} onEnabledChange={setRoomModeEnabled}
+        mode={notificationMode} onModeChange={setNotificationMode} fallback={fallbackPost}
+        onFallbackChange={setFallbackPost} commentConfigured={commentConfigured} />
+
+      {/* 抽選・通知時刻 */}
+      <div className="admin-card">
+        <h2 className="text-base font-bold mb-3">抽選・通知時刻</h2>
+        <h3 className="font-bold mb-1">抽選時刻</h3>
+        <p className="text-[0.85rem] text-ink-sub mb-3">抽選日は保存すると即時反映し、時刻は下の「適用日」以降の利用日から反映します。</p>
+        <div className="flex flex-wrap items-end gap-3">
+          <label className="block w-48 text-[0.8rem] text-ink-sub">利用日を基準にした抽選日
+            <select className="text-input mt-1 w-full" value={lotteryMode} onChange={(e) => {
+              const mode = e.target.value as 'previous-day' | 'same-day'
+              setLotteryMode(mode)
+              if (mode === 'same-day') setNotifyMode('same-day')
+            }}>
+              <option value="previous-day">前日</option>
+              <option value="same-day">当日</option>
+            </select>
+          </label>
+          <label className="block text-[0.8rem] text-ink-sub">時刻
+            <input type="time" className="text-input mt-1 disabled:bg-bg disabled:text-ink-pale disabled:cursor-not-allowed" min="03:00" max="23:59" value={lotteryMode === 'same-day' ? '23:55' : lotteryTime} disabled={lotteryMode === 'same-day'} onChange={(e) => setLotteryTime(e.target.value)} />
+          </label>
+        </div>
         {lotteryTimeInvalid ? (
           <p className="mt-2 text-danger text-[0.85rem]">
             <span className="icon icon-sm align-middle">error</span>
-            {' '}適用予定の抽選時刻は03:00以降、通知時刻以前に設定してください
+            {' '}抽選時刻は03:00以降にし、通知日時は抽選以降に設定してください
           </p>
         ) : (
           <p className="mt-2 text-[0.82rem] text-ink-sub">
-            {current?.lotteryMode === 'same-day'
-              ? '当日モードの受付は利用日前日の23:59で終了します'
-              : `${computeLockoutTime(lotteryTime)}（10分前）に翌日分の受付を終了します`}
+            {lotteryMode === 'same-day'
+              ? '当日モードは利用日前日の23:50締切・23:55抽選（固定）です'
+              : `${computeLockoutTime(lotteryTime)}（設定時刻の10分前）に翌日分の受付を終了し、5分前に抽選します`}
           </p>
         )}
         <div className="mt-5 border-t border-line pt-4">
-          <h3 className="font-bold mb-2">曜日ごとの例外</h3>
-          <p className="text-sm text-ink-sub mb-3">設定した曜日は通常の抽選時刻より優先します。曜日は利用日の曜日です。</p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-            {WEEK_DAYS.map((label, day) => {
-              const key = String(day)
-              const selected = key in lotteryTimeOverrides.byWeekday
-              return <div key={key} className="flex items-center gap-2">
-                <label className="flex items-center gap-1 text-sm whitespace-nowrap">
-                  <input type="checkbox" checked={selected} onChange={(e) => setLotteryTimeOverrides((prev) => {
-                    const byWeekday = { ...prev.byWeekday }
-                    if (e.target.checked) byWeekday[key] = lotteryTime
-                    else delete byWeekday[key]
-                    return { ...prev, byWeekday }
-                  })} />{label}曜</label>
-                {selected && <input type="time" className="text-input min-w-0" aria-label={`${label}曜日の抽選時刻`}
-                  value={lotteryTimeOverrides.byWeekday[key]} onChange={(e) => setLotteryTimeOverrides((prev) =>
-                    ({ ...prev, byWeekday: { ...prev.byWeekday, [key]: e.target.value } }))} />}
-              </div>
-            })}
+          <h3 className="font-bold mb-1">通知時刻</h3>
+          <p className="text-[0.85rem] text-ink-sub mb-3">利用日を基準にした通知日と時刻を指定します。保存すると即時反映されます。</p>
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="block w-48 text-[0.8rem] text-ink-sub">通知日
+              <select className="text-input mt-1 w-full" value={notifyMode} onChange={(e) => {
+                const mode = e.target.value as 'previous-day' | 'same-day'
+                setNotifyMode(mode)
+                if (mode === 'previous-day') setLotteryMode('previous-day')
+              }}>
+                <option value="previous-day">前日</option>
+                <option value="same-day">当日</option>
+              </select>
+            </label>
+            <label className="block text-[0.8rem] text-ink-sub">時刻
+              <input type="time" className="text-input mt-1" min="00:00" max="23:59" value={notifyTime} onChange={(e) => setNotifyTime(e.target.value)} />
+            </label>
           </div>
+          {lotteryTimeInvalid && <p className="mt-2 text-danger text-[0.85rem]">通知日時は通常時刻とすべての例外抽選時刻以降にしてください。</p>}
         </div>
-        <div className="mt-5 border-t border-line pt-4">
-          <h3 className="font-bold mb-2">特定日の例外</h3>
-          <p className="text-sm text-ink-sub mb-3">特定日の設定は曜日の設定より優先します。適用日以降の利用日を選んでください。</p>
-          <div className="flex flex-wrap items-end gap-2">
-            <DatePicker value={exceptionDate} onChange={setExceptionDate} min={effectiveFrom} />
-            <input type="time" className="text-input w-auto" aria-label="特定日の抽選時刻" value={exceptionTime} onChange={(e) => setExceptionTime(e.target.value)} />
-            <button type="button" className="btn-outline w-auto" disabled={!exceptionDate || exceptionDate < effectiveFrom || !exceptionTime}
-              onClick={() => { setLotteryTimeOverrides((prev) => ({ ...prev, byDate: { ...prev.byDate, [exceptionDate]: exceptionTime } })); setExceptionDate('') }}>追加</button>
+        <fieldset disabled={lotteryMode === 'same-day'} className="mt-5 border-t border-line pt-4 disabled:opacity-50">
+          <h3 className="font-bold mb-2">抽選時刻の例外設定</h3>
+          <p className="text-sm text-ink-sub mb-3">{lotteryMode === 'same-day' ? '当日モードでは前日23:55固定のため、時刻の例外設定は使用しません。' : '通常と異なる時刻を使う日だけ登録します。適用順: 特定日 > 曜日ルール > 通常の抽選時刻'}</p>
+          <div className="flex gap-2 flex-wrap mb-4">
+            {Object.keys(lotteryTimeOverrides.byWeekday).length < 7 &&
+              <button type="button" className="btn-outline w-auto px-3 py-2" onClick={() => setAddingLotteryRule('weekday')}>
+                <span className="icon icon-sm">add</span> 曜日ルールを追加
+              </button>}
+            <button type="button" className="btn-outline w-auto px-3 py-2" onClick={() => setAddingLotteryRule('date')}>
+              <span className="icon icon-sm">add</span> 特定日ルールを追加
+            </button>
           </div>
-          {Object.entries(lotteryTimeOverrides.byDate).filter(([date]) => date >= effectiveFrom).sort(([a], [b]) => a.localeCompare(b)).map(([date, time]) =>
-            <div key={date} className="flex items-center gap-3 mt-2 text-sm">
-              <span>{date}</span><span>{time}</span>
-              <button type="button" className="btn-outline w-auto px-2 py-1" onClick={() => setLotteryTimeOverrides((prev) => {
-                const byDate = { ...prev.byDate }; delete byDate[date]; return { ...prev, byDate }
-              })}>削除</button>
+          {addingLotteryRule && <div className="bg-bg border border-line rounded-[10px] p-4 mb-4">
+            <div className="flex justify-between items-center mb-3">
+              <strong className="text-[0.9rem]">{addingLotteryRule === 'weekday' ? '曜日ルールを追加' : '特定日ルールを追加'}</strong>
+              <button type="button" className="btn-icon-close" aria-label="閉じる" onClick={() => { setAddingLotteryRule(null); setPickLotteryWeekday(''); setExceptionDate('') }}>
+                <span className="icon">close</span>
+              </button>
+            </div>
+            <div className="flex gap-2 items-center flex-wrap">
+              {addingLotteryRule === 'weekday' ? <select className="text-input w-auto" value={pickLotteryWeekday} onChange={(e) => setPickLotteryWeekday(e.target.value)}>
+                <option value="">曜日を選択</option>
+                {WEEK_DAYS.map((day, index) => !lotteryTimeOverrides.byWeekday[String(index)] &&
+                  <option key={index} value={String(index)}>{day}曜</option>)}
+              </select> : <DatePicker value={exceptionDate} onChange={setExceptionDate} min={effectiveFrom} placeholder="日付を選択" />}
+              <button type="button" className="btn-primary w-auto px-4 py-2"
+                disabled={addingLotteryRule === 'weekday' ? !pickLotteryWeekday : !exceptionDate || exceptionDate < effectiveFrom || !!lotteryTimeOverrides.byDate[exceptionDate]}
+                onClick={() => {
+                  if (addingLotteryRule === 'weekday') {
+                    setLotteryTimeOverrides((prev) => ({ ...prev, byWeekday: { ...prev.byWeekday, [pickLotteryWeekday]: lotteryTime } }))
+                    setPickLotteryWeekday('')
+                  } else {
+                    setLotteryTimeOverrides((prev) => ({ ...prev, byDate: { ...prev.byDate, [exceptionDate]: lotteryTime } }))
+                    setExceptionDate('')
+                  }
+                  setAddingLotteryRule(null)
+                }}>作成して編集</button>
+            </div>
+          </div>}
+          {Object.keys(lotteryTimeOverrides.byWeekday).length === 0 && Object.keys(lotteryTimeOverrides.byDate).length === 0 && !addingLotteryRule &&
+            <div className="bg-bg border border-dashed border-line rounded-[10px] px-4 py-5 text-[0.85rem] text-ink-pale text-center">例外ルールはありません。通常の抽選時刻が適用されます。</div>}
+          {Object.entries(lotteryTimeOverrides.byWeekday).sort(([a], [b]) => Number(a) - Number(b)).map(([day, time]) =>
+            <div key={day} className="bg-surface border border-line rounded-[10px] p-3 mb-2 flex flex-wrap items-center gap-3">
+              <strong className="text-sm min-w-28">毎週 {WEEK_DAYS[Number(day)]}曜日</strong>
+              <input type="time" className="text-input w-auto" aria-label={`${WEEK_DAYS[Number(day)]}曜日の抽選時刻`} value={time}
+                onChange={(e) => setLotteryTimeOverrides((prev) => ({ ...prev, byWeekday: { ...prev.byWeekday, [day]: e.target.value } }))} />
+              <button type="button" className="btn-icon-danger ml-auto" aria-label={`${WEEK_DAYS[Number(day)]}曜日ルールを削除`}
+                onClick={() => setLotteryTimeOverrides((prev) => { const byWeekday = { ...prev.byWeekday }; delete byWeekday[day]; return { ...prev, byWeekday } })}>
+                <span className="icon">delete</span>
+              </button>
             </div>)}
-        </div>
+          {Object.entries(lotteryTimeOverrides.byDate).filter(([date]) => date >= effectiveFrom).sort(([a], [b]) => a.localeCompare(b)).map(([date, time]) =>
+            <div key={date} className="bg-surface border border-line rounded-[10px] p-3 mb-2 flex flex-wrap items-center gap-3">
+              <strong className="text-sm min-w-28">{date}</strong>
+              <input type="time" className="text-input w-auto" aria-label={`${date}の抽選時刻`} value={time}
+                onChange={(e) => setLotteryTimeOverrides((prev) => ({ ...prev, byDate: { ...prev.byDate, [date]: e.target.value } }))} />
+              <button type="button" className="btn-icon-danger ml-auto" aria-label={`${date}の特定日ルールを削除`}
+                onClick={() => setLotteryTimeOverrides((prev) => { const byDate = { ...prev.byDate }; delete byDate[date]; return { ...prev, byDate } })}>
+                <span className="icon">delete</span>
+              </button>
+            </div>)}
+          {legacyLotteryOverrides.length > 0 && <div className="mt-4 border-t border-line pt-4">
+            <h4 className="font-bold mb-2">以前に登録した日別抽選時刻</h4>
+            <p className="text-[0.85rem] text-ink-sub mb-3">通常の抽選時刻より優先されます。新しい設定を保存すると、適用日以降の登録は置き換わります。</p>
+            {legacyLotteryOverrides.map((entry) => <div key={entry.date} className="flex items-center justify-between gap-3 rounded-lg border border-line p-3 mb-2">
+              <span className="text-sm">{entry.date}：{entry.lotteryTime}</span>
+              <button type="button" className="btn-outline w-auto px-3 py-1.5 shrink-0" disabled={deletingOverride !== null}
+                onClick={() => { if (window.confirm(`${entry.date} の日別抽選時刻を解除しますか？`)) void removeLegacyOverride('lottery', entry.date) }}>解除</button>
+            </div>)}
+          </div>}
+        </fieldset>
       </div>
 
       {/* ハモアニ期間（適用日方式ではなく即時反映。毎年夏休み前後などに自由に設定する運用） */}
@@ -661,129 +953,31 @@ export default function Settings() {
       </div>
 
       <div className="admin-card">
-        <h2 className="text-base font-bold mb-3">登録可能曜日</h2>
-        <div className="flex gap-2 flex-wrap">
-          {WEEK_DAYS.map((label, i) => {
-            const selected = availableDays.includes(i)
-            return (
-              <label key={i}
-                className={
-                  'flex items-center justify-center w-12 h-12 rounded-full border-2 font-semibold cursor-pointer transition select-none ' +
-                  (selected ? 'bg-brand border-brand text-white' : 'bg-[#fafafa] border-line hover:border-brand')
-                }>
-                <input type="checkbox" checked={selected} onChange={() => toggleDay(i)} className="hidden" />
-                {label}
-              </label>
-            )
-          })}
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div className="admin-card">
-          <h2 className="text-base font-bold mb-3">追加日</h2>
-          <p className="text-[0.85rem] text-ink-sub mb-3">
-            上記の曜日に該当しない日でも、ここに追加した日は予約可能になります。
-            直近8日間は緊急対応で設定してください。
-          </p>
-          <DateListEditor
-            dates={extraDates}
-            onChange={setExtraDates}
-            min={minDate}
-            emptyText="追加日なし"
-            label="予約可能にする日を選択"
-            conflictDates={excludedDates}
-            conflictLabel="除外日"
-            onMoveConflict={(date) => setExcludedDates((prev) => prev.filter((d) => d !== date))}
-          />
-          {earlyExtraDates.length > 0 && (
-            <p className="mt-2 text-warn text-[0.85rem]">
-              <span className="icon icon-sm align-middle">warning</span>
-              {' '}適用日（{effectiveFrom}）より前の日付が含まれています。これらは設定の対象外です：{earlyExtraDates.join('、')}
-            </p>
-          )}
-        </div>
-
-        <div className="admin-card">
-          <h2 className="text-base font-bold mb-3">除外日</h2>
-          <p className="text-[0.85rem] text-ink-sub mb-3">
-            通常は予約可能曜日でも、ここに登録した日は予約できなくなります（祝日や臨時休業など）。
-            直近8日間は緊急対応で設定してください。
-          </p>
-          <DateListEditor
-            dates={excludedDates}
-            onChange={setExcludedDates}
-            min={minDate}
-            emptyText="除外日なし"
-            label="予約不可にする日を選択"
-            conflictDates={extraDates}
-            conflictLabel="追加日"
-            onMoveConflict={(date) => setExtraDates((prev) => prev.filter((d) => d !== date))}
-          />
-          {earlyExcludedDates.length > 0 && (
-            <p className="mt-2 text-warn text-[0.85rem]">
-              <span className="icon icon-sm align-middle">warning</span>
-              {' '}適用日（{effectiveFrom}）より前の日付が含まれています。これらは設定の対象外です：{earlyExcludedDates.join('、')}
-            </p>
-          )}
-        </div>
-      </div>
-
-      <div className="admin-card">
-        <h2 className="text-base font-bold mb-3">デフォルト時間枠</h2>
-        <p className="text-[0.85rem] text-ink-sub mb-3">
-          全ての日で使用される基本の時間枠です。曜日や日付別に上書きする場合は下の設定で。
-        </p>
-        <TimeSlotsEditor
-          slots={timeSlots}
-          onChange={setTimeSlots}
-          conflictSet={defaultConflicts}
-          presets={presets}
-          onSavePreset={savePreset}
-          onDeletePreset={deletePreset}
-        />
-        {defaultConflicts.size > 0 && (
-          <div className="mt-2 text-danger text-[0.85rem]">
-            <span className="icon icon-sm align-middle">warning</span>
-            {' '}時間枠が重複しています
-          </div>
-        )}
-      </div>
-
-      <div className="admin-card">
-        <h2 className="text-base font-bold mb-3">時間枠の例外設定</h2>
-        <PerDayScheduleEditor
-          schedule={perDaySchedule}
-          onChange={setPerDaySchedule}
-          defaultSlots={timeSlots}
-          availableDays={availableDays}
-          extraDates={extraDates}
-          excludedDates={excludedDates}
-          presets={presets}
-          onSavePreset={savePreset}
-          onDeletePreset={deletePreset}
-        />
-        {earlyPerDayDates.length > 0 && (
-          <p className="mt-3 text-warn text-[0.85rem]">
-            <span className="icon icon-sm align-middle">warning</span>
-            {' '}特定日ルールに適用日（{effectiveFrom}）より前の日付が含まれています。これらは設定の対象外です：{earlyPerDayDates.join('、')}
-          </p>
-        )}
-      </div>
-
-      <div className="admin-card">
         <h2 className="text-base font-bold mb-3">適用日</h2>
-        <p className="text-[0.85rem] text-ink-sub mb-3">
-          現在予約可能な最長日（7日後）との競合を避けるため、
-          <strong>{minDate}</strong> 以降の日付を指定してください。
-        </p>
+        <p className="text-[0.85rem] text-ink-sub mb-3">登録可能曜日、時間枠、曜日ルールなどの適用日です。追加日・除外日・特定日ルールは保存時に即時反映します。<strong>{minDate}</strong> 以降の日付を指定してください。</p>
         <DatePicker value={effectiveFrom} onChange={(date) => {
           setEffectiveFrom(date)
           setRoomModeEnabled(roomModeAtDate(date, roomModeVersions))
         }} min={minDate} />
+        {blockedEvent && <div className="banner-warn mt-3" role="alert">
+          変更前または変更後の{blockedEvent}日が本日のため、この変更は適用できません。
+          {operationBlockedEvent ? ' 抽選・通知日の変更は即時反映のため、実行日のない日に変更してください。' : ' 抽選時刻の適用日を後ろにずらしてください。'}
+        </div>}
+        {recurringDirty && affectedDates.length > 0 && <div className="banner-warn mt-3" role="alert">
+          <strong>予約可能期間内の設定が変わります。</strong>
+          {' '}現在または変更後に予約可能な日付: {affectedDates.join('、')}。既存予約は自動では変更されません。
+        </div>}
+        {datedDirty && immediateAffectedDates.length > 0 && <div className="banner-warn mt-3" role="alert">
+          <strong>現在予約可能な日付の設定が即時反映されます。</strong>
+          {' '}対象日: {immediateAffectedDates.join('、')}。既存予約は自動では変更されません。
+        </div>}
+        {hamoaniAffectedDates.length > 0 && <div className="banner-warn mt-3" role="alert">
+          <strong>ハモアニ期間の変更が現在予約可能な日付に即時反映されます。</strong>
+          {' '}対象日: {hamoaniAffectedDates.join('、')}。既存予約は自動では変更されません。
+        </div>}
       </div>
 
-      <button className="btn-primary max-w-[300px]" onClick={goToConfirm}>
+      <button className="btn-primary max-w-[300px]" onClick={goToConfirm} disabled={!isDirty || !!blockedEvent}>
         {editingScheduled ? '上書き内容を確認する' : '確認する'}
       </button>
 

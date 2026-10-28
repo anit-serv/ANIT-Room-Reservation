@@ -1,6 +1,6 @@
 import { VercelRequest, VercelResponse } from '@vercel/node'
 import * as admin from 'firebase-admin'
-import { resolveFacilitySettingsForDate, todayJST } from '../lib/reservationSettings'
+import { isDateAvailableBySettings, pickNobuRoomTimeSlotsForDate, pickTimeSlotsForDate, resolveFacilitySettingsForDate, todayJST } from '../lib/reservationSettings'
 import 'dotenv/config'
 
 const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n')
@@ -59,12 +59,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     const resolved = await resolveFacilitySettingsForDate(db, docId, date, baseDefaults)
+    const dateSlots = f === 'nobu-room' && req.query.date
+      ? await pickNobuRoomTimeSlotsForDate(db, date,
+        isDateAvailableBySettings(date, resolved) ? pickTimeSlotsForDate(date, resolved) : [])
+      : null
 
     return res.status(200).json({
       availableDays:  resolved.availableDays,
       extraDates:     resolved.extraDates,
       excludedDates:  resolved.excludedDates,
-      timeSlots:      resolved.timeSlots.filter((s: any) => !s.deleted),
+      timeSlots:      dateSlots ?? resolved.timeSlots.filter((s: any) => !s.deleted),
       perDaySchedule: resolved.perDaySchedule,
       timePresets:    baseData.timePresets ?? [],
     })

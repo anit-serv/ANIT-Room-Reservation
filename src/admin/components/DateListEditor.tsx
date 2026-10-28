@@ -22,11 +22,12 @@ type Props = {
   conflictDates?: string[]
   conflictLabel?: string
   onMoveConflict?: (date: string) => void
+  isDateDisabled?: (date: string) => boolean
 }
 
 export default function DateListEditor({
   dates, onChange, emptyText, min, label = '日付を選択して追加',
-  conflictDates = [], conflictLabel, onMoveConflict,
+  conflictDates = [], conflictLabel, onMoveConflict, isDateDisabled,
 }: Props) {
   const [open, setOpen] = useState(false)
   const [err, setErr] = useState<string | null>(null)
@@ -40,6 +41,7 @@ export default function DateListEditor({
       onChange(dates.filter((d) => d !== date))
       return
     }
+    if (isDateDisabled?.(date)) return
     if (conflictDates.includes(date)) {
       setPendingConflictDate(date)
       return
@@ -84,6 +86,7 @@ export default function DateListEditor({
             <div className="fixed z-20" style={{ top: pos.top, left: pos.left }}>
               <CalendarPicker
                 min={min}
+                isDateDisabled={isDateDisabled}
                 selectedDates={dates}
                 onChange={(date) => { handleSelect(date); setErr(null) }}
               />

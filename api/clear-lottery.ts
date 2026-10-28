@@ -1,6 +1,7 @@
 import { VercelRequest, VercelResponse } from '@vercel/node';
 import * as admin from 'firebase-admin';
 import 'dotenv/config';
+import { schedulerEnabled } from '../lib/schedulerQueue';
 
 // ---------------------------------------------------------
 // 1. 設定・初期化
@@ -27,9 +28,10 @@ const db = admin.firestore();
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // セキュリティチェック
   const { key, date } = req.query;
-  if (key !== process.env.CRON_SECRET) {
+  if (!process.env.CRON_SECRET || key !== process.env.CRON_SECRET) {
     return res.status(401).json({ status: 'error', message: 'Unauthorized' });
   }
+  if (schedulerEnabled()) return res.status(409).json({ error: 'Queue mode does not allow clearing completed lotteries' })
 
   // 日付パラメータのチェック
   if (!date || typeof date !== 'string') {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { adminFetch } from '../auth'
 import { getPageCache, setPageCache } from '../pageCache'
@@ -67,6 +67,12 @@ const ACTION_LABELS: Record<string, string> = {
   'admin.add': '管理者追加',
   'admin.remove': '管理者削除',
   'admin.super.transfer': 'スーパー管理者移譲',
+  'admin.admin.transfer': '管理者権限移譲',
+  'admin.room.transfer': '部屋取り権限移譲',
+  'admin.admin.add': '管理者権限追加',
+  'admin.admin.remove': '管理者権限削除',
+  'admin.room.add': '部屋取り権限追加',
+  'admin.room.remove': '部屋取り権限削除',
   'invitation.create': '招待発行',
   'invitation.revoke': '招待取消',
   'preset.create': 'プリセット作成',
@@ -221,101 +227,43 @@ export default function Dashboard() {
 
         <div className="grid gap-4">
         {/* 直近の予約（全施設） */}
-        <div className="bg-surface border border-line rounded-xl overflow-hidden shadow-[var(--shadow-card-sm)]">
-          <div className={SECTION_HEADER}>
-            <h2 className="text-[0.95rem] font-bold m-0 flex items-center gap-1.5">
-              <span className="icon icon-sm">event</span> 直近の予約
-            </h2>
-          </div>
+        <DashboardPanel title="直近の予約" icon="event">
           {upcoming.length === 0 ? (
             <EmptyState icon="event_busy" text="直近の予約はありません" />
           ) : (
             <div className="flex flex-col">
               {upcoming.map((r) => {
-                const meta = FACILITY_META[r.facility]
-                let dateStr: string
-                let timeStr: string
-                if (r.facility === 'nobu') {
-                  const [datePart, timePart] = r.date.split('T')
-                  dateStr = datePart.slice(5).replace('-', '/')
-                  timeStr = timePart ?? ''
-                } else {
-                  dateStr = r.date.slice(5).replace('-', '/')
-                  timeStr = r.startTime ? `${r.startTime}〜${r.endTime}` : ''
-                }
                 const dest = r.facility === 'nobu'
                   ? `/admin/reservations/nobu?focus=${r.id}`
                   : r.facility === 'kobu'
                     ? `/admin/reservations/kobu?focus=${r.id}`
                     : `/admin/reservations/nobu-room?focus=${r.id}`
-                return (
-                  <button
-                    key={`${r.facility}-${r.id}`}
-                    className="flex items-center gap-3 px-4 py-3 border-b border-line last:border-b-0 bg-transparent border-x-0 border-t-0 text-left cursor-pointer transition-colors hover:bg-bg w-full"
-                    onClick={() => navigate(dest)}
-                  >
-                    <div className="flex flex-col items-center gap-0.5 shrink-0">
-                      <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${meta.iconBg}`}>
-                        <span className={`icon ${meta.iconColor}`} style={{ fontSize: 18 }}>{meta.icon}</span>
-                      </div>
-                      <span className={`text-[0.55rem] font-semibold leading-none ${meta.labelColor}`}>{meta.label}</span>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="font-semibold truncate text-ink">{r.bandName}</div>
-                      <div className="text-[0.78rem] text-ink-sub">
-                        {dateStr} {timeStr}{r.userDisplayName ? ` ・ ${r.userDisplayName}` : ''}
-                      </div>
-                    </div>
-                    {r.facility === 'nobu' && (
-                      <span className={'badge shrink-0 ' + (r.status === 'confirmed' ? 'badge-confirmed' : 'badge-pending')}>
-                        <span className="icon icon-sm">{r.status === 'confirmed' ? 'check_circle' : 'hourglass_empty'}</span>
-                        {r.status === 'confirmed' ? `確定 (${typeof r.order === 'number' ? r.order : '-'})` : '抽選待ち'}
-                      </span>
-                    )}
-                  </button>
-                )
+                return <UpcomingRow key={`${r.facility}-${r.id}`} reservation={r} onClick={() => navigate(dest)} />
               })}
             </div>
           )}
-        </div>
+        </DashboardPanel>
 
         {/* 最近のアクティビティ */}
-        <div className="bg-surface border border-line rounded-xl overflow-hidden shadow-[var(--shadow-card-sm)]">
-          <div className={SECTION_HEADER}>
-            <h2 className="text-[0.95rem] font-bold m-0 flex items-center gap-1.5">
-              <span className="icon icon-sm">history</span> 最近のアクティビティ
-            </h2>
-            <Link to="/admin/logs" className="text-[0.85rem] text-brand no-underline">すべて見る →</Link>
-          </div>
+        <DashboardPanel title="最近のアクティビティ" icon="history" action={<Link to="/admin/logs" className="text-[0.85rem] text-brand no-underline">すべて見る →</Link>}>
           {recentLogs.length === 0 ? (
             <EmptyState icon="history_off" text="アクティビティはありません" />
           ) : (
             <div className="flex flex-col">
-              {recentLogs.map((log) => (
-                <div key={log.id} className="flex items-center gap-2.5 px-4 py-2.5 border-b border-line">
-                  <div className="flex-1 min-w-0 text-[0.85rem]">
-                    <span className="font-semibold">{log.actorDisplayName}</span>
-                    <span className="text-ink-sub"> が </span>
-                    <span>{ACTION_LABELS[log.action] ?? log.action}</span>
-                    {log.targetLabel && (<><span className="text-ink-sub">: </span><span>{log.targetLabel}</span></>)}
-                  </div>
-                  <span className="text-[0.75rem] text-ink-pale whitespace-nowrap">{formatRelative(log.createdAt)}</span>
-                </div>
-              ))}
+              {recentLogs.map((log) => <ActivityRow key={log.id} log={log} />)}
             </div>
           )}
-        </div>
+        </DashboardPanel>
       </div>
       </div>
     </div>
   )
 }
 
-function FacilityLabel({ icon, label }: { icon: string; label: string }) {
+function FacilityLabel({ icon, label, loading = false }: { icon: string; label: string; loading?: boolean }) {
   return (
     <p className="text-[0.72rem] font-bold text-ink-pale mb-1.5 flex items-center gap-1 mt-1">
-      <span className="icon" style={{ fontSize: 13 }}>{icon}</span>
-      {label}
+      {loading ? <Skeleton width="96px" height="13px" /> : <><span className="icon" style={{ fontSize: 13 }}>{icon}</span>{label}</>}
     </p>
   )
 }
@@ -330,37 +278,6 @@ function EmptyState({ icon, text }: { icon: string; text: string }) {
 }
 
 function DashboardSkeleton() {
-  const StatSkel = () => (
-    <div className="flex items-center gap-3 p-4 bg-surface border border-line rounded-xl shadow-[var(--shadow-card-sm)]">
-      <Skeleton width={28} height={28} circle />
-      <div className="flex-1">
-        <Skeleton width="55%" height="11px" className="mb-1.5" />
-        <Skeleton width="35%" height="22px" />
-      </div>
-    </div>
-  )
-  const FacilityLabelSkel = () => (
-    <Skeleton width="72px" height="11px" className="mb-1.5 mt-1" />
-  )
-  const CardSkel = () => (
-    <div className="bg-surface border border-line rounded-xl overflow-hidden shadow-[var(--shadow-card-sm)]">
-      <div className="px-4 py-3 border-b border-line">
-        <Skeleton width="140px" height="18px" />
-      </div>
-      {[0, 1, 2, 3].map((j) => (
-        <div key={j} className="flex items-center gap-3 px-4 py-3 border-b border-line last:border-b-0">
-          <div className="flex flex-col items-center gap-0.5 shrink-0">
-            <Skeleton width={36} height={36} style={{ borderRadius: 12 }} />
-            <Skeleton width={28} height={8} />
-          </div>
-          <div className="flex-1">
-            <Skeleton width="60%" height="14px" className="mb-1" />
-            <Skeleton width="45%" height="11px" />
-          </div>
-        </div>
-      ))}
-    </div>
-  )
   return (
     <div>
       <div className="flex items-baseline justify-between mb-6">
@@ -369,18 +286,18 @@ function DashboardSkeleton() {
       </div>
       <div className={DASHBOARD_GRID}>
         <div>
-          <FacilityLabelSkel />
-          <div className={STATS_GRID3}>{[0,1,2].map((i) => <StatSkel key={i} />)}</div>
-          <FacilityLabelSkel />
-          <div className={STATS_GRID2}>{[0,1].map((i) => <StatSkel key={i} />)}</div>
-          <FacilityLabelSkel />
-          <div className={STATS_GRID2}>{[0,1].map((i) => <StatSkel key={i} />)}</div>
-          <FacilityLabelSkel />
-          <div className={STATS_GRID2 + ' mb-5'}>{[0,1].map((i) => <StatSkel key={i} />)}</div>
+          <FacilityLabel icon="grass" label="農部生協" loading />
+          <div className={STATS_GRID3}>{[0,1,2].map((i) => <StatCard key={i} icon="" iconColor="" label="" value={0} loading />)}</div>
+          <FacilityLabel icon="meeting_room" label="工部室" loading />
+          <div className={STATS_GRID2}>{[0,1].map((i) => <StatCard key={i} icon="" iconColor="" label="" value={0} loading />)}</div>
+          <FacilityLabel icon="door_sliding" label="農部室" loading />
+          <div className={STATS_GRID2}>{[0,1].map((i) => <StatCard key={i} icon="" iconColor="" label="" value={0} loading />)}</div>
+          <FacilityLabel icon="group" label="ユーザー管理" loading />
+          <div className={STATS_GRID2 + ' mb-5'}>{[0,1].map((i) => <StatCard key={i} icon="" iconColor="" label="" value={0} loading />)}</div>
         </div>
         <div className="grid gap-4">
-          <CardSkel />
-          <CardSkel />
+          <DashboardPanel title="直近の予約" icon="event" loading><div className="flex flex-col">{[0,1,2,3].map((i) => <UpcomingRow key={i} loading />)}</div></DashboardPanel>
+          <DashboardPanel title="最近のアクティビティ" icon="history" action={<span />} loading><div className="flex flex-col">{[0,1,2,3].map((i) => <ActivityRow key={i} loading />)}</div></DashboardPanel>
         </div>
       </div>
     </div>
@@ -388,19 +305,19 @@ function DashboardSkeleton() {
 }
 
 function StatCard({
-  icon, iconColor, label, value, sub, onClick,
+  icon, iconColor, label, value, sub, onClick, loading = false,
 }: {
-  icon: string; iconColor: string; label: string; value: number; sub?: string; onClick?: () => void
+  icon: string; iconColor: string; label: string; value: number; sub?: string; onClick?: () => void; loading?: boolean
 }) {
   const baseCls = 'flex items-center gap-3 p-4 bg-surface border border-line rounded-xl shadow-[var(--shadow-card-sm)] text-left'
   const interactiveCls = ' cursor-pointer transition hover:border-brand active:scale-[0.98]'
   const cls = baseCls + (onClick ? interactiveCls : '')
   const content = (
     <>
-      <span className="icon icon-lg" style={{ color: iconColor }}>{icon}</span>
+      {loading ? <Skeleton width={28} height={28} circle /> : <span className="icon icon-lg" style={{ color: iconColor }}>{icon}</span>}
       <div className="flex-1 min-w-0">
-        <div className="text-[0.75rem] text-ink-sub font-semibold uppercase tracking-wide">{label}</div>
-        <div className="text-[1.6rem] font-bold leading-tight mt-0.5 max-md:text-[1.4rem]">{value}</div>
+        <div className="text-[0.75rem] text-ink-sub font-semibold uppercase tracking-wide">{loading ? <Skeleton width="55%" height="11px" /> : label}</div>
+        <div className="text-[1.6rem] font-bold leading-tight mt-0.5 max-md:text-[1.4rem]">{loading ? <Skeleton width="35%" height="22px" /> : value}</div>
         {sub && <div className="text-[0.75rem] text-danger mt-0.5">{sub}</div>}
       </div>
     </>
@@ -408,4 +325,46 @@ function StatCard({
   return onClick
     ? <button className={cls} onClick={onClick}>{content}</button>
     : <div className={cls}>{content}</div>
+}
+
+function DashboardPanel({ title, icon, action, loading = false, children }: { title: string; icon: string; action?: ReactNode; loading?: boolean; children: ReactNode }) {
+  return <div className="bg-surface border border-line rounded-xl overflow-hidden shadow-[var(--shadow-card-sm)]">
+    <div className={SECTION_HEADER}>
+      <h2 className="text-[0.95rem] font-bold m-0 flex items-center gap-1.5">
+        {loading ? <Skeleton width="140px" height="18px" /> : <><span className="icon icon-sm">{icon}</span>{title}</>}
+      </h2>
+      {loading ? action && <Skeleton width="72px" height="14px" /> : action}
+    </div>
+    {children}
+  </div>
+}
+
+function UpcomingRow({ reservation, onClick, loading = false }: { reservation?: UpcomingReservation; onClick?: () => void; loading?: boolean }) {
+  const meta = reservation ? FACILITY_META[reservation.facility] : undefined
+  let dateStr = ''
+  let timeStr = ''
+  if (reservation?.facility === 'nobu') {
+    const [datePart, timePart] = reservation.date.split('T')
+    dateStr = datePart.slice(5).replace('-', '/')
+    timeStr = timePart ?? ''
+  } else if (reservation) {
+    dateStr = reservation.date.slice(5).replace('-', '/')
+    timeStr = reservation.startTime ? `${reservation.startTime}〜${reservation.endTime}` : ''
+  }
+  return <button disabled={loading} className="flex items-center gap-3 px-4 py-3 border-b border-line last:border-b-0 bg-transparent border-x-0 border-t-0 text-left cursor-pointer transition-colors hover:bg-bg w-full" onClick={onClick}>
+    <div className="flex flex-col items-center gap-0.5 shrink-0">
+      {loading ? <><Skeleton width={36} height={36} style={{ borderRadius: 12 }} /><Skeleton width={28} height={8} /></> : <><div className={`w-9 h-9 rounded-xl flex items-center justify-center ${meta?.iconBg}`}><span className={`icon ${meta?.iconColor}`} style={{ fontSize: 18 }}>{meta?.icon}</span></div><span className={`text-[0.55rem] font-semibold leading-none ${meta?.labelColor}`}>{meta?.label}</span></>}
+    </div>
+    <div className="flex-1 min-w-0">
+      {loading ? <><Skeleton width="60%" height={14} className="mb-1" /><Skeleton width="45%" height={11} /></> : <><div className="font-semibold truncate text-ink">{reservation?.bandName}</div><div className="text-[0.78rem] text-ink-sub">{dateStr} {timeStr}{reservation?.userDisplayName ? ` ・ ${reservation.userDisplayName}` : ''}</div></>}
+    </div>
+    {!loading && reservation?.facility === 'nobu' && <span className={'badge shrink-0 ' + (reservation.status === 'confirmed' ? 'badge-confirmed' : 'badge-pending')}><span className="icon icon-sm">{reservation.status === 'confirmed' ? 'check_circle' : 'hourglass_empty'}</span>{reservation.status === 'confirmed' ? `確定 (${typeof reservation.order === 'number' ? reservation.order : '-'})` : '抽選待ち'}</span>}
+  </button>
+}
+
+function ActivityRow({ log, loading = false }: { log?: RecentLog; loading?: boolean }) {
+  return <div className="flex items-center gap-2.5 px-4 py-2.5 border-b border-line">
+    <div className="flex-1 min-w-0 text-[0.85rem]">{loading ? <Skeleton width="70%" height={14} /> : <><span className="font-semibold">{log?.actorDisplayName}</span><span className="text-ink-sub"> が </span><span>{log ? ACTION_LABELS[log.action] ?? log.action : ''}</span>{log?.targetLabel && <><span className="text-ink-sub">: </span><span>{log.targetLabel}</span></>}</>}</div>
+    <span className="text-[0.75rem] text-ink-pale whitespace-nowrap">{loading ? <Skeleton width={48} height={12} /> : formatRelative(log?.createdAt ?? null)}</span>
+  </div>
 }

@@ -180,6 +180,12 @@ CRONJOB_ORG_API_KEY=your-cronjob-org-api-key
 CRONJOB_ORG_LOTTERY_JOB_ID=your-lottery-job-id
 CRONJOB_ORG_NOTIFY_JOB_ID=your-notify-job-id
 
+# キュー方式へ移行するときだけ有効化（詳細は SCHEDULER_OPERATIONS.md）
+SCHEDULER_ENABLED=false
+CRONJOB_ORG_SCHEDULER_JOB_ID=your-scheduler-job-id
+CRONJOB_ORG_RECOVERY_JOB_ID=your-recovery-job-id
+PUBLIC_BASE_URL=https://your-production-domain
+
 # LIFF（フロントエンドのみ、VITE_ プレフィックス必須）
 VITE_LIFF_ID=your-liff-id
 ```
@@ -326,6 +332,8 @@ GET /api/wake
 
 ## Cron 設定（cron-job.org）
 
+キュー方式・2分間隔の復旧ジョブを実装済みです。`SCHEDULER_ENABLED=true` で、次回処理ジョブ・復旧ジョブ・データ整理の構成に切り替えます。配備順序、index、ジョブ作成・切替、送信結果不明の扱いは [運用手順](SCHEDULER_OPERATIONS.md) を参照してください。以下の表はキュー方式が無効の場合の構成です。
+
 管理画面「設定 → 抽選時刻」から変更すると cron-job.org のスケジュールが自動更新されます。
 
 | ジョブ | スケジュール（JST） | UTC 換算 |
@@ -339,8 +347,8 @@ GET /api/wake
 
 ### 農部生協（抽選制）
 
-- 前日モードは利用日の前日、当日モードは利用日当日に抽選する
-- 当日モードの予約受付は利用日の前日23:59まで
+- 前日モードは設定時刻の5分前に抽選する。当日モードは利用日前日23:55に固定して抽選する
+- 当日モードの予約受付は利用日の前日23:50まで
 - 前日モードの予約受付は抽選時刻の10分前まで
 - 同日に同名バンドは1枠のみ登録可能
 - 予約可能期間は翌日以降7日先まで（曜日・追加日・除外日設定に依存）

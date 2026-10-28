@@ -1,16 +1,20 @@
 import axios from 'axios'
 import type { Firestore } from 'firebase-admin/firestore'
+import { schedulerEnabled } from './schedulerQueue'
+import { refreshScheduler } from './scheduler'
 
 export type CronApplyResult = { applied: boolean; warning?: string }
 
 /**
- * cron-job.org の抽選ジョブ（抽選時刻の5分前）と通知ジョブ（通知時刻）の
+ * cron-job.org の抽選ジョブ（前日モードは設定時刻の5分前、当日モードは前日23:55）と通知ジョブ（通知時刻）の
  * スケジュールをそれぞれ更新する。
  *
  * 即時上書き（緊急エンドポイント）と日次リコンサイラの両方から呼ばれる。
  * 環境変数が未設定の場合は applied=false を返すだけで何もしない。
  */
-export async function applyLotteryCronSchedule(lotteryTime: string, notifyTime = lotteryTime): Promise<CronApplyResult> {
+export async function applyLotteryCronSchedule(lotteryTime: string, notifyTime = lotteryTime, lotteryMode: 'previous-day' | 'same-day' = 'previous-day'): Promise<CronApplyResult> {
+  // Queue-mode callers refresh after the DB settings have committed; never change old cron jobs.
+  if (schedulerEnabled()) return { applied: false }
   const apiKey       = process.env.CRONJOB_ORG_API_KEY
   const lotteryJobId = process.env.CRONJOB_ORG_LOTTERY_JOB_ID
   const notifyJobId  = process.env.CRONJOB_ORG_NOTIFY_JOB_ID
@@ -22,8 +26,8 @@ export async function applyLotteryCronSchedule(lotteryTime: string, notifyTime =
   const lotteryMinutes = h * 60 + m
   const [notifyH, notifyM] = notifyTime.split(':').map(Number)
 
-  // 抽選ジョブ: 5分前
-  const lotteryJobMinutes = lotteryMinutes - 5
+  // 当日モードでは利用日の前日23:55、前日モードでは設定時刻の5分前。
+  const lotteryJobMinutes = lotteryMode === 'same-day' ? 23 * 60 + 55 : lotteryMinutes - 5
   const lotteryJobH = Math.floor(lotteryJobMinutes / 60)
   const lotteryJobM = lotteryJobMinutes % 60
 
@@ -45,6 +49,7 @@ export async function applyLotteryCronSchedule(lotteryTime: string, notifyTime =
 
 /** Provision a single cron-job.org job which calls the BAND poll worker every minute. */
 export async function ensureBandPollCron(db: Firestore, host: string | undefined): Promise<number> {
+  if (schedulerEnabled()) { await refreshScheduler(db); return 0 }
   const apiKey = process.env.CRONJOB_ORG_API_KEY
   const cronSecret = process.env.CRON_SECRET
   const baseUrl = process.env.PUBLIC_BASE_URL ?? (host && /^[a-z0-9.-]+$/i.test(host) ? `https://${host}` : '')

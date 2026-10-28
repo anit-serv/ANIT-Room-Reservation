@@ -1,5 +1,6 @@
 import type { Firestore, Transaction } from 'firebase-admin/firestore'
 import { assignRooms, roomDayRef, usableRooms } from './roomPreference'
+import { schedulerEnabled, QUEUE } from './schedulerQueue'
 
 /** Keep the original lottery ranks while reflecting a cancellation or unusable room. */
 export async function refreshLotterySlot(
@@ -7,10 +8,12 @@ export async function refreshLotterySlot(
   availableOverride?: string[],
 ): Promise<boolean> {
   const resultRef = db.collection('lottery_results').doc(date)
-  const [result, reservations, day] = await Promise.all([
+  const jobRef = db.collection(QUEUE).doc(`band_${date}`)
+  const [result, reservations, day, job] = await Promise.all([
     tx.get(resultRef),
     tx.get(db.collection('reservations').where('date', '==', `${date}T${timeSlot}`)),
     tx.get(roomDayRef(db, date)),
+    schedulerEnabled() ? tx.get(jobRef) : Promise.resolve(null),
   ])
   if (!result.exists) return false
   const resultData = result.data()!
@@ -51,5 +54,13 @@ export async function refreshLotterySlot(
     notificationDirty: true,
     updatedAt: new Date(),
   })
+  if (schedulerEnabled() && job?.data()?.status !== 'manual') {
+    const previous = job?.data()
+    tx.set(jobRef, { kind: 'band', date,
+      status: previous?.status === 'running' ? 'running' : 'pending',
+      dueAt: new Date(), availableAt: new Date(), requestedAt: new Date(),
+      generation: (previous?.generation ?? 0) + 1, attempts: 0,
+    }, { merge: true })
+  }
   return true
 }

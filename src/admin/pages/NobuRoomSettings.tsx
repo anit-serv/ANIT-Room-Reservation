@@ -9,6 +9,7 @@ import Skeleton from '../../components/Skeleton'
 import ConfirmDialog from '../../components/ConfirmDialog'
 import DatePicker from '../../components/DatePicker'
 import { useToast } from '../../contexts/ToastContext'
+import FacilitySettingsChanges, { countFacilitySettingsChanges } from '../components/FacilitySettingsChanges'
 
 type NobuRoomSettingsCore = {
   availableDays:  number[]
@@ -24,6 +25,15 @@ type NobuRoomSettingsResponse = NobuRoomSettingsCore & {
 }
 
 type TimePreset = { label: string; startTime: string; endTime: string }
+type SeikyoBlockRow = { date: string; blockedSlots: string[]; seikyoSlots: string[]; sources: string[] }
+
+function SeikyoBlockCard({ row, loading = false }: { row?: SeikyoBlockRow; loading?: boolean }) {
+  return <div className="border border-line rounded-lg p-3 text-sm">
+    <div className="font-semibold">{loading ? <Skeleton width="62%" height="15px" /> : <>{row?.date} <span className="text-ink-sub font-normal">（{row?.sources.join('・')}）</span></>}</div>
+    <p className="mt-1">{loading ? <Skeleton width="88%" height="13px" /> : `農部生協の予約可能時間: ${row?.seikyoSlots.map((slot) => slot.replace('-', '〜')).join(' / ')}`}</p>
+    <p className="mt-1 text-warn">{loading ? <Skeleton width="70%" height="13px" /> : `農部室で予約不可: ${row?.blockedSlots.length ? row.blockedSlots.map((slot) => slot.replace('-', '〜')).join(' / ') : '重複なし'}`}</p>
+  </div>
+}
 
 const WEEK_DAYS = ['日', '月', '火', '水', '木', '金', '土']
 
@@ -56,9 +66,29 @@ export default function NobuRoomSettings() {
   const [presetSaving, setPresetSaving]     = useState(false)
   const [presetMessage, setPresetMessage]   = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [cancelTarget, setCancelTarget]     = useState<string | null>(null)
+  const [seikyoFrom, setSeikyoFrom] = useState(todayJST())
+  const [seikyoBlocks, setSeikyoBlocks] = useState<SeikyoBlockRow[]>([])
+  const [seikyoOpen, setSeikyoOpen] = useState(false)
+  const [seikyoLoading, setSeikyoLoading] = useState(true)
+  const [seikyoError, setSeikyoError] = useState('')
   const { showToast } = useToast()
 
   useEffect(() => { load(); loadPresets() }, [])
+
+  useEffect(() => {
+    let active = true
+    setSeikyoLoading(true)
+    setSeikyoError('')
+    adminFetch(`/api/admin/nobu-room-settings/seikyo-blocks?from=${encodeURIComponent(seikyoFrom)}&days=31`)
+      .then(async (response) => {
+        if (!response.ok) throw new Error('農部生協の予約可能時間を取得できませんでした')
+        return response.json()
+      })
+      .then((data) => { if (active) setSeikyoBlocks(data.rows ?? []) })
+      .catch((error) => { if (active) setSeikyoError(error.message) })
+      .finally(() => { if (active) setSeikyoLoading(false) })
+    return () => { active = false }
+  }, [seikyoFrom])
 
   async function loadPresets() {
     try {
@@ -94,14 +124,14 @@ export default function NobuRoomSettings() {
     setPerDaySchedule(s.perDaySchedule ?? emptySchedule())
   }
 
-  async function load() {
+  async function load(resetForm = false) {
     const res = await adminFetch('/api/admin/nobu-room-settings')
     if (!res.ok) { setMessage({ type: 'error', text: '設定の取得に失敗しました' }); return }
     const data = (await res.json()) as NobuRoomSettingsResponse
     setCurrent(data)
     setPageCache<NobuRoomSettingsResponse>(SETTINGS_CACHE_KEY, data)
     setTimePresets(data.timePresets ?? [])
-    if (!editingScheduled) applyToForm(data)
+    if (resetForm || !editingScheduled) applyToForm(data)
   }
 
   async function saveTimePresets(updated: TimePreset[]) {
@@ -151,17 +181,18 @@ export default function NobuRoomSettings() {
     )
   }
 
-  const isDirty = useMemo(() => {
-    if (!current) return false
-    const sortedStr = (arr: string[]) => JSON.stringify([...arr].sort())
-    return (
-      JSON.stringify(availableDays)  !== JSON.stringify(current.availableDays) ||
-      sortedStr(extraDates)          !== sortedStr(current.extraDates ?? []) ||
-      sortedStr(excludedDates)       !== sortedStr(current.excludedDates ?? []) ||
-      JSON.stringify(timeSlots)      !== JSON.stringify(current.timeSlots ?? []) ||
-      JSON.stringify(perDaySchedule) !== JSON.stringify(current.perDaySchedule ?? emptySchedule())
+  const changeCount = useMemo(() => {
+    const baseline = editingScheduled
+      ? scheduledChanges.find((change) => change.effectiveFrom === editingScheduledDate) ?? current
+      : current
+    return countFacilitySettingsChanges(
+      baseline,
+      { availableDays, extraDates, excludedDates, timeSlots, perDaySchedule },
+      effectiveFrom,
+      editingScheduled ? editingScheduledDate : null,
     )
-  }, [current, availableDays, extraDates, excludedDates, timeSlots, perDaySchedule])
+  }, [current, scheduledChanges, editingScheduled, editingScheduledDate, availableDays, extraDates, excludedDates, timeSlots, perDaySchedule, effectiveFrom])
+  const isDirty = changeCount > 0
 
   const effectiveDirty = isDirty
 
@@ -185,6 +216,7 @@ export default function NobuRoomSettings() {
   const earlyPerDayDates   = Object.keys(perDaySchedule.byDate ?? {}).filter((d) => d < effectiveFrom)
 
   function goToConfirm() {
+    if (!isDirty) return
     setMessage(null)
     if (timeSlots.length === 0 || timeSlots.some((s) => !s.label.trim() || !s.value.trim())) {
       setMessage({ type: 'error', text: '営業時間枠を全て入力してください' })
@@ -227,7 +259,7 @@ export default function NobuRoomSettings() {
       setEditingScheduled(false)
       setEditingScheduledDate(null)
       setStep('editing')
-      load()
+      load(true)
     } catch (err: any) {
       setMessage({ type: 'error', text: err.message })
       setStep('editing')
@@ -244,46 +276,8 @@ export default function NobuRoomSettings() {
     showToast('予約済みの変更を取り消しました')
     setEditingScheduled(false)
     setEditingScheduledDate(null)
-    load()
+    load(true)
   }
-
-  if (!current) return (
-    <div>
-      <Skeleton width="200px" height="28px" className="mb-6" />
-      {/* 利用可能曜日 */}
-      <div className="admin-card">
-        <Skeleton width="110px" height="18px" className="mb-3" />
-        <div className="flex gap-2">
-          {[0,1,2,3,4,5,6].map((i) => <Skeleton key={i} width={48} height={48} circle />)}
-        </div>
-      </div>
-      {/* 追加日・除外日 (lg で2列) */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {[0,1].map((i) => (
-          <div key={i} className="admin-card">
-            <Skeleton width="52px" height="18px" className="mb-3" />
-            <Skeleton width="100%" height="72px" />
-          </div>
-        ))}
-      </div>
-      {/* 営業時間枠 */}
-      <div className="admin-card">
-        <Skeleton width="90px" height="18px" className="mb-3" />
-        <Skeleton width="100%" height="80px" />
-      </div>
-      {/* 時間枠の例外設定 */}
-      <div className="admin-card">
-        <Skeleton width="150px" height="18px" className="mb-3" />
-        <Skeleton width="100%" height="60px" />
-      </div>
-      {/* 適用日 */}
-      <div className="admin-card">
-        <Skeleton width="52px" height="18px" className="mb-3" />
-        <Skeleton width="160px" height="40px" />
-      </div>
-      <Skeleton width="200px" height="42px" style={{ borderRadius: 12 }} />
-    </div>
-  )
 
   if (step === 'confirming') return (
     <div>
@@ -329,7 +323,8 @@ export default function NobuRoomSettings() {
   )
 
   return (
-    <div className="pb-80">
+    <div className={`pb-80 ${!current ? 'skeleton-layout' : ''}`} aria-busy={!current} ref={(el) => { if (el) el.inert = !current }}>
+      <FacilitySettingsChanges count={changeCount} />
       <h1 className="text-2xl font-bold mb-6">設定 - 農部室</h1>
 
       {message && <div className="banner-error">{message.text}</div>}
@@ -428,10 +423,8 @@ export default function NobuRoomSettings() {
             {' '}時間枠が重複しています
           </div>
         )}
-      </div>
-
-      <div className="admin-card">
-        <h2 className="text-base font-bold mb-3">営業時間の例外設定</h2>
+        <div className="mt-5 border-t border-line pt-4">
+          <h3 className="font-bold mb-3">営業時間の例外設定</h3>
         <PerDayScheduleEditor
           schedule={perDaySchedule}
           onChange={setPerDaySchedule}
@@ -449,6 +442,35 @@ export default function NobuRoomSettings() {
             {' '}特定日ルールに適用日（{effectiveFrom}）より前の日付が含まれています。これらは設定の対象外です：{earlyPerDayDates.join('、')}
           </p>
         )}
+        </div>
+        <div className="mt-5 border-t border-line pt-4">
+          <button type="button" className="flex w-full items-center justify-between gap-3 text-left font-bold"
+            aria-expanded={seikyoOpen} aria-controls="seikyo-overlap-details" onClick={() => setSeikyoOpen((open) => !open)}>
+            <span>農部生協と重なる時間帯</span>
+            <span className="icon" aria-hidden="true">{seikyoOpen ? 'expand_less' : 'expand_more'}</span>
+          </button>
+          <div id="seikyo-overlap-details" className="mt-3" hidden={!seikyoOpen}>
+          <p className="text-[0.85rem] text-ink-sub mb-3">
+            農部生協で予約可能な時間は農部室を予約できません。追加日・曜日別・特定日の設定も反映した結果です。
+          </p>
+          <div className="flex items-center gap-3 flex-wrap mb-4">
+            <label className="text-[0.8rem] text-ink-sub">表示開始日</label>
+            <DatePicker value={seikyoFrom} onChange={setSeikyoFrom} min={todayJST()} />
+            <span className="text-[0.8rem] text-ink-sub">選択日から31日間</span>
+          </div>
+          {seikyoError && <div className="banner-error">{seikyoError}</div>}
+          {seikyoLoading ? <div role="status" aria-label="重複時間帯を読み込み中" className="space-y-2">
+            {[0, 1, 2].map((i) => <SeikyoBlockCard key={i} loading />)}
+          </div> :
+            seikyoBlocks.length === 0 ? <p className="text-sm text-ink-sub">この期間に農部室と重なる時間帯はありません。</p> :
+            <div className="space-y-2">{seikyoBlocks.map((row) =>
+              <SeikyoBlockCard key={row.date} row={row} />)}</div>}
+          <button type="button" className="btn-outline w-full mt-4" onClick={() => setSeikyoOpen(false)}>
+            <span className="icon icon-sm align-middle mr-1" aria-hidden="true">expand_less</span>
+            閉じる
+          </button>
+          </div>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -513,7 +535,7 @@ export default function NobuRoomSettings() {
         <DatePicker value={effectiveFrom} onChange={setEffectiveFrom} min={todayJST()} />
       </div>
 
-      <button className="btn-primary max-w-[300px]" onClick={goToConfirm}>
+      <button className="btn-primary max-w-[300px]" onClick={goToConfirm} disabled={!isDirty}>
         {editingScheduled ? '上書き内容を確認する' : '確認する'}
       </button>
 

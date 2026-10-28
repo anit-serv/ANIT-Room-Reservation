@@ -5,10 +5,10 @@ import { getPageCache, setPageCache } from '../pageCache'
 import TimeSlotsEditor, { findConflicts, type TimeSlot, type TimeSlotPreset } from '../components/TimeSlotsEditor'
 import DateListEditor from '../components/DateListEditor'
 import PerDayScheduleEditor, { findAllConflicts, type PerDaySchedule } from '../components/PerDayScheduleEditor'
-import Skeleton from '../../components/Skeleton'
 import ConfirmDialog from '../../components/ConfirmDialog'
 import DatePicker from '../../components/DatePicker'
 import { useToast } from '../../contexts/ToastContext'
+import FacilitySettingsChanges, { countFacilitySettingsChanges } from '../components/FacilitySettingsChanges'
 
 type KobuSettingsCore = {
   availableDays:  number[]
@@ -94,14 +94,14 @@ export default function KobuSettings() {
     setPerDaySchedule(s.perDaySchedule ?? emptySchedule())
   }
 
-  async function load() {
+  async function load(resetForm = false) {
     const res = await adminFetch('/api/admin/kobu-settings')
     if (!res.ok) { setMessage({ type: 'error', text: '設定の取得に失敗しました' }); return }
     const data = (await res.json()) as KobuSettingsResponse
     setCurrent(data)
     setPageCache<KobuSettingsResponse>(SETTINGS_CACHE_KEY, data)
     setTimePresets(data.timePresets ?? [])
-    if (!editingScheduled) applyToForm(data)
+    if (resetForm || !editingScheduled) applyToForm(data)
   }
 
   async function saveTimePresets(updated: TimePreset[]) {
@@ -151,17 +151,18 @@ export default function KobuSettings() {
     )
   }
 
-  const isDirty = useMemo(() => {
-    if (!current) return false
-    const sortedStr = (arr: string[]) => JSON.stringify([...arr].sort())
-    return (
-      JSON.stringify(availableDays)  !== JSON.stringify(current.availableDays) ||
-      sortedStr(extraDates)          !== sortedStr(current.extraDates ?? []) ||
-      sortedStr(excludedDates)       !== sortedStr(current.excludedDates ?? []) ||
-      JSON.stringify(timeSlots)      !== JSON.stringify(current.timeSlots ?? []) ||
-      JSON.stringify(perDaySchedule) !== JSON.stringify(current.perDaySchedule ?? emptySchedule())
+  const changeCount = useMemo(() => {
+    const baseline = editingScheduled
+      ? scheduledChanges.find((change) => change.effectiveFrom === editingScheduledDate) ?? current
+      : current
+    return countFacilitySettingsChanges(
+      baseline,
+      { availableDays, extraDates, excludedDates, timeSlots, perDaySchedule },
+      effectiveFrom,
+      editingScheduled ? editingScheduledDate : null,
     )
-  }, [current, availableDays, extraDates, excludedDates, timeSlots, perDaySchedule])
+  }, [current, scheduledChanges, editingScheduled, editingScheduledDate, availableDays, extraDates, excludedDates, timeSlots, perDaySchedule, effectiveFrom])
+  const isDirty = changeCount > 0
 
   const effectiveDirty = isDirty
 
@@ -185,6 +186,7 @@ export default function KobuSettings() {
   const earlyPerDayDates   = Object.keys(perDaySchedule.byDate ?? {}).filter((d) => d < effectiveFrom)
 
   function goToConfirm() {
+    if (!isDirty) return
     setMessage(null)
     if (timeSlots.length === 0 || timeSlots.some((s) => !s.label.trim() || !s.value.trim())) {
       setMessage({ type: 'error', text: '営業時間枠を全て入力してください' })
@@ -227,7 +229,7 @@ export default function KobuSettings() {
       setEditingScheduled(false)
       setEditingScheduledDate(null)
       setStep('editing')
-      load()
+      load(true)
     } catch (err: any) {
       setMessage({ type: 'error', text: err.message })
       setStep('editing')
@@ -244,46 +246,8 @@ export default function KobuSettings() {
     showToast('予約済みの変更を取り消しました')
     setEditingScheduled(false)
     setEditingScheduledDate(null)
-    load()
+    load(true)
   }
-
-  if (!current) return (
-    <div>
-      <Skeleton width="200px" height="28px" className="mb-6" />
-      {/* 利用可能曜日 */}
-      <div className="admin-card">
-        <Skeleton width="110px" height="18px" className="mb-3" />
-        <div className="flex gap-2">
-          {[0,1,2,3,4,5,6].map((i) => <Skeleton key={i} width={48} height={48} circle />)}
-        </div>
-      </div>
-      {/* 追加日・除外日 (lg で2列) */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {[0,1].map((i) => (
-          <div key={i} className="admin-card">
-            <Skeleton width="52px" height="18px" className="mb-3" />
-            <Skeleton width="100%" height="72px" />
-          </div>
-        ))}
-      </div>
-      {/* 営業時間枠 */}
-      <div className="admin-card">
-        <Skeleton width="90px" height="18px" className="mb-3" />
-        <Skeleton width="100%" height="80px" />
-      </div>
-      {/* 時間枠の例外設定 */}
-      <div className="admin-card">
-        <Skeleton width="150px" height="18px" className="mb-3" />
-        <Skeleton width="100%" height="60px" />
-      </div>
-      {/* 適用日 */}
-      <div className="admin-card">
-        <Skeleton width="52px" height="18px" className="mb-3" />
-        <Skeleton width="160px" height="40px" />
-      </div>
-      <Skeleton width="200px" height="42px" style={{ borderRadius: 12 }} />
-    </div>
-  )
 
   if (step === 'confirming') return (
     <div>
@@ -329,7 +293,8 @@ export default function KobuSettings() {
   )
 
   return (
-    <div className="pb-80">
+    <div className={`pb-80 ${!current ? 'skeleton-layout' : ''}`} aria-busy={!current} ref={(el) => { if (el) el.inert = !current }}>
+      <FacilitySettingsChanges count={changeCount} />
       <h1 className="text-2xl font-bold mb-6">設定 - 工部室</h1>
 
       {message && <div className="banner-error">{message.text}</div>}
@@ -428,10 +393,8 @@ export default function KobuSettings() {
             {' '}時間枠が重複しています
           </div>
         )}
-      </div>
-
-      <div className="admin-card">
-        <h2 className="text-base font-bold mb-3">営業時間の例外設定</h2>
+        <div className="mt-5 border-t border-line pt-4">
+          <h3 className="font-bold mb-3">営業時間の例外設定</h3>
         <PerDayScheduleEditor
           schedule={perDaySchedule}
           onChange={setPerDaySchedule}
@@ -449,6 +412,7 @@ export default function KobuSettings() {
             {' '}特定日ルールに適用日（{effectiveFrom}）より前の日付が含まれています。これらは設定の対象外です：{earlyPerDayDates.join('、')}
           </p>
         )}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -513,7 +477,7 @@ export default function KobuSettings() {
         <DatePicker value={effectiveFrom} onChange={setEffectiveFrom} min={todayJST()} />
       </div>
 
-      <button className="btn-primary max-w-[300px]" onClick={goToConfirm}>
+      <button className="btn-primary max-w-[300px]" onClick={goToConfirm} disabled={!isDirty}>
         {editingScheduled ? '上書き内容を確認する' : '確認する'}
       </button>
 

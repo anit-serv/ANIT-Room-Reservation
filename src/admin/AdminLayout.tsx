@@ -168,26 +168,6 @@ export default function AdminLayout() {
     navigate('/admin/login', { replace: true })
   }
 
-  if (!me) return (
-    <div className="flex min-h-dvh max-md:flex-col">
-      <aside className={SIDEBAR_CLS}>
-        {/* タイトル (デスクトップのみ) */}
-        <Skeleton width="110px" height="18px" className="mx-3 mt-2 mb-4 max-md:hidden" />
-        {/* ナビ: デスクトップ=縦列 / モバイル=横スクロール行 */}
-        <div className="flex flex-col gap-1 flex-1 max-md:flex-row max-md:gap-1.5 max-md:overflow-hidden">
-          {[0,1,2,3,4,5].map((i) => (
-            <Skeleton key={i} height="38px" className="w-full max-md:w-24 max-md:shrink-0" />
-          ))}
-        </div>
-      </aside>
-      <main className={MAIN_CLS}>
-        <Skeleton width="200px" height="28px" className="mb-6" />
-        <Skeleton width="100%" height="100px" className="mb-4" />
-        <Skeleton width="100%" height="280px" />
-      </main>
-    </div>
-  )
-
   return (
     <div className="flex min-h-dvh max-md:flex-col">
       <aside ref={asideRef} className={SIDEBAR_CLS}>
@@ -271,10 +251,6 @@ export default function AdminLayout() {
                     className={({ isActive }) => SUBLINK_BASE + (isActive ? LINK_ACTIVE : LINK_IDLE)}>
                     農部生協
                   </NavLink>
-                  <NavLink to="/admin/settings/nobu-emergency"
-                    className={({ isActive }) => SUBLINK_BASE + (isActive ? LINK_ACTIVE : LINK_IDLE)}>
-                    緊急対応
-                  </NavLink>
                   <NavLink to="/admin/settings/nobu-room"
                     className={({ isActive }) => SUBLINK_BASE + (isActive ? LINK_ACTIVE : LINK_IDLE)}>
                     農部室
@@ -282,6 +258,10 @@ export default function AdminLayout() {
                   <NavLink to="/admin/settings/kobu"
                     className={({ isActive }) => SUBLINK_BASE + (isActive ? LINK_ACTIVE : LINK_IDLE)}>
                     工部室
+                  </NavLink>
+                  <NavLink to="/admin/settings/nobu-notifications"
+                    className={({ isActive }) => SUBLINK_BASE + (isActive ? LINK_ACTIVE : LINK_IDLE)}>
+                    BAND通知状況
                   </NavLink>
                 </div>
               </div>
@@ -309,17 +289,17 @@ export default function AdminLayout() {
         </nav>
 
         <div className="flex items-center gap-2 px-3 py-2.5 text-[0.85rem] text-ink-sub border-t border-line mt-2 max-md:hidden">
-          {me.pictureUrl
+          {!me ? <Skeleton width={20} height={20} circle /> : me.pictureUrl
             ? <img src={me.pictureUrl} alt="" className="w-5 h-5 rounded-full object-cover shrink-0" />
             : <span className="icon">account_circle</span>}
-          <span className="truncate">{me.displayName}</span>
+          {!me ? <Skeleton className="flex-1" height="13px" /> : <span className="truncate">{me.displayName}</span>}
         </div>
-        <button
+        {me ? <button
           onClick={handleLogout}
           className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg border-0 bg-transparent text-ink-sub cursor-pointer text-[0.9rem] text-left hover:bg-bg hover:text-danger max-md:hidden"
         >
           <span className="icon">logout</span>ログアウト
-        </button>
+        </button> : <Skeleton height="38px" className="w-full max-md:hidden" />}
 
         {/* モバイル: ボタン直下ドロップダウン（aside 相対）
             外側div: clipTop ぶんだけ上をクリップ → nav バー内の枠線を非表示
@@ -343,17 +323,24 @@ export default function AdminLayout() {
                 <NavLink to="/admin/reservations/kobu"      onClick={closeDropdown} className={({ isActive }) => SUBLINK_MOB + (isActive ? LINK_ACTIVE : LINK_IDLE)}>工部室</NavLink>
               </>) : (<>
                 <NavLink to="/admin/settings/nobu"          onClick={closeDropdown} className={({ isActive }) => SUBLINK_MOB + (isActive ? LINK_ACTIVE : LINK_IDLE)}>農部生協</NavLink>
-                <NavLink to="/admin/settings/nobu-emergency" onClick={closeDropdown} className={({ isActive }) => SUBLINK_MOB + (isActive ? LINK_ACTIVE : LINK_IDLE)}>緊急対応</NavLink>
                 <NavLink to="/admin/settings/nobu-room"     onClick={closeDropdown} className={({ isActive }) => SUBLINK_MOB + (isActive ? LINK_ACTIVE : LINK_IDLE)}>農部室</NavLink>
                 <NavLink to="/admin/settings/kobu"          onClick={closeDropdown} className={({ isActive }) => SUBLINK_MOB + (isActive ? LINK_ACTIVE : LINK_IDLE)}>工部室</NavLink>
+                <NavLink to="/admin/settings/nobu-notifications" onClick={closeDropdown} className={({ isActive }) => SUBLINK_MOB + (isActive ? LINK_ACTIVE : LINK_IDLE)}>BAND通知状況</NavLink>
               </>)}
             </div>
           </div>
         )}
       </aside>
       <main className={MAIN_CLS}>
-        <Outlet />
+        {me ? <Outlet /> : <AdminAuthLoading />}
       </main>
     </div>
   )
+}
+
+function AdminAuthLoading() {
+  return <div role="status" aria-label="認証を確認中" className="flex items-center justify-center min-h-[240px] gap-3 text-ink-sub text-sm">
+    <span className="spinner" aria-hidden="true" />
+    認証を確認中
+  </div>
 }

@@ -5,8 +5,12 @@ import axios from 'axios'
 import { verifyAdmin } from '../lib/verifyAdmin'
 import { applyLotteryCronSchedule } from '../lib/cronSchedule'
 import { lotteryTargetDate, reservationDeadline } from '../lib/lotteryOperation'
+import { notificationFollowsLottery, operationChangeOnExecutionDate } from '../lib/lotteryTiming'
+import { schedulerEnabled } from '../lib/schedulerQueue'
+import { refreshScheduler } from '../lib/scheduler'
 import { refreshLotterySlot } from '../lib/roomAllocation'
 import roomHandler from '../lib/roomHandler'
+import { roomManagerIds, roomManagerUpdate } from '../lib/roomManagerPermissions'
 import {
   addDaysJST,
   BASE_EFFECTIVE_FROM,
@@ -21,6 +25,7 @@ import {
   isDateAvailableBySettings,
   isTimeSlotAvailableBySettings,
   pickTimeSlotsForDate,
+  pickNobuRoomTimeSlotsForDate,
   resolveReservationSettingsForDate,
   resolveReservationSettingsForDates,
   resolveFacilitySettingsForDate,
@@ -124,18 +129,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // 管理者管理
   if (segments[0] === 'admins') {
     if (segments.length === 1) return handleAdminsList(req, res)
+    if (segments.length === 2 && segments[1] === 'transfer') return handleAdminTransfer(req, res)
+    if (segments.length === 2 && segments[1] === 'transfer-link') return handleAdminTransferLink(req, res)
+    if (segments.length === 2 && segments[1] === 'permission-link') return handleAdminPermissionLink(req, res)
+    if (segments.length === 2 && segments[1] === 'permissions') return handleAdminPermissions(req, res)
     if (segments.length === 2) return handleAdminById(req, res, segments[1])
     if (segments.length === 3 && segments[2] === 'transfer-super') {
       return handleTransferSuper(req, res, segments[1])
     }
   }
-
-  // 招待
-  if (segments[0] === 'invitations') {
-    if (segments.length === 1) return handleInvitations(req, res)
-    if (segments.length === 2) return handleInvitationById(req, res, segments[1])
-  }
-  if (path === 'invite') return handleInviteAccept(req, res)
+  if (path === 'invite') return handleTransferInviteAccept(req, res)
 
   // 時間枠プリセット
   if (segments[0] === 'time-slot-presets') {
@@ -164,6 +167,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   // 農部室設定
   if (path === 'nobu-room-settings') return handleNobuRoomSettings(req, res)
+  if (path === 'nobu-room-settings/seikyo-blocks') return handleNobuRoomSeikyoBlocks(req, res)
   if (path === 'nobu-room-settings/available-dates') return handleFacilityAvailableDates(req, res, 'nobu-room')
   if (path === 'nobu-room-settings/time-slots') return handleFacilityTimeSlots(req, res, 'nobu-room')
   if (path === 'nobu-room-settings/scheduled') return handleFacilitySettingsScheduled(req, res, 'nobu-room')
@@ -279,7 +283,7 @@ async function handleAuthCallback(req: VercelRequest, res: VercelResponse) {
     const linePicture: string | undefined = verifyRes.data.picture
 
     // users コレクションにも同期（管理者ログイン時）
-    if (lineName || linePicture) {
+    if (lineName || linePicture || cookies.admin_invitation) {
       const userRef = db.collection('users').doc(userId)
       const userDoc = await userRef.get()
       const update: Record<string, any> = {}
@@ -289,76 +293,26 @@ async function handleAuthCallback(req: VercelRequest, res: VercelResponse) {
       await userRef.set(update, { merge: true })
     }
 
-    // 招待トークンがあれば管理者として登録
-    const invitationToken = cookies.admin_invitation
     const clearCookies = [
       'admin_oauth_state=; HttpOnly; Secure; SameSite=Lax; Max-Age=0; Path=/',
       'admin_oauth_role=; HttpOnly; Secure; SameSite=Lax; Max-Age=0; Path=/',
       'admin_invitation=; HttpOnly; Secure; SameSite=Lax; Max-Age=0; Path=/',
     ]
     res.setHeader('Set-Cookie', clearCookies)
-
-    if (invitationToken) {
-      const invRef = db.collection('invitations').doc(invitationToken)
-      const invDoc = await invRef.get()
-      const invData = invDoc.exists ? invDoc.data()! : null
-      const isValid =
-        invData &&
-        !invData.used &&
-        invData.expiresAt &&
-        invData.expiresAt.toMillis() > Date.now()
-      if (isValid) {
-        if (invData!.kind === 'room-manager') {
-          const invitee = await db.collection('users').doc(userId).get()
-          if (invitee.data()?.banned === true) {
-            return res.redirect(302, `${baseUrl}/room/login?error=invalid_invitation`)
-          }
-          if (invData!.fromManager) {
-            const current = await db.collection('settings').doc('room-manager').get()
-            if (current.data()?.userId !== invData!.fromManager) {
-              return res.redirect(302, `${baseUrl}/room/login?error=invalid_invitation`)
-            }
-          }
-          const displayName = (verifyRes.data.name as string) ?? ''
-          await db.collection('settings').doc('room-manager').set({ userId, displayName,
-            updatedAt: new Date(), updatedBy: invData!.createdBy ?? null })
-          await invRef.update({ used: true, usedAt: new Date(), usedBy: userId })
-          await audit({ userId: invData!.createdBy ?? 'system', displayName: 'システム' },
-            'room_manager.assign', { targetType: 'room-manager', targetId: userId })
-          return redirectWithAuthCode(res, `${baseUrl}/room/login`, accessToken)
-        }
-        // 招待トークンからの管理者追加
-        const displayName = (verifyRes.data.name as string) ?? ''
-        await db.collection('admins').doc(userId).set({
-          displayName,
-          addedAt: new Date(),
-          addedBy: invData!.createdBy ?? null,
-        }, { merge: true })
-        await invRef.update({ used: true, usedAt: new Date(), usedBy: userId })
-
-        // 招待者をアクターとして取得
-        const inviterUserId = (invData!.createdBy ?? null) as string | null
-        let inviterActor: AuditActor = { userId: 'system', displayName: 'システム' }
-        if (inviterUserId) {
-          const inviterDoc = await db.collection('admins').doc(inviterUserId).get()
-          inviterActor = {
-            userId: inviterUserId,
-            displayName: inviterDoc.data()?.displayName ?? inviterUserId,
-          }
-        }
-        await audit(
-          inviterActor,
-          'admin.add',
-          { targetType: 'admin', targetId: userId, targetLabel: displayName }
-        )
-        return redirectWithAuthCode(res, loginUrl, accessToken)
-      }
-      // 招待トークンが無効でも、既存管理者なら通常ログインさせる
+    if (cookies.admin_invitation) {
+      const authority = await redeemAuthorityInvitation(cookies.admin_invitation, userId, lineName ?? '')
+      return redirectWithAuthCode(res, authority === 'room' ? `${baseUrl}/room/login` : `${baseUrl}/admin/login`, accessToken)
     }
 
     if (cookies.admin_oauth_role === 'room') {
-      const manager = await db.collection('settings').doc('room-manager').get()
-      if (manager.data()?.userId !== userId) return res.redirect(302, `${loginUrl}?error=not_manager`)
+      const [manager, adminDoc, user] = await Promise.all([
+        db.collection('settings').doc('room-manager').get(),
+        db.collection('admins').doc(userId).get(),
+        db.collection('users').doc(userId).get(),
+      ])
+      if (user.data()?.banned === true || (!adminDoc.exists && !roomManagerIds(manager.data()).includes(userId))) {
+        return res.redirect(302, `${loginUrl}?error=not_manager`)
+      }
     } else {
       const adminDoc = await db.collection('admins').doc(userId).get()
       if (!adminDoc.exists) return res.redirect(302, `${loginUrl}?error=not_admin`)
@@ -366,8 +320,105 @@ async function handleAuthCallback(req: VercelRequest, res: VercelResponse) {
     return redirectWithAuthCode(res, loginUrl, accessToken)
   } catch (err) {
     console.error('OAuth callback error:', err)
-    return res.redirect(302, `${loginUrl}?error=invalid`)
+    return res.redirect(302, `${loginUrl}?error=${cookies.admin_invitation ? 'invalid_invitation' : 'invalid'}`)
   }
+}
+
+async function redeemAuthorityInvitation(token: string, userId: string, displayName: string): Promise<string> {
+  const inviteRef = db.collection('invitations').doc(token)
+  const targetUserRef = db.collection('users').doc(userId)
+  const targetAdminRef = db.collection('admins').doc(userId)
+  const managerRef = db.collection('settings').doc('room-manager')
+  let authority = ''
+  let sourceId = ''
+  let operation = ''
+  await db.runTransaction(async (tx) => {
+    const invite = await tx.get(inviteRef)
+    const data = invite.data()
+    if (!invite.exists || !data || !['transfer', 'grant'].includes(data.kind) || data.used === true ||
+        !data.expiresAt || data.expiresAt.toMillis() <= Date.now()) {
+      throw new Error('移譲リンクが無効または使用済みです')
+    }
+    authority = data.authority
+    sourceId = data.sourceId
+    operation = data.kind === 'grant' ? 'add' : 'transfer'
+    if (!['super', 'admin', 'room'].includes(authority) || !sourceId || sourceId === userId) {
+      throw new Error('移譲リンクが無効です')
+    }
+    const [user, targetAdmin, sourceAdmin, actorAdmin, manager] = await Promise.all([
+      tx.get(targetUserRef), tx.get(targetAdminRef),
+      tx.get(db.collection('admins').doc(sourceId)),
+      tx.get(db.collection('admins').doc(data.createdBy)), tx.get(managerRef),
+    ])
+    if (!user.exists || user.data()?.banned === true) throw new Error('利用停止中または未登録のユーザーには移譲できません')
+    const targetLabel = user.data()?.displayName ?? displayName
+    if (data.kind === 'grant') {
+      if (!actorAdmin.exists || data.createdBy !== sourceId ||
+          (authority === 'admin' && actorAdmin.data()?.isSuperAdmin !== true) ||
+          !['admin', 'room'].includes(authority)) throw new Error('権限を追加できません')
+      if (authority === 'admin') {
+        if (targetAdmin.exists) throw new Error('既に管理者権限があります')
+        tx.set(targetAdminRef, { displayName: targetLabel, addedAt: new Date(), addedBy: sourceId })
+      } else {
+        const ids = roomManagerIds(manager.data())
+        if (ids.includes(userId)) throw new Error('既に部屋取り権限があります')
+        tx.set(managerRef, roomManagerUpdate([...ids, userId], sourceId))
+      }
+    } else if (authority === 'super') {
+      if (!sourceAdmin.exists || sourceAdmin.data()?.isSuperAdmin !== true || data.createdBy !== sourceId) {
+        throw new Error('権限元のスーパー管理者が見つかりません')
+      }
+      tx.update(sourceAdmin.ref, { isSuperAdmin: admin.firestore.FieldValue.delete() })
+      tx.set(targetAdminRef, { displayName: targetLabel, isSuperAdmin: true,
+        ...(targetAdmin.exists ? {} : { addedAt: new Date(), addedBy: sourceId }) }, { merge: true })
+    } else if (authority === 'admin') {
+      if (!sourceAdmin.exists || sourceAdmin.data()?.isSuperAdmin === true ||
+          !actorAdmin.exists || (data.createdBy !== sourceId && actorAdmin.data()?.isSuperAdmin !== true) ||
+          targetAdmin.exists) throw new Error('管理者権限を移譲できません')
+      tx.delete(sourceAdmin.ref)
+      tx.set(targetAdminRef, { displayName: targetLabel, addedAt: new Date(), addedBy: data.createdBy })
+    } else {
+      const ids = roomManagerIds(manager.data())
+      if (ids.includes(userId)) throw new Error('移譲先は既に部屋取り以上の権限があります')
+      if (data.roomScope === 'self') {
+        if (!ids.includes(sourceId) || data.createdBy !== sourceId) throw new Error('権限元の部屋取り担当者が見つかりません')
+        tx.set(managerRef, roomManagerUpdate([...ids.filter((id) => id !== sourceId), userId], sourceId))
+      } else {
+        if (!actorAdmin.exists || data.createdBy !== sourceId) throw new Error('権限元の管理者が見つかりません')
+        tx.set(managerRef, roomManagerUpdate([userId], sourceId))
+      }
+    }
+    tx.update(inviteRef, { used: true, usedAt: new Date(), usedBy: userId })
+  })
+  await audit({ userId: sourceId, displayName: '' }, `admin.${authority}.${operation}`, {
+    targetType: authority === 'room' ? 'room-manager' : 'admin', targetId: userId,
+    details: { from: sourceId, to: userId, via: 'link' },
+  })
+  return authority
+}
+
+async function handleTransferInviteAccept(req: VercelRequest, res: VercelResponse) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method Not Allowed' })
+  const token = typeof req.query.token === 'string' ? req.query.token : ''
+  const invite = token ? await db.collection('invitations').doc(token).get() : null
+  const data = invite?.data()
+  if (!invite?.exists || !['transfer', 'grant'].includes(data?.kind) || data?.used === true ||
+      !data?.expiresAt || data.expiresAt.toMillis() <= Date.now()) {
+    return res.redirect(302, '/admin/login?error=invalid')
+  }
+  const state = crypto.randomBytes(16).toString('hex')
+  res.setHeader('Set-Cookie', [
+    `admin_oauth_state=${state}; HttpOnly; Secure; SameSite=Lax; Max-Age=600; Path=/`,
+    `admin_oauth_role=${data.authority === 'room' ? 'room' : 'admin'}; HttpOnly; Secure; SameSite=Lax; Max-Age=600; Path=/`,
+    `admin_invitation=${token}; HttpOnly; Secure; SameSite=Lax; Max-Age=600; Path=/`,
+  ])
+  const authUrl = new URL('https://access.line.me/oauth2/v2.1/authorize')
+  authUrl.searchParams.set('response_type', 'code')
+  authUrl.searchParams.set('client_id', process.env.LINE_LOGIN_CHANNEL_ID!)
+  authUrl.searchParams.set('redirect_uri', `https://${req.headers.host}/api/admin/auth/callback`)
+  authUrl.searchParams.set('state', state)
+  authUrl.searchParams.set('scope', 'openid profile')
+  return res.redirect(302, authUrl.toString())
 }
 
 // ─── 現在ログイン中の管理者情報 ────────────────────────
@@ -477,7 +528,9 @@ async function buildFacilityAvailableDates(settingDocId: string): Promise<DateOp
   const dates = Array.from({ length: 31 }, (_, i) => addDaysJST(i))
   const entries = await Promise.all(dates.map(async (date) => {
     const settings = await resolveFacilitySettingsForDate(db, settingDocId, date, baseSettings)
-    if (isDateAvailableBySettings(date, settings) && pickTimeSlotsForDate(date, settings).length > 0) {
+    const slots = isDateAvailableBySettings(date, settings) ? pickTimeSlotsForDate(date, settings) : []
+    const availableSlots = settingDocId === 'nobu-room' ? await pickNobuRoomTimeSlotsForDate(db, date, slots) : slots
+    if (availableSlots.length > 0) {
       return formatDateOption(date)
     }
     return null
@@ -499,12 +552,13 @@ async function isFacilityReservationRangeAvailable(
   const start = toMinutes(startTime)
   const end = toMinutes(endTime)
   const slots = pickTimeSlotsForDate(date, settings)
-  const fits = slots.some((slot) => {
+  const availableSlots = settingDocId === 'nobu-room' ? await pickNobuRoomTimeSlotsForDate(db, date, slots) : slots
+  const fits = availableSlots.some((slot) => {
     const [slotStart, slotEnd] = slot.value.split('-')
     return start >= toMinutes(slotStart) && end <= toMinutes(slotEnd)
   })
   if (!fits) {
-    const slotStr = slots.map((slot) => slot.value.replace('-', '〜')).join(' / ')
+    const slotStr = availableSlots.map((slot) => slot.value.replace('-', '〜')).join(' / ')
     return { ok: false, message: slotStr ? `予約可能時間は ${slotStr} です` : 'この日に指定できる時間帯がありません' }
   }
   return { ok: true }
@@ -564,6 +618,10 @@ function validateSettings(body: any): SettingsCore | string {
   // 追加日と除外日の重複は無効
   for (const d of validatedExtra) {
     if (validatedExcluded.includes(d)) return `${d} は追加日と除外日の両方に指定されています`
+    if (availableDays.includes(new Date(`${d}T00:00:00Z`).getUTCDay())) return `${d} は登録可能曜日のため追加日に指定できません`
+  }
+  for (const d of validatedExcluded) {
+    if (!availableDays.includes(new Date(`${d}T00:00:00Z`).getUTCDay())) return `${d} は登録可能曜日ではないため除外日に指定できません`
   }
 
   // 曜日/日付別スケジュール
@@ -582,6 +640,10 @@ function validateSettings(body: any): SettingsCore | string {
     }
     for (const [date, v] of Object.entries(perDaySchedule?.byDate ?? {})) {
       if (!DATE_RE.test(date)) return `不正な日付キー: ${date}`
+      const weekday = new Date(`${date}T00:00:00Z`).getUTCDay()
+      if (validatedExcluded.includes(date) || (!availableDays.includes(weekday) && !validatedExtra.includes(date))) {
+        return `${date} は予約可能な日ではないため特定日ルールを指定できません`
+      }
       const result = validateTimeSlots(v, `${date}の`)
       if (typeof result === 'string') return result
       sched.byDate[date] = result
@@ -609,10 +671,12 @@ async function handleSettings(req: VercelRequest, res: VercelResponse) {
   const docRef = db.collection('settings').doc('reservation')
 
   if (req.method === 'GET') {
-    const [data, scheduledChanges, roomModeRefs] = await Promise.all([
+    const windowDates = Array.from({ length: 8 }, (_, index) => addDaysJST(index))
+    const [data, scheduledChanges, roomModeRefs, windowSettings] = await Promise.all([
       resolveReservationSettingsForDate(db, todayJST()),
       listPendingReservationSettingsChanges(db),
       db.collection('room_preference_modes').listDocuments(),
+      resolveReservationSettingsForDates(db, windowDates),
     ])
     const roomModeDocs = await Promise.all(roomModeRefs
       .sort((a, b) => b.id.localeCompare(a.id)).map((ref) => ref.get()))
@@ -625,10 +689,13 @@ async function handleSettings(req: VercelRequest, res: VercelResponse) {
       perDaySchedule: data.perDaySchedule,
       nextChange:     pendingChange,
       scheduledChanges,
+      reservableDatesInWindow: windowDates.filter((date) =>
+        isDateAvailableBySettings(date, windowSettings[date]) && pickTimeSlotsForDate(date, windowSettings[date]).length > 0),
       lotteryTime:    data.lotteryTime,
       defaultLotteryTime: data.defaultLotteryTime,
       lotteryTimeOverrides: data.lotteryTimeOverrides,
       lotteryMode:    data.lotteryMode,
+      notifyMode:     data.notifyMode,
       notifyTime:     data.notifyTime,
       hamoaniStartDate: data.hamoaniStartDate,
       hamoaniEndDate:   data.hamoaniEndDate,
@@ -640,9 +707,13 @@ async function handleSettings(req: VercelRequest, res: VercelResponse) {
     const validated = validateSettings(req.body)
     if (typeof validated === 'string') return res.status(400).json({ error: validated })
 
-    const { effectiveFrom, lotteryTime, lotteryTimeOverrides, roomPreferenceEnabled } = (req.body ?? {}) as {
-      effectiveFrom?: string; lotteryTime?: string; lotteryTimeOverrides?: { byWeekday?: Record<string, string>; byDate?: Record<string, string> }; roomPreferenceEnabled?: boolean
+    const { effectiveFrom, lotteryTime, lotteryTimeOverrides, roomPreferenceEnabled, applyRecurring, applyDated } = (req.body ?? {}) as {
+      effectiveFrom?: string; lotteryTime?: string; lotteryTimeOverrides?: { byWeekday?: Record<string, string>; byDate?: Record<string, string> }; roomPreferenceEnabled?: boolean;
+      applyRecurring?: boolean; applyDated?: boolean
     }
+    const saveRecurring = applyRecurring !== false
+    const saveDated = applyDated !== false
+    if (!saveRecurring && !saveDated) return res.status(400).json({ error: '保存する変更がありません' })
 
     if (!effectiveFrom || !isValidDate(effectiveFrom)) {
       return res.status(400).json({ error: '適用日を指定してください' })
@@ -663,29 +734,27 @@ async function handleSettings(req: VercelRequest, res: VercelResponse) {
       return res.status(400).json({ error: '抽選時刻の例外設定を確認してください。時刻は03:00以降、特定日は適用日以降にしてください' })
     }
     const allLotteryTimes = [lotteryTime, ...Object.values(overrides.byWeekday), ...Object.values(overrides.byDate)]
-    if (allLotteryTimes.some((time) => time > currentOperation.notifyTime)) {
-      return res.status(400).json({ error: '抽選時刻は通知時刻以前にしてください' })
+    if (allLotteryTimes.some((time) => !notificationFollowsLottery(
+      currentOperation.lotteryMode, time, currentOperation.notifyMode, currentOperation.notifyTime))) {
+      return res.status(400).json({ error: '通知日は抽選日と同日以降、通知時刻は抽選以降にしてください' })
     }
-    if (currentOperation.lotteryMode === 'same-day') {
-      const allSlots = [
-        ...validated.timeSlots,
-        ...Object.values(validated.perDaySchedule.byWeekday ?? {}).flat(),
-        ...Object.values(validated.perDaySchedule.byDate ?? {}).flat(),
-      ]
-      const starts = allSlots.map((slot) => slot.value.split('-')[0]).filter(Boolean)
-      if (starts.length && allLotteryTimes.some((time) => time >= starts.sort()[0])) {
-        return res.status(400).json({ error: '当日モードの抽選時刻は最初の利用枠より前にしてください' })
-      }
+    if (effectiveFrom < todayJST()) {
+      return res.status(400).json({ error: `適用日は${todayJST()}以降を指定してください` })
     }
-
-    // 現在の予約可能期間（7日後まで）と競合させないため、
-    // 適用日は 今日+8日 以降に制限する
-    const minDateStr = addDaysJST(8)
-    if (effectiveFrom < minDateStr) {
-      return res.status(400).json({
-        error: `適用日は${minDateStr}以降を指定してください（現在の予約可能期間との競合を避けるため）`,
-      })
+  if (saveRecurring && effectiveFrom <= addDaysJST(1)) {
+    const tomorrow = addDaysJST(1)
+    const previous = await resolveReservationSettingsForDate(db, tomorrow)
+    const weekday = String(new Date(`${tomorrow}T00:00:00Z`).getUTCDay())
+    const nextTime = overrides.byDate[tomorrow] ?? overrides.byWeekday[weekday] ?? lotteryTime
+    const activeBefore = isDateAvailableBySettings(tomorrow, previous) && pickTimeSlotsForDate(tomorrow, previous).length > 0
+    const activeAfter = isDateAvailableBySettings(tomorrow, validated) && pickTimeSlotsForDate(tomorrow, validated).length > 0
+    const blockedEvent = operationChangeOnExecutionDate(todayJST(), activeBefore || activeAfter ? [tomorrow] : [], previous, {
+      lotteryMode: previous.lotteryMode, lotteryTime: nextTime, notifyMode: previous.notifyMode, notifyTime: previous.notifyTime,
+    })
+    if (blockedEvent) {
+      return res.status(400).json({ error: '変更前または変更後の抽選日が本日のため、この抽選時刻は適用できません。適用日を後ろにずらしてください' })
     }
+  }
     if (typeof roomPreferenceEnabled !== 'boolean') {
       return res.status(400).json({ error: '希望部屋モードの指定が不正です' })
     }
@@ -693,24 +762,74 @@ async function handleSettings(req: VercelRequest, res: VercelResponse) {
     // 抽選時刻も各バージョンに含めて保存する（適用日方式）。
     // cron-job.org のスケジュールは適用日当日に /api/data-organize?task=apply-lottery-time
     // のリコンサイラが反映する。
+    const [legacyDayOverrides, legacyLotteryOverrides] = await Promise.all([
+      saveDated ? listReservationDayOverrides(db, { minDate: todayJST() }) : Promise.resolve([]),
+      saveRecurring ? listReservationLotteryOverrides(db, { minDate: effectiveFrom }) : Promise.resolve([]),
+    ])
     const batch = db.batch()
-    batch.set(docRef.collection('versions').doc(effectiveFrom), {
-      ...validated,
-      lotteryTime,
-      lotteryTimeOverrides: overrides,
-      effectiveFrom,
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      updatedBy: me.userId,
+    const rootUpdate: Record<string, unknown> = {}
+    if (saveRecurring) {
+      batch.set(docRef.collection('versions').doc(effectiveFrom), {
+        ...validated,
+        lotteryTime,
+        lotteryTimeOverrides: overrides,
+        effectiveFrom,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedBy: me.userId,
+      })
+      batch.set(db.collection('room_preference_modes').doc(effectiveFrom), {
+        enabled: roomPreferenceEnabled,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedBy: me.userId,
+      })
+      rootUpdate.nextChange = admin.firestore.FieldValue.delete()
+    }
+    if (saveDated) {
+      rootUpdate.immediateDatedSettings = {
+        extraDates: validated.extraDates,
+        excludedDates: validated.excludedDates,
+        byDate: validated.perDaySchedule.byDate,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedBy: me.userId,
+      }
+    }
+    // 明示した親フィールド単位で更新し、削除済みの特定日ルールが古い map に残らないようにする。
+    batch.set(docRef, rootUpdate, {
+      mergeFields: [
+        ...(saveRecurring ? ['nextChange'] : []),
+        ...(saveDated ? ['immediateDatedSettings'] : []),
+      ],
     })
-    batch.set(db.collection('room_preference_modes').doc(effectiveFrom), {
-      enabled: roomPreferenceEnabled,
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      updatedBy: me.userId,
-    })
-    batch.set(docRef, { nextChange: admin.firestore.FieldValue.delete() }, { merge: true })
+    for (const override of legacyDayOverrides) {
+      batch.delete(docRef.collection('dayOverrides').doc(override.date))
+    }
+    for (const override of legacyLotteryOverrides) {
+      batch.delete(docRef.collection('lotteryOverrides').doc(override.date))
+    }
     await batch.commit()
-    await audit(me, 'settings.schedule', { targetType: 'settings', details: { ...validated, lotteryTime, lotteryTimeOverrides: overrides, effectiveFrom, roomPreferenceEnabled } })
-    return res.status(200).json({ applied: 'scheduled', effectiveFrom })
+    let cronWarning: string | undefined
+    try {
+      if (schedulerEnabled()) await refreshScheduler(db)
+      const targetDate = await lotteryTargetDate(db)
+      if (saveRecurring && targetDate && effectiveFrom <= targetDate) {
+        const targetSettings = await resolveReservationSettingsForDate(db, targetDate)
+        const cronResult = await applyLotteryCronSchedule(targetSettings.lotteryTime, targetSettings.notifyTime, targetSettings.lotteryMode)
+        cronWarning = cronResult.warning
+        if (cronResult.applied) {
+          await docRef.set({ appliedLotteryTime: targetSettings.lotteryTime, appliedNotifyTime: targetSettings.notifyTime, appliedLotteryMode: targetSettings.lotteryMode }, { merge: true })
+        }
+      }
+    } catch (error) {
+      console.error('設定保存後の抽選スケジュール更新に失敗しました', error)
+      cronWarning = '設定は保存されましたが、抽選スケジュールを更新できませんでした。通知状況を確認してください。'
+    }
+    try {
+      await audit(me, 'settings.schedule', { targetType: 'settings', details: { ...validated, lotteryTime, lotteryTimeOverrides: overrides, effectiveFrom, roomPreferenceEnabled, saveRecurring, saveDated,
+        replacedDayOverrides: legacyDayOverrides.map((item) => item.date), replacedLotteryOverrides: legacyLotteryOverrides.map((item) => item.date) } })
+    } catch (error) {
+      console.error('設定保存後の監査ログ記録に失敗しました', error)
+    }
+    return res.status(200).json({ applied: saveRecurring && effectiveFrom > todayJST() ? 'scheduled' : 'immediate', effectiveFrom, cronWarning })
   }
 
   return res.status(405).json({ error: 'Method Not Allowed' })
@@ -789,9 +908,10 @@ async function handleFacilityTimeSlots(req: VercelRequest, res: VercelResponse, 
   try {
     const baseSettings = await getFacilityBaseSettings(settingDocId)
     const settings = await resolveFacilitySettingsForDate(db, settingDocId, date, baseSettings)
+    const slots = isDateAvailableBySettings(date, settings) ? pickTimeSlotsForDate(date, settings) : []
     return res.status(200).json({
       date,
-      timeSlots: isDateAvailableBySettings(date, settings) ? pickTimeSlotsForDate(date, settings) : [],
+      timeSlots: settingDocId === 'nobu-room' ? await pickNobuRoomTimeSlotsForDate(db, date, slots) : slots,
       effectiveFrom: settings.effectiveFrom,
     })
   } catch (err: any) {
@@ -1004,9 +1124,14 @@ async function handleSettingsLotteryOperation(req: VercelRequest, res: VercelRes
     return res.status(err.message === 'Forbidden' ? 403 : 401).json({ error: err.message })
   }
 
-  const { lotteryMode, lotteryTime, notifyTime } = (req.body ?? {}) as { lotteryMode?: string; lotteryTime?: string; notifyTime?: string }
+  const { lotteryMode, lotteryTime, notifyMode, notifyTime } = (req.body ?? {}) as {
+    lotteryMode?: string; lotteryTime?: string; notifyMode?: string; notifyTime?: string
+  }
   if (lotteryMode !== 'previous-day' && lotteryMode !== 'same-day') {
     return res.status(400).json({ error: '抽選モードが不正です' })
+  }
+  if (notifyMode !== 'previous-day' && notifyMode !== 'same-day') {
+    return res.status(400).json({ error: '通知日が不正です' })
   }
   if (!notifyTime || !LOTTERY_TIME_RE.test(notifyTime)) {
     return res.status(400).json({ error: '通知時刻は00:00〜23:59で指定してください' })
@@ -1015,6 +1140,17 @@ async function handleSettingsLotteryOperation(req: VercelRequest, res: VercelRes
     return res.status(400).json({ error: '抽選時刻は01:00〜23:59で指定してください' })
   }
   const settings = await resolveReservationSettingsForDate(db, todayJST())
+  const executionDate = todayJST()
+  const tomorrow = addDaysJST(1)
+  const executionSettings = await resolveReservationSettingsForDates(db, [executionDate, tomorrow])
+  const reservationDates = [executionDate, tomorrow].filter((date) =>
+    isDateAvailableBySettings(date, executionSettings[date]) && pickTimeSlotsForDate(date, executionSettings[date]).length > 0)
+  const blockedEvent = operationChangeOnExecutionDate(executionDate, reservationDates, settings, {
+    lotteryMode, lotteryTime, notifyMode, notifyTime,
+  })
+  if (blockedEvent) {
+    return res.status(400).json({ error: `変更前または変更後の${blockedEvent}日が本日のため、この設定は適用できません。実行日のない日に変更してください` })
+  }
   if ((lotteryMode !== settings.lotteryMode || lotteryTime !== settings.lotteryTime) &&
       (await listPendingReservationSettingsChanges(db, addDaysJST(1))).length > 0) {
     return res.status(400).json({ error: '適用予定の通常設定があります。先に適用予定を確認してください' })
@@ -1023,7 +1159,7 @@ async function handleSettingsLotteryOperation(req: VercelRequest, res: VercelRes
       await getReservationLotteryOverride(db, todayJST())) {
     return res.status(400).json({ error: '本日の抽選時刻に緊急上書きがあります。先に解除してください' })
   }
-  if (lotteryMode !== settings.lotteryMode) {
+  if (lotteryMode !== settings.lotteryMode || notifyMode !== settings.notifyMode) {
     const [todayResult, tomorrowResult] = await Promise.all([
       db.collection('lottery_results').doc(todayJST()).get(),
       db.collection('lottery_results').doc(addDaysJST(1)).get(),
@@ -1032,25 +1168,24 @@ async function handleSettingsLotteryOperation(req: VercelRequest, res: VercelRes
       return res.status(400).json({ error: '抽選済みの結果通知が完了してからモードを切り替えてください' })
     }
   }
-  if (notifyTime < lotteryTime) {
-    return res.status(400).json({ error: '通知時刻は抽選時刻以降にしてください' })
+  const pendingTimes = (await listPendingReservationSettingsChanges(db, addDaysJST(1))).flatMap((change) => [
+    change.lotteryTime ?? settings.defaultLotteryTime,
+    ...Object.values(change.lotteryTimeOverrides?.byWeekday ?? {}),
+    ...Object.values(change.lotteryTimeOverrides?.byDate ?? {}),
+  ])
+  const activeTimes = [settings.defaultLotteryTime,
+    ...Object.values(settings.lotteryTimeOverrides.byWeekday),
+    ...Object.entries(settings.lotteryTimeOverrides.byDate)
+      .filter(([date]) => date >= todayJST()).map(([, time]) => time)]
+  if ([lotteryTime, ...activeTimes, ...pendingTimes].some((time) => !notificationFollowsLottery(
+    lotteryMode, time, notifyMode, notifyTime))) {
+    return res.status(400).json({ error: '通知日は抽選日と同日以降、通知時刻は抽選以降にしてください' })
   }
-  if (lotteryMode === 'same-day') {
-    const dates = Array.from({ length: 8 }, (_, index) => addDaysJST(index))
-    const byDate = await resolveReservationSettingsForDates(db, dates)
-    const earliest = dates.flatMap((date) =>
-      isDateAvailableBySettings(date, byDate[date])
-        ? pickTimeSlotsForDate(date, byDate[date]).map((slot) => slot.value.split('-')[0])
-        : []
-    ).filter(Boolean).sort()[0]
-    if (earliest && lotteryTime >= earliest) {
-      return res.status(400).json({ error: '当日モードの抽選時刻は最初の利用枠より前にしてください' })
-    }
-  }
-  const targetDate = lotteryMode === 'same-day' ? todayJST() : addDaysJST(1)
+  const targetDate = addDaysJST(1)
   const targetResult = await db.collection('lottery_results').doc(targetDate).get()
   const [drawHour, drawMinute] = lotteryTime.split(':').map(Number)
-  if (!targetResult.exists && jstNowMinutes() >= drawHour * 60 + drawMinute - 5) {
+  const drawMinutes = lotteryMode === 'same-day' ? 23 * 60 + 55 : drawHour * 60 + drawMinute - 5
+  if (!targetResult.exists && jstNowMinutes() >= drawMinutes) {
     const pending = await db.collection('reservations')
       .where('status', '==', 'pending')
       .where('date', '>=', `${targetDate}T00:00`)
@@ -1058,8 +1193,10 @@ async function handleSettingsLotteryOperation(req: VercelRequest, res: VercelRes
       .limit(1).get()
     if (!pending.empty) return res.status(400).json({ error: '本日の抽選実行時刻を過ぎています。抽選済みの日付を指定してください' })
   }
+  const notifyTarget = notifyMode === 'same-day' ? todayJST() : addDaysJST(1)
+  const notificationResult = notifyTarget === targetDate ? targetResult : await db.collection('lottery_results').doc(notifyTarget).get()
   const [notifyHour, notifyMinute] = notifyTime.split(':').map(Number)
-  if (targetResult.exists && !targetResult.data()?.notificationSentAt &&
+  if (notificationResult.exists && !notificationResult.data()?.notificationSentAt &&
       jstNowMinutes() >= notifyHour * 60 + notifyMinute) {
     return res.status(400).json({ error: '未通知の抽選結果があります。通知時刻を未来に設定してください' })
   }
@@ -1075,9 +1212,9 @@ async function handleSettingsLotteryOperation(req: VercelRequest, res: VercelRes
     }
   }
   const reservationRef = db.collection('settings').doc('reservation')
-  const result = await applyLotteryCronSchedule(lotteryTime, notifyTime)
+  const result = await applyLotteryCronSchedule(lotteryTime, notifyTime, lotteryMode)
   if (result.warning) {
-    await applyLotteryCronSchedule(settings.lotteryTime, settings.notifyTime)
+    await applyLotteryCronSchedule(settings.lotteryTime, settings.notifyTime, settings.lotteryMode)
     return res.status(503).json({ error: result.warning })
   }
   const timeRef = settings.effectiveFrom === BASE_EFFECTIVE_FROM
@@ -1085,20 +1222,24 @@ async function handleSettingsLotteryOperation(req: VercelRequest, res: VercelRes
     : reservationRef.collection('versions').doc(settings.effectiveFrom)
   try {
     if (settings.effectiveFrom === BASE_EFFECTIVE_FROM) {
-      await reservationRef.set({ lotteryMode, notifyTime, appliedLotteryTime: lotteryTime, appliedNotifyTime: notifyTime,
+      await reservationRef.set({ lotteryMode, notifyMode, notifyTime, appliedLotteryTime: lotteryTime, appliedNotifyTime: notifyTime, appliedLotteryMode: lotteryMode,
         ...(lotteryTime !== settings.lotteryTime ? { lotteryTime } : {}) }, { merge: true })
     } else {
       const batch = db.batch()
-      batch.set(reservationRef, { lotteryMode, notifyTime, appliedLotteryTime: lotteryTime, appliedNotifyTime: notifyTime }, { merge: true })
+      batch.set(reservationRef, { lotteryMode, notifyMode, notifyTime, appliedLotteryTime: lotteryTime, appliedNotifyTime: notifyTime, appliedLotteryMode: lotteryMode }, { merge: true })
       if (lotteryTime !== settings.lotteryTime) batch.set(timeRef, { lotteryTime }, { merge: true })
       await batch.commit()
     }
   } catch (error) {
-    await applyLotteryCronSchedule(settings.lotteryTime, settings.notifyTime)
+    await applyLotteryCronSchedule(settings.lotteryTime, settings.notifyTime, settings.lotteryMode)
     throw error
   }
-  await audit(me, 'settings.lotteryOperation', { targetType: 'settings', details: { lotteryMode, lotteryTime, notifyTime } })
-  return res.status(200).json({ success: true, lotteryMode, lotteryTime, notifyTime })
+  await audit(me, 'settings.lotteryOperation', { targetType: 'settings', details: { lotteryMode, lotteryTime, notifyMode, notifyTime } })
+  let cronWarning: string | undefined
+  if (schedulerEnabled()) {
+    try { await refreshScheduler(db) } catch { cronWarning = '設定は保存済みです。キューとcronの同期は復旧ジョブが再試行します' }
+  }
+  return res.status(200).json({ success: true, lotteryMode, lotteryTime, notifyMode, notifyTime, cronWarning })
 }
 
 // 通常の変更は handleSettings（適用日方式）で行う。これはミス修正など
@@ -1110,6 +1251,7 @@ async function handleSettingsLotteryTime(req: VercelRequest, res: VercelResponse
   req.body = {
     lotteryMode: settings.lotteryMode,
     lotteryTime,
+    notifyMode: settings.notifyMode,
     notifyTime: settings.notifyTime === settings.lotteryTime ? lotteryTime : settings.notifyTime,
   }
   return handleSettingsLotteryOperation(req, res)
@@ -1253,12 +1395,16 @@ async function buildLotteryOverrideDateOptions(): Promise<LotteryDateOption[]> {
 
 // 今日実行する抽選の対象日の上書き/解除後、cron-job.org を再同期する。
 async function reapplyCurrentLotteryCron(date: string): Promise<string | undefined> {
+  if (schedulerEnabled()) {
+    try { await refreshScheduler(db); return undefined }
+    catch { return '設定は保存済みです。キューとcronの同期は復旧ジョブが再試行します' }
+  }
   const targetDate = await lotteryTargetDate(db)
   if (date !== targetDate) return undefined
   const settings = await resolveReservationSettingsForDate(db, targetDate)
-  const result = await applyLotteryCronSchedule(settings.lotteryTime, settings.notifyTime)
+  const result = await applyLotteryCronSchedule(settings.lotteryTime, settings.notifyTime, settings.lotteryMode)
   if (result.warning) return result.warning
-  await db.collection('settings').doc('reservation').set({ appliedLotteryTime: settings.lotteryTime, appliedNotifyTime: settings.notifyTime }, { merge: true })
+  await db.collection('settings').doc('reservation').set({ appliedLotteryTime: settings.lotteryTime, appliedNotifyTime: settings.notifyTime, appliedLotteryMode: settings.lotteryMode }, { merge: true })
   return undefined
 }
 
@@ -1384,7 +1530,23 @@ async function handleReservationsList(req: VercelRequest, res: VercelResponse) {
       })
     }
 
-    const reservations = docs.map((d) => ({
+    const uniqueDates = [...new Set(docs
+      .map((d) => typeof d.date === 'string' ? d.date.split('T')[0] : '')
+      .filter(Boolean))]
+    const settingsByDate = new Map(await Promise.all(uniqueDates.map(async (date) => [
+      date,
+      await resolveReservationSettingsForDate(db, date),
+    ] as const)))
+
+    const reservations = docs.map((d) => {
+      const reservationDate = typeof d.date === 'string' ? d.date.split('T')[0] : ''
+      const settings = settingsByDate.get(reservationDate)
+      const nameOnlyEditable = !!settings && Date.now() >= reservationDeadline(
+        reservationDate,
+        settings.lotteryMode,
+        settings.lotteryTime,
+      ).getTime()
+      return {
       id: d.id,
       userId: d.userId,
       userDisplayName: userMap[d.userId]?.displayName ?? '',
@@ -1398,7 +1560,9 @@ async function handleReservationsList(req: VercelRequest, res: VercelResponse) {
       cancelReason: d.cancelReason ?? null,
       order: d.order,
       createdAt: d.createdAt?.toMillis?.() ?? null,
-    }))
+      nameOnlyEditable,
+    }
+    })
 
     return res.status(200).json({ reservations, count: reservations.length })
   } catch (err: any) {
@@ -1420,8 +1584,8 @@ async function handleAdminsList(req: VercelRequest, res: VercelResponse) {
     db.collection('settings').doc('room-manager').get(),
   ])
   const managerData = managerDoc.data()
-  const managerId = typeof managerData?.userId === 'string' ? managerData.userId : null
-  const userIds = [...new Set([...snapshot.docs.map((d) => d.id), ...(managerId ? [managerId] : [])])]
+  const managerIds = roomManagerIds(managerData)
+  const userIds = [...new Set([...snapshot.docs.map((d) => d.id), ...managerIds])]
   const userDocs = userIds.length > 0
     ? await db.getAll(...userIds.map((id) => db.collection('users').doc(id)))
     : []
@@ -1436,15 +1600,15 @@ async function handleAdminsList(req: VercelRequest, res: VercelResponse) {
       pictureUrl: pictureMap[d.id] ?? null,
       isAdmin: true,
       isSuperAdmin: data.isSuperAdmin === true,
-      isRoomManager: d.id === managerId,
+      isRoomManager: managerIds.includes(d.id),
       addedAt: data.addedAt?.toMillis?.() ?? null,
       addedBy: data.addedBy ?? null,
     }
   })
-  if (managerId && !snapshot.docs.some((doc) => doc.id === managerId)) {
+  for (const managerId of managerIds.filter((id) => !snapshot.docs.some((doc) => doc.id === id))) {
     admins.push({
       userId: managerId,
-      displayName: managerData?.displayName ?? userDocs.find((doc) => doc.id === managerId)?.data()?.displayName ?? '',
+      displayName: userDocs.find((doc) => doc.id === managerId)?.data()?.displayName ?? managerData?.displayName ?? '',
       pictureUrl: pictureMap[managerId] ?? null,
       isAdmin: false,
       isSuperAdmin: false,
@@ -1464,13 +1628,14 @@ async function handleAdminsList(req: VercelRequest, res: VercelResponse) {
 // ─── 管理者の削除 ─────────────────────────────────────
 async function handleAdminById(req: VercelRequest, res: VercelResponse, targetId: string) {
   if (req.method !== 'DELETE') return res.status(405).json({ error: 'Method Not Allowed' })
-  let me: AuditActor
+  let me: AuditActor & { isSuperAdmin: boolean }
   try {
     me = await verifyAdmin(req.headers.authorization)
   } catch (err: any) {
     const status = err.message === 'Forbidden' ? 403 : 401
     return res.status(status).json({ error: err.message })
   }
+  if (!me.isSuperAdmin) return res.status(403).json({ error: '管理者の削除はスーパー管理者のみ実行できます' })
   if (me.userId === targetId) {
     return res.status(400).json({ error: '自分自身は削除できません' })
   }
@@ -1485,7 +1650,198 @@ async function handleAdminById(req: VercelRequest, res: VercelResponse, targetId
   return res.status(200).json({ success: true })
 }
 
-// ─── スーパー管理者の移譲 ─────────────────────────────
+// ─── 権限の追加・削除 ─────────────────────────────────
+async function handleAdminPermissionLink(req: VercelRequest, res: VercelResponse) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method Not Allowed' })
+  let me: AuditActor & { isSuperAdmin: boolean }
+  try {
+    me = await verifyAdmin(req.headers.authorization)
+  } catch (err: any) {
+    return res.status(err.message === 'Forbidden' ? 403 : 401).json({ error: err.message })
+  }
+  const authority = (req.body ?? {}).authority
+  if (authority !== 'admin' && authority !== 'room') {
+    return res.status(400).json({ error: '追加する権限を選択してください' })
+  }
+  if (authority === 'admin' && !me.isSuperAdmin) {
+    return res.status(403).json({ error: 'スーパー管理者のみ管理者権限を追加できます' })
+  }
+  const token = crypto.randomBytes(24).toString('hex')
+  const expiresAt = new Date(Date.now() + 24 * 60 * 60_000)
+  await db.collection('invitations').doc(token).set({ kind: 'grant', authority,
+    sourceId: me.userId, createdBy: me.userId, createdAt: new Date(), expiresAt, used: false })
+  return res.status(201).json({ url: `https://${req.headers.host}/api/admin/invite?token=${token}`,
+    expiresAt: expiresAt.toISOString() })
+}
+
+async function handleAdminPermissions(req: VercelRequest, res: VercelResponse) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method Not Allowed' })
+  let me: AuditActor & { isSuperAdmin: boolean }
+  try {
+    me = await verifyAdmin(req.headers.authorization)
+  } catch (err: any) {
+    return res.status(err.message === 'Forbidden' ? 403 : 401).json({ error: err.message })
+  }
+  const { userId, authority, operation } = (req.body ?? {}) as {
+    userId?: string; authority?: string; operation?: string
+  }
+  if (!userId || !['admin', 'room'].includes(authority ?? '') || !['add', 'remove'].includes(operation ?? '')) {
+    return res.status(400).json({ error: 'ユーザー、権限、操作を選択してください' })
+  }
+  if (authority === 'admin' && !me.isSuperAdmin) {
+    return res.status(403).json({ error: '管理者権限を操作できるのはスーパー管理者のみです' })
+  }
+  if (authority === 'admin' && operation === 'remove') {
+    return res.status(403).json({ error: '管理者以上の権限ははく奪できません' })
+  }
+  if (userId === me.userId) return res.status(400).json({ error: '自分自身の権限は変更できません' })
+
+  const actorRef = db.collection('admins').doc(me.userId)
+  const userRef = db.collection('users').doc(userId)
+  const targetRef = db.collection('admins').doc(userId)
+  const managerRef = db.collection('settings').doc('room-manager')
+  let targetLabel = ''
+  try {
+    await db.runTransaction(async (tx) => {
+      const [actor, user, target, manager] = await Promise.all([
+        tx.get(actorRef), tx.get(userRef), tx.get(targetRef), tx.get(managerRef),
+      ])
+      if (!actor.exists || (authority === 'admin' && actor.data()?.isSuperAdmin !== true)) {
+        throw new Error('操作する権限がありません')
+      }
+      if (!user.exists) throw new Error('ユーザーが見つかりません')
+      if (operation === 'add' && user.data()?.banned === true) {
+        throw new Error('利用停止中のユーザーには権限を追加できません')
+      }
+      targetLabel = user.data()?.displayName ?? ''
+      if (authority === 'admin') {
+        if (target.data()?.isSuperAdmin === true) throw new Error('スーパー管理者の権限は変更できません')
+        if (operation === 'add') {
+          if (target.exists) throw new Error('既に管理者権限があります')
+          tx.set(targetRef, { displayName: targetLabel, addedAt: new Date(), addedBy: me.userId })
+        } else {
+          if (!target.exists) throw new Error('管理者権限がありません')
+          tx.delete(targetRef)
+        }
+      } else {
+        const ids = roomManagerIds(manager.data())
+        if (operation === 'add') {
+          if (ids.includes(userId)) throw new Error('既に部屋取り権限があります')
+          ids.push(userId)
+        } else {
+          if (!ids.includes(userId)) throw new Error('部屋取り権限がありません')
+          ids.splice(ids.indexOf(userId), 1)
+        }
+        tx.set(managerRef, roomManagerUpdate(ids, me.userId))
+      }
+    })
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message })
+  }
+  await audit(me, `admin.${authority}.${operation}`, {
+    targetType: authority === 'room' ? 'room-manager' : 'admin', targetId: userId, targetLabel,
+  })
+  return res.status(200).json({ success: true })
+}
+
+// ─── 権限の移譲 ───────────────────────────────────────
+async function handleAdminTransferLink(req: VercelRequest, res: VercelResponse) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method Not Allowed' })
+  let me: AuditActor & { isSuperAdmin: boolean }
+  try {
+    me = await verifyAdmin(req.headers.authorization)
+  } catch (err: any) {
+    return res.status(err.message === 'Forbidden' ? 403 : 401).json({ error: err.message })
+  }
+  const { authority, sourceUserId } = (req.body ?? {}) as { authority?: string; sourceUserId?: string }
+  if (!['super', 'admin', 'room'].includes(authority ?? '')) {
+    return res.status(400).json({ error: '移譲する権限を選択してください' })
+  }
+  if (authority === 'super' && !me.isSuperAdmin) {
+    return res.status(403).json({ error: 'スーパー管理者のみ移譲できます' })
+  }
+  const sourceId = authority === 'admin' && me.isSuperAdmin ? sourceUserId : me.userId
+  if (!sourceId) return res.status(400).json({ error: '権限元の管理者を選択してください' })
+  const source = await db.collection('admins').doc(sourceId).get()
+  if (authority === 'admin' && (!source.exists || source.data()?.isSuperAdmin === true)) {
+    return res.status(400).json({ error: '権限元の通常管理者が見つかりません' })
+  }
+  const token = crypto.randomBytes(24).toString('hex')
+  const expiresAt = new Date(Date.now() + 24 * 60 * 60_000)
+  await db.collection('invitations').doc(token).set({ kind: 'transfer', authority,
+    sourceId, createdBy: me.userId, roomScope: 'all', createdAt: new Date(), expiresAt, used: false })
+  return res.status(201).json({ url: `https://${req.headers.host}/api/admin/invite?token=${token}`,
+    expiresAt: expiresAt.toISOString() })
+}
+
+async function handleAdminTransfer(req: VercelRequest, res: VercelResponse) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method Not Allowed' })
+  let me: AuditActor & { isSuperAdmin: boolean }
+  try {
+    me = await verifyAdmin(req.headers.authorization)
+  } catch (err: any) {
+    return res.status(err.message === 'Forbidden' ? 403 : 401).json({ error: err.message })
+  }
+
+  const { userId, authority, sourceUserId } = (req.body ?? {}) as {
+    userId?: string; authority?: string; sourceUserId?: string
+  }
+  if (!userId || !['super', 'admin', 'room'].includes(authority ?? '')) {
+    return res.status(400).json({ error: '移譲先と権限を選択してください' })
+  }
+  if (userId === me.userId) return res.status(400).json({ error: '自分自身には移譲できません' })
+  if (authority === 'super' && !me.isSuperAdmin) {
+    return res.status(403).json({ error: 'スーパー管理者権限はスーパー管理者のみ移譲できます' })
+  }
+  const adminSourceId = authority === 'admin' && me.isSuperAdmin ? sourceUserId : me.userId
+  if (authority === 'admin' && (!adminSourceId || adminSourceId === userId)) {
+    return res.status(400).json({ error: '権限元の管理者と別の移譲先を選択してください' })
+  }
+
+  const userRef = db.collection('users').doc(userId)
+  const sourceRef = db.collection('admins').doc(me.userId)
+  const adminSourceRef = db.collection('admins').doc(adminSourceId ?? me.userId)
+  const targetRef = db.collection('admins').doc(userId)
+  const managerRef = db.collection('settings').doc('room-manager')
+  let targetLabel = ''
+  try {
+    await db.runTransaction(async (tx) => {
+      const [user, source, adminSource, target, manager] = await Promise.all([
+        tx.get(userRef), tx.get(sourceRef), tx.get(adminSourceRef), tx.get(targetRef), tx.get(managerRef),
+      ])
+      if (!user.exists) throw new Error('移譲先のユーザーが見つかりません')
+      if (user.data()?.banned === true) throw new Error('利用停止中のユーザーには移譲できません')
+      if (!source.exists) throw new Error('管理者権限がありません')
+      targetLabel = user.data()?.displayName ?? ''
+
+      if (authority === 'room') {
+        if (roomManagerIds(manager.data()).includes(userId)) throw new Error('既に部屋取り権限を持っています')
+        tx.set(managerRef, { ...roomManagerUpdate([userId], me.userId), displayName: targetLabel })
+      } else if (authority === 'super') {
+        if (source.data()?.isSuperAdmin !== true) throw new Error('スーパー管理者権限がありません')
+        tx.update(sourceRef, { isSuperAdmin: admin.firestore.FieldValue.delete() })
+        tx.set(targetRef, { displayName: targetLabel, isSuperAdmin: true,
+          ...(target.exists ? {} : { addedAt: new Date(), addedBy: me.userId }) }, { merge: true })
+      } else {
+        if (!adminSource.exists || adminSource.data()?.isSuperAdmin === true) {
+          throw new Error('権限元の通常管理者が見つかりません')
+        }
+        if (target.exists) throw new Error('移譲先は既に管理者です')
+        tx.set(targetRef, { displayName: targetLabel, addedAt: new Date(), addedBy: me.userId })
+        tx.delete(adminSourceRef)
+      }
+    })
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message })
+  }
+
+  await audit(me, `admin.${authority}.transfer`, {
+    targetType: authority === 'room' ? 'room-manager' : 'admin', targetId: userId, targetLabel,
+    details: { from: authority === 'admin' ? adminSourceId : me.userId, to: userId },
+  })
+  return res.status(200).json({ success: true })
+}
+
 async function handleTransferSuper(req: VercelRequest, res: VercelResponse, targetId: string) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method Not Allowed' })
   let me: AuditActor & { isSuperAdmin?: boolean }
@@ -1507,12 +1863,16 @@ async function handleTransferSuper(req: VercelRequest, res: VercelResponse, targ
     await db.runTransaction(async (tx) => {
       const meRef = db.collection('admins').doc(me.userId)
       const targetRef = db.collection('admins').doc(targetId)
-      const [meDoc, targetDoc] = await Promise.all([tx.get(meRef), tx.get(targetRef)])
+      const userRef = db.collection('users').doc(targetId)
+      const [meDoc, targetDoc, targetUser] = await Promise.all([tx.get(meRef), tx.get(targetRef), tx.get(userRef)])
       if (!meDoc.exists || meDoc.data()?.isSuperAdmin !== true) {
         throw new Error('スーパー管理者ではありません')
       }
       if (!targetDoc.exists) {
         throw new Error('移譲先の管理者が見つかりません')
+      }
+      if (!targetUser.exists || targetUser.data()?.banned === true) {
+        throw new Error('利用停止中または未登録のユーザーには移譲できません')
       }
       targetLabel = targetDoc.data()?.displayName ?? ''
       tx.update(meRef,     { isSuperAdmin: admin.firestore.FieldValue.delete() })
@@ -1529,68 +1889,6 @@ async function handleTransferSuper(req: VercelRequest, res: VercelResponse, targ
   return res.status(200).json({ success: true })
 }
 
-// ─── 招待の発行・一覧 ─────────────────────────────────
-async function handleInvitations(req: VercelRequest, res: VercelResponse) {
-  let me: AuditActor
-  try {
-    me = await verifyAdmin(req.headers.authorization)
-  } catch (err: any) {
-    const status = err.message === 'Forbidden' ? 403 : 401
-    return res.status(status).json({ error: err.message })
-  }
-
-  if (req.method === 'POST') {
-    const token = crypto.randomBytes(24).toString('hex')
-    const now = new Date()
-    const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000)
-    await db.collection('invitations').doc(token).set({
-      createdBy: me.userId,
-      createdAt: now,
-      expiresAt,
-      used: false,
-    })
-    await audit(me, 'invitation.create', { targetType: 'invitation', targetId: token })
-    const baseUrl = `https://${req.headers.host}`
-    return res.status(201).json({
-      token,
-      url: `${baseUrl}/api/admin/invite?token=${token}`,
-      expiresAt: expiresAt.toISOString(),
-    })
-  }
-
-  if (req.method === 'GET') {
-    const snapshot = await db.collection('invitations').orderBy('createdAt', 'desc').limit(50).get()
-    const invitations = snapshot.docs.map((d) => {
-      const data = d.data()
-      return {
-        token: d.id,
-        createdBy: data.createdBy ?? null,
-        createdAt: data.createdAt?.toMillis?.() ?? null,
-        expiresAt: data.expiresAt?.toMillis?.() ?? null,
-        used: data.used ?? false,
-        usedBy: data.usedBy ?? null,
-      }
-    })
-    return res.status(200).json({ invitations })
-  }
-
-  return res.status(405).json({ error: 'Method Not Allowed' })
-}
-
-// ─── 招待の取消 ───────────────────────────────────────
-async function handleInvitationById(req: VercelRequest, res: VercelResponse, token: string) {
-  if (req.method !== 'DELETE') return res.status(405).json({ error: 'Method Not Allowed' })
-  let me: AuditActor
-  try {
-    me = await verifyAdmin(req.headers.authorization)
-  } catch (err: any) {
-    const status = err.message === 'Forbidden' ? 403 : 401
-    return res.status(status).json({ error: err.message })
-  }
-  await db.collection('invitations').doc(token).delete()
-  await audit(me, 'invitation.revoke', { targetType: 'invitation', targetId: token })
-  return res.status(200).json({ success: true })
-}
 
 // ─── 時間枠プリセット ─────────────────────────────────
 async function handleTimeSlotPresets(req: VercelRequest, res: VercelResponse) {
@@ -1825,41 +2123,6 @@ async function handleLogs(req: VercelRequest, res: VercelResponse) {
   }
 }
 
-// ─── 招待リンクからの参加（OAuth開始） ────────────────
-async function handleInviteAccept(req: VercelRequest, res: VercelResponse) {
-  const token = req.query.token as string
-  const baseUrl = `https://${req.headers.host}`
-  const loginUrl = `${baseUrl}/admin/login`
-
-  if (!token) return res.redirect(302, `${loginUrl}?error=invalid`)
-
-  // トークン検証
-  const invDoc = await db.collection('invitations').doc(token).get()
-  if (!invDoc.exists) return res.redirect(302, `${loginUrl}?error=invalid_invitation`)
-  const data = invDoc.data()!
-  if (data.used) return res.redirect(302, `${loginUrl}?error=invitation_used`)
-  if (data.expiresAt?.toMillis?.() <= Date.now()) {
-    return res.redirect(302, `${loginUrl}?error=invitation_expired`)
-  }
-
-  // 招待トークンと OAuth state を Cookie に保存して OAuth 開始
-  const state = crypto.randomBytes(16).toString('hex')
-  const redirectUri = `${baseUrl}/api/admin/auth/callback`
-  res.setHeader('Set-Cookie', [
-    `admin_oauth_state=${state}; HttpOnly; Secure; SameSite=Lax; Max-Age=600; Path=/`,
-    `admin_oauth_role=${data.kind === 'room-manager' ? 'room' : 'admin'}; HttpOnly; Secure; SameSite=Lax; Max-Age=600; Path=/`,
-    `admin_invitation=${token}; HttpOnly; Secure; SameSite=Lax; Max-Age=600; Path=/`,
-  ])
-
-  const authUrl = new URL('https://access.line.me/oauth2/v2.1/authorize')
-  authUrl.searchParams.set('response_type', 'code')
-  authUrl.searchParams.set('client_id', process.env.LINE_LOGIN_CHANNEL_ID!)
-  authUrl.searchParams.set('redirect_uri', redirectUri)
-  authUrl.searchParams.set('state', state)
-  authUrl.searchParams.set('scope', 'openid profile')
-
-  res.redirect(302, authUrl.toString())
-}
 
 // ─── ユーザー一覧 ─────────────────────────────────
 async function handleUsersList(req: VercelRequest, res: VercelResponse) {
@@ -1897,7 +2160,7 @@ async function handleUsersList(req: VercelRequest, res: VercelResponse) {
 
 // ─── ユーザー詳細＋予約履歴 / BAN更新 ────────────────
 async function handleUserById(req: VercelRequest, res: VercelResponse, userId: string) {
-  let me: AuditActor
+  let me: AuditActor & { isSuperAdmin: boolean }
   try {
     me = await verifyAdmin(req.headers.authorization)
   } catch (err: any) {
@@ -1908,12 +2171,13 @@ async function handleUserById(req: VercelRequest, res: VercelResponse, userId: s
   const userRef = db.collection('users').doc(userId)
 
   if (req.method === 'GET') {
-    const [userDoc, resSnap, kobuSnap, nobuRoomSnap, adminDoc] = await Promise.all([
+    const [userDoc, resSnap, kobuSnap, nobuRoomSnap, adminDoc, managerDoc] = await Promise.all([
       userRef.get(),
       db.collection('reservations').where('userId', '==', userId).get(),
       db.collection('kobu_reservations').where('userId', '==', userId).get(),
       db.collection('nobu_room_reservations').where('userId', '==', userId).get(),
       db.collection('admins').doc(userId).get(),
+      db.collection('settings').doc('room-manager').get(),
     ])
     if (!userDoc.exists) return res.status(404).json({ error: 'ユーザーが見つかりません' })
     const data = userDoc.data()!
@@ -1935,6 +2199,9 @@ async function handleUserById(req: VercelRequest, res: VercelResponse, userId: s
         pictureUrl: data.pictureUrl ?? null,
         banned: data.banned ?? false,
         isAdmin: adminDoc.exists,
+        isSuperAdmin: adminDoc.data()?.isSuperAdmin === true,
+        isRoomManager: roomManagerIds(managerDoc.data()).includes(userId),
+        canBan: userId !== me.userId && !adminDoc.exists,
         lastReservedAt: data.lastReservedAt?.toMillis?.() ?? null,
       },
       reservations,
@@ -1944,17 +2211,38 @@ async function handleUserById(req: VercelRequest, res: VercelResponse, userId: s
   if (req.method === 'PUT') {
     const { banned } = (req.body ?? {}) as { banned?: boolean }
     if (typeof banned !== 'boolean') return res.status(400).json({ error: '不正なリクエスト' })
-    if (banned) {
-      const adminDoc = await db.collection('admins').doc(userId).get()
-      if (adminDoc.exists) {
-        return res.status(400).json({ error: '管理者はBANできません' })
+    if (banned && userId === me.userId) return res.status(400).json({ error: '自分自身はBANできません' })
+    const actorRef = db.collection('admins').doc(me.userId)
+    const targetAdminRef = db.collection('admins').doc(userId)
+    const managerRef = db.collection('settings').doc('room-manager')
+    let targetLabel = ''
+    let removedAdmin = false
+    let removedRoomManager = false
+    try {
+      await db.runTransaction(async (tx) => {
+        const [actorDoc, targetSnap, targetAdminDoc, managerDoc] = await Promise.all([
+          tx.get(actorRef), tx.get(userRef), tx.get(targetAdminRef), tx.get(managerRef),
+        ])
+        if (!actorDoc.exists) throw new Error('管理者権限がありません')
+        if (!targetSnap.exists) throw new Error('ユーザーが見つかりません')
+        targetLabel = targetSnap.data()?.displayName ?? ''
+        const managerIds = roomManagerIds(managerDoc.data())
+        if (banned && targetAdminDoc.exists) throw new Error('管理者以上のユーザーはBANできません')
+        removedAdmin = banned && targetAdminDoc.exists
+        removedRoomManager = banned && managerIds.includes(userId)
+        tx.set(userRef, { banned }, { merge: true })
+        if (removedAdmin) tx.delete(targetAdminRef)
+        if (removedRoomManager) tx.set(managerRef, roomManagerUpdate(managerIds.filter((id) => id !== userId), me.userId), { merge: true })
+      })
+    } catch (err: any) {
+      if (['管理者権限がありません', '管理者以上のユーザーはBANできません'].includes(err.message)) {
+        return res.status(403).json({ error: err.message })
       }
+      if (err.message === 'ユーザーが見つかりません') return res.status(404).json({ error: err.message })
+      throw err
     }
-    const targetSnap = await userRef.get()
-    const targetLabel = targetSnap.exists ? (targetSnap.data()?.displayName ?? '') : ''
-    await userRef.set({ banned }, { merge: true })
     await audit(me, banned ? 'user.ban' : 'user.unban', {
-      targetType: 'user', targetId: userId, targetLabel,
+      targetType: 'user', targetId: userId, targetLabel, details: { removedAdmin, removedRoomManager },
     })
     return res.status(200).json({ success: true })
   }
@@ -1987,6 +2275,19 @@ async function handleReservationById(req: VercelRequest, res: VercelResponse, id
     }
     if (Object.keys(update).length === 0) {
       return res.status(400).json({ error: '更新項目がありません' })
+    }
+
+    // 抽選締切（抽選時刻の10分前）後は、予約日時を動かすと抽選対象が変わるため
+    // バンド名だけを編集可能にする。画面側の制御を迂回したリクエストにも適用する。
+    const originalDateOnly = String(before.date ?? '').split('T')[0]
+    const originalSettings = await resolveReservationSettingsForDate(db, originalDateOnly)
+    const isPastDeadline = Date.now() >= reservationDeadline(
+      originalDateOnly,
+      originalSettings.lotteryMode,
+      originalSettings.lotteryTime,
+    ).getTime()
+    if (isPastDeadline && update.date && update.date !== before.date) {
+      return res.status(400).json({ error: '抽選締切後はバンド名以外を編集できません' })
     }
 
     // 編集後の bandName と date を確定し、同日同名の重複チェック（自分自身は除外）
@@ -2147,7 +2448,7 @@ async function handleKobuReservationById(req: VercelRequest, res: VercelResponse
       return res.status(400).json({ error: '開始時刻は終了時刻より前にしてください' })
     }
     const availability = await isFacilityReservationRangeAvailable('kobu', finalDate, finalStartTime, finalEndTime)
-    if (!availability.ok) return res.status(400).json({ error: availability.message })
+    if (availability.ok === false) return res.status(400).json({ error: availability.message })
 
     const existingSnap = await db.collection('kobu_reservations').where('date', '==', finalDate).get()
     for (const d of existingSnap.docs) {
@@ -2377,7 +2678,7 @@ async function handleNobuRoomReservationById(req: VercelRequest, res: VercelResp
       return res.status(400).json({ error: '開始時刻は終了時刻より前にしてください' })
     }
     const availability = await isFacilityReservationRangeAvailable('nobu-room', finalDate, finalStartTime, finalEndTime)
-    if (!availability.ok) return res.status(400).json({ error: availability.message })
+    if (availability.ok === false) return res.status(400).json({ error: availability.message })
 
     const existingSnap = await db.collection('nobu_room_reservations').where('date', '==', finalDate).get()
     for (const d of existingSnap.docs) {
@@ -2420,6 +2721,58 @@ async function handleNobuRoomReservationById(req: VercelRequest, res: VercelResp
 }
 
 // ─── 農部室 設定の取得・更新 ───────────────────────────
+async function handleNobuRoomSeikyoBlocks(req: VercelRequest, res: VercelResponse) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method Not Allowed' })
+  try {
+    await verifyAdmin(req.headers.authorization)
+  } catch (err: any) {
+    return res.status(err.message === 'Forbidden' ? 403 : 401).json({ error: err.message })
+  }
+  const from = typeof req.query.from === 'string' ? req.query.from : todayJST()
+  const days = Number(req.query.days ?? 31)
+  if (!isValidDate(from) || !Number.isInteger(days) || days < 1 || days > 31)
+    return res.status(400).json({ error: '日付または日数が不正です' })
+
+  try {
+    const dates = Array.from({ length: days }, (_, index) => {
+      const date = new Date(`${from}T00:00:00Z`)
+      date.setUTCDate(date.getUTCDate() + index)
+      return date.toISOString().slice(0, 10)
+    })
+    const [baseRoom, roomVersions, seikyoByDate] = await Promise.all([
+      getFacilityBaseSettings('nobu-room'),
+      listFacilitySettingsVersions(db, 'nobu-room', { maxEffectiveFrom: dates[dates.length - 1] }),
+      resolveReservationSettingsForDates(db, dates),
+    ])
+    const rows = dates.map((date) => {
+      const seikyo = seikyoByDate[date]
+      const room = [...roomVersions].reverse().find((version) => version.effectiveFrom <= date) ?? baseRoom
+      const seikyoSlots = isDateAvailableBySettings(date, seikyo) ? pickTimeSlotsForDate(date, seikyo) : []
+      const roomSlots = isDateAvailableBySettings(date, room) ? pickTimeSlotsForDate(date, room) : []
+      const blockedSlots = roomSlots.flatMap((roomSlot) => seikyoSlots.flatMap((seikyoSlot) => {
+        const [roomStart, roomEnd] = roomSlot.value.split('-')
+        const [seikyoStart, seikyoEnd] = seikyoSlot.value.split('-')
+        const start = roomStart > seikyoStart ? roomStart : seikyoStart
+        const end = roomEnd < seikyoEnd ? roomEnd : seikyoEnd
+        return start < end ? [`${start}-${end}`] : []
+      }))
+      const weekday = String(new Date(`${date}T00:00:00Z`).getUTCDay())
+      const sources = [
+        seikyo.dayOverride?.date === date ? (seikyo.dayOverride.type === 'opened' ? '緊急開放' : '緊急休止') : null,
+        seikyo.extraDates.includes(date) ? '追加日' : null,
+        seikyo.perDaySchedule?.enabled && seikyo.perDaySchedule.byDate?.[date]?.length ? '特定日時間枠' : null,
+        seikyo.perDaySchedule?.enabled && !seikyo.perDaySchedule.byDate?.[date]?.length &&
+          seikyo.perDaySchedule.byWeekday?.[weekday]?.length ? '曜日別時間枠' : null,
+      ].filter(Boolean)
+      if (sources.length === 0) sources.push('通常設定')
+      return { date, blockedSlots, seikyoSlots: seikyoSlots.map((slot) => slot.value), sources }
+    }).filter((row) => row.blockedSlots.length > 0 || (row.seikyoSlots.length > 0 && row.sources.some((source) => source !== '通常設定')))
+    return res.status(200).json({ rows, from, days })
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message })
+  }
+}
+
 async function handleNobuRoomSettings(req: VercelRequest, res: VercelResponse) {
   let me: AuditActor
   try {

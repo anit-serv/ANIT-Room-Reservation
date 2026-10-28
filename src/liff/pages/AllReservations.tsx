@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, type ReactNode } from 'react'
 import type { LiffProfile } from '../LiffApp'
 import Skeleton from '../../components/Skeleton'
 import { getPageCache, setPageCache } from '../pageCache'
@@ -11,6 +11,17 @@ type DateEntry   = { label: string; value: string; timeSlots: TimeSlot[]; lotter
 type SlotEntry   = { id: string; userId: string; bandName: string; status: string; order?: number; hamoani?: boolean; assignedRoom?: string | null; waitRank?: number | null; lotteryRank?: number | null }
 type TimeSlotMap = { [timeSlot: string]: SlotEntry[] }
 type DetailModal = { entry: SlotEntry; date: string; timeSlot: string }
+
+const SLOT_ENTRY_CLASS = 'flex items-center gap-2.5 px-3 py-2 bg-surface border rounded-lg mb-1 shadow-[var(--shadow-card-sm)] w-full text-left transition-colors '
+
+function SlotGroupFrame({ time, count, loading = false, children }: { time?: string; count?: number; loading?: boolean; children: ReactNode }) {
+  return <div className="mb-4">
+    <div className="flex items-center gap-1.5 text-[0.8rem] font-bold text-ink-sub mb-1.5 px-1">
+      {loading ? <Skeleton width="100px" height="14px" /> : <><span className="icon icon-sm">schedule</span><span>{time}</span><span className="ml-auto text-ink-pale font-normal">{count}件</span></>}
+    </div>
+    {children}
+  </div>
+}
 
 type Props = {
   profile?: LiffProfile | null
@@ -29,7 +40,7 @@ export default function AllReservations({ profile, initialFocus, onFocusHandled,
   const [dates,        setDates]        = useState<DateEntry[]>(cachedDates)
   const [selectedDate, setSelectedDate] = useState(initDate)
   const [slotMap,      setSlotMap]      = useState<TimeSlotMap | null>(initSlotMap)
-  const [loading,      setLoading]      = useState(!!initDate && !initSlotMap)
+  const [loading,      setLoading]      = useState(!initDate || !initSlotMap)
   const [error,        setError]        = useState<string | null>(null)
   const [detailModal,  setDetailModal]  = useState<DetailModal | null>(null)
   const [focusId,      setFocusId]      = useState<string | null>(null)
@@ -61,8 +72,9 @@ export default function AllReservations({ profile, initialFocus, onFocusHandled,
         setDates(available)
         setPageCache(DATES_CACHE_KEY, available)
         if (available.length > 0 && !initDate) handleDateSelect(available[0].value)
+        else if (available.length === 0) setLoading(false)
       })
-      .catch(() => setError('設定の取得に失敗しました'))
+      .catch(() => { setError('設定の取得に失敗しました'); setLoading(false) })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -76,7 +88,7 @@ export default function AllReservations({ profile, initialFocus, onFocusHandled,
     if (cached) {
       setSlotMap(cached)
       setLoading(false)
-      const authHeader = profile ? { Authorization: `Bearer ${profile.getAccessToken()}` } : {}
+      const authHeader: Record<string, string> = profile ? { Authorization: `Bearer ${profile.getAccessToken()}` } : {}
       fetch(`/api/reservations/all?date=${date}`, { headers: authHeader })
         .then(r => r.ok ? r.json() : null)
         .then(data => {
@@ -93,7 +105,7 @@ export default function AllReservations({ profile, initialFocus, onFocusHandled,
     setLoading(true)
     setError(null)
     try {
-      const authHeader = profile ? { Authorization: `Bearer ${profile.getAccessToken()}` } : {}
+      const authHeader: Record<string, string> = profile ? { Authorization: `Bearer ${profile.getAccessToken()}` } : {}
       const res = await fetch(`/api/reservations/all?date=${date}`, { headers: authHeader })
       if (!res.ok) throw new Error()
       const data = await res.json()
@@ -125,6 +137,7 @@ export default function AllReservations({ profile, initialFocus, onFocusHandled,
 
       {/* 日付チップ（横スクロール） */}
       <div className="no-scrollbar flex gap-2 overflow-x-auto pb-1 mb-4">
+        {loading && dates.length === 0 && Array.from({ length: 5 }, (_, i) => <Skeleton key={i} width="72px" height="34px" className="flex-shrink-0" />)}
         {dates.map((d) => (
           <button
             key={d.value}
@@ -151,11 +164,11 @@ export default function AllReservations({ profile, initialFocus, onFocusHandled,
       {loading && (
         <div>
           {[0, 1, 2].map((i) => (
-            <div key={i} className="mb-4">
-              <Skeleton width="100px" height="14px" className="mb-2" />
-              <Skeleton width="100%" height="40px" className="mb-1" />
-              <Skeleton width="100%" height="40px" />
-            </div>
+            <SlotGroupFrame key={i} loading>
+              {[0, 1].map((j) => <button key={j} type="button" disabled className={SLOT_ENTRY_CLASS + 'border-line'}>
+                <Skeleton width={22} height={22} circle /><Skeleton className="flex-1" height={16} />
+              </button>)}
+            </SlotGroupFrame>
           ))}
         </div>
       )}
@@ -169,18 +182,13 @@ export default function AllReservations({ profile, initialFocus, onFocusHandled,
             </div>
           )
           : activeSlots.map((ts) => (
-            <div key={ts} className="mb-4">
-              <div className="flex items-center gap-1.5 text-[0.8rem] font-bold text-ink-sub mb-1.5 px-1">
-                <span className="icon icon-sm">schedule</span>
-                <span>{ts}</span>
-                <span className="ml-auto text-ink-pale font-normal">{slotMap[ts].length}件</span>
-              </div>
+            <SlotGroupFrame key={ts} time={ts} count={slotMap[ts].length}>
               {slotMap[ts].map((entry, i) => (
                 <button
                   key={entry.id}
                   ref={(el) => { entryRefs.current[entry.id] = el }}
                   className={
-                    'flex items-center gap-2.5 px-3 py-2 bg-surface border rounded-lg mb-1 shadow-[var(--shadow-card-sm)] w-full text-left transition-colors ' +
+                    SLOT_ENTRY_CLASS +
                     (entry.id === focusId ? 'border-brand bg-brand-light/40' : 'border-line')
                   }
                   onClick={() => setDetailModal({ entry, date: selectedDate, timeSlot: ts })}
@@ -204,7 +212,7 @@ export default function AllReservations({ profile, initialFocus, onFocusHandled,
                   {isOwn(entry) && <span className="icon icon-sm text-ink-pale">chevron_right</span>}
                 </button>
               ))}
-            </div>
+            </SlotGroupFrame>
           ))
       )}
 

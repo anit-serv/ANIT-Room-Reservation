@@ -169,12 +169,9 @@ export default function KobuReservationForm({ profile }: Props) {
     return (
       <div>
         <Skeleton width="120px" height="20px" className="mb-4" />
-        {[0, 1, 2, 3].map((i) => (
-          <div key={i} className="bg-surface border border-line rounded-xl p-4 mb-3 shadow-[var(--shadow-card-sm)]">
-            <Skeleton width="40%" height="14px" className="mb-2" />
-            <Skeleton width="100%" height={44} />
-          </div>
-        ))}
+        {[0, 1, 2, 3].map((i) => <SectionCard key={i} step={i + 1} label="" complete={false} loading>
+          <Skeleton width="100%" height={44} />
+        </SectionCard>)}
       </div>
     )
   }
@@ -294,8 +291,8 @@ export default function KobuReservationForm({ profile }: Props) {
   )
 }
 
-function SectionCard({ step, label, complete, children }: {
-  step: number; label: string; complete: boolean; children: React.ReactNode
+function SectionCard({ step, label, complete, loading = false, children }: {
+  step: number; label: string; complete: boolean; loading?: boolean; children: React.ReactNode
 }) {
   return (
     <div className={
@@ -308,9 +305,9 @@ function SectionCard({ step, label, complete, children }: {
             'w-5 h-5 rounded-full flex items-center justify-center text-[0.65rem] font-bold ' +
             (complete ? 'bg-brand text-white' : 'bg-line text-ink-sub')
           }>{step}</span>
-          {label}
+          {loading ? <Skeleton width="84px" height="14px" /> : label}
         </span>
-        {complete && <span className="icon icon-sm text-brand">check_circle</span>}
+        {complete && !loading && <span className="icon icon-sm text-brand">check_circle</span>}
       </div>
       {children}
     </div>

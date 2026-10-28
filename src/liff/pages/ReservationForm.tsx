@@ -4,7 +4,7 @@ import type { LiffProfile } from '../LiffApp'
 import Skeleton from '../../components/Skeleton'
 import FavoritePicker, { type Favorite } from '../../components/FavoritePicker'
 
-type Props = { profile: LiffProfile; onBookingActive?: (active: boolean) => void }
+type Props = { profile: LiffProfile | null; onBookingActive?: (active: boolean) => void }
 type TimeSlot  = { label: string; value: string }
 type DateEntry = { label: string; value: string; timeSlots: TimeSlot[]; lotteryTime?: string; hamoaniActive?: boolean; roomPreferenceEnabled?: boolean; roomRegistrationPending?: boolean; roomChoices?: Record<string, string[]> }
 
@@ -30,17 +30,19 @@ export default function ReservationForm({ profile, onBookingActive }: Props) {
   useEffect(() => { onBookingActive?.(isDirty) }, [isDirty])
 
   useEffect(() => {
+    if (!profile) return
     fetch('/api/settings')
       .then((r) => r.json())
       .then((data) => setDates(data.availableDates ?? []))
       .catch(() => setError('設定の取得に失敗しました'))
       .finally(() => setLoadingSettings(false))
-  }, [])
+  }, [profile])
 
   useEffect(() => {
+    if (!profile) return
     fetch('/api/favorites', { headers: { Authorization: `Bearer ${profile.getAccessToken()}` } })
       .then(r => r.json()).then(d => setFavorites(d.favorites ?? [])).catch(() => {})
-  }, [])
+  }, [profile])
 
   const selectedDateEntry = dates.find((d) => d.value === selectedDate)
   const timeSlots = selectedDateEntry?.timeSlots ?? []
@@ -72,7 +74,7 @@ export default function ReservationForm({ profile, onBookingActive }: Props) {
   }
 
   async function saveAsFavorite() {
-    if (!bandName.trim()) return
+    if (!profile || !bandName.trim()) return
     setSavingFav(true)
     try {
       const res = await fetch('/api/favorites', {
@@ -106,7 +108,7 @@ export default function ReservationForm({ profile, onBookingActive }: Props) {
   }
 
   async function handleSubmit() {
-    if (!canSubmit) return
+    if (!profile || !canSubmit) return
     setSubmitting(true)
     setError(null)
     try {
@@ -143,21 +145,7 @@ export default function ReservationForm({ profile, onBookingActive }: Props) {
   const timeLabel = timeSlots.find((t) => t.value === selectedTime)?.label ?? ''
   const lotteryTime = selectedDateEntry?.lotteryTime ?? ''
 
-  if (loadingSettings) {
-    return (
-      <div>
-        <Skeleton width="100px" height="20px" className="mb-4" />
-        {[0, 1, 2].map((i) => (
-          <div key={i} className="bg-surface border border-line rounded-xl p-4 mb-3 shadow-[var(--shadow-card-sm)]">
-            <Skeleton width="40%" height="14px" className="mb-2" />
-            <Skeleton width="100%" height={i === 0 ? 44 : 80} />
-          </div>
-        ))}
-      </div>
-    )
-  }
-
-  if (done) {
+  if (done && !loadingSettings) {
     const isAlreadyFav = !!selectedFavId || favorites.some(f => f.name === bandName.trim())
     return (
       <div>
@@ -192,12 +180,12 @@ export default function ReservationForm({ profile, onBookingActive }: Props) {
 
   return (
     <div>
-      <p className="text-[1.05rem] font-bold mb-4 text-ink">予約登録</p>
+      <p className="text-[1.05rem] font-bold mb-4 text-ink">{loadingSettings ? <Skeleton width="100px" height="20px" /> : '予約登録'}</p>
 
       {error && <div className="banner-error">{error}</div>}
 
-      <SectionCard step={1} label="バンド名" complete={!!bandName.trim()}>
-        <FavoritePicker favorites={favorites} onSelect={handleFavoriteSelect} />
+      <SectionCard step={1} label="バンド名" complete={!!bandName.trim()} loading={loadingSettings}>
+        {loadingSettings ? <>{favorites.length > 0 && <Skeleton width="100%" height={36} className="mb-2" />}<Skeleton width="100%" height={44} /></> : <><FavoritePicker favorites={favorites} onSelect={handleFavoriteSelect} />
         <input
           className="text-input"
           type="text"
@@ -210,12 +198,12 @@ export default function ReservationForm({ profile, onBookingActive }: Props) {
               if (fav && fav.name !== e.target.value) setSelectedFavId(null)
             }
           }}
-        />
+        /></>}
       </SectionCard>
 
-      <SectionCard step={2} label="日付" complete={!!selectedDate}>
+      <SectionCard step={2} label="日付" complete={!!selectedDate} loading={loadingSettings}>
         <div className="grid grid-cols-3 gap-2">
-          {dates.map((d) => (
+          {loadingSettings ? Array.from({ length: 6 }, (_, i) => <Skeleton key={i} width="100%" height={44} />) : dates.map((d) => (
             <SelectButton key={d.value} active={selectedDate === d.value} disabled={d.roomRegistrationPending || d.timeSlots.length === 0} onClick={() => handleSelectDate(d.value)}>
               {d.label}{d.roomRegistrationPending ? <span className="block text-[0.7rem]">部屋登録待ち</span> : null}
             </SelectButton>
@@ -223,9 +211,9 @@ export default function ReservationForm({ profile, onBookingActive }: Props) {
         </div>
       </SectionCard>
 
-      <SectionCard step={3} label="時間帯" complete={!!selectedTime}>
+      <SectionCard step={3} label="時間帯" complete={!!selectedTime} loading={loadingSettings}>
         <div className="grid grid-cols-2 gap-2">
-          {timeSlots.map((t) => (
+          {loadingSettings ? Array.from({ length: 4 }, (_, i) => <Skeleton key={i} width="100%" height={44} />) : timeSlots.map((t) => (
             <SelectButton key={t.value} active={selectedTime === t.value} onClick={() => { setSelectedTime(t.value); setPreferredRooms([]) }}>
               {t.label}
             </SelectButton>
@@ -281,8 +269,8 @@ export default function ReservationForm({ profile, onBookingActive }: Props) {
         </div>
       )}
 
-      <button className="btn-primary" onClick={handleSubmit} disabled={!canSubmit}>
-        {submitting ? '送信中...' : '予約'}
+      <button className="btn-primary" onClick={handleSubmit} disabled={loadingSettings || !canSubmit}>
+        {loadingSettings ? <Skeleton width="100%" height={22} /> : submitting ? '送信中...' : '予約'}
       </button>
     </div>
   )
@@ -290,8 +278,8 @@ export default function ReservationForm({ profile, onBookingActive }: Props) {
 
 // ── Section card with step badge & completion mark ─────────────
 function SectionCard({
-  step, label, complete, children,
-}: { step: number; label: string; complete: boolean; children: React.ReactNode }) {
+  step, label, complete, loading = false, children,
+}: { step: number; label: string; complete: boolean; loading?: boolean; children: React.ReactNode }) {
   return (
     <div className={
       'bg-surface border rounded-xl p-4 mb-3 shadow-[var(--shadow-card-sm)] transition-colors ' +
@@ -303,9 +291,9 @@ function SectionCard({
             'w-5 h-5 rounded-full flex items-center justify-center text-[0.65rem] font-bold ' +
             (complete ? 'bg-brand text-white' : 'bg-line text-ink-sub')
           }>{step}</span>
-          {label}
+          {loading ? <Skeleton width="84px" height="14px" /> : label}
         </span>
-        {complete && <span className="icon icon-sm text-brand">check_circle</span>}
+        {complete && !loading && <span className="icon icon-sm text-brand">check_circle</span>}
       </div>
       {children}
     </div>

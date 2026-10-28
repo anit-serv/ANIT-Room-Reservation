@@ -12,6 +12,9 @@ type User = {
   pictureUrl: string | null
   banned: boolean
   isAdmin?: boolean
+  isSuperAdmin?: boolean
+  isRoomManager?: boolean
+  canBan?: boolean
   lastReservedAt: number | null
 }
 
@@ -106,28 +109,12 @@ export default function Users() {
 
       {loading ? (
         <>
-          {/* Desktop (md+): avatar | 名前 | 最終予約 | ステータス | chevron */}
           <div className="hidden md:block bg-surface border border-line rounded-xl overflow-hidden shadow-[var(--shadow-card-sm)]">
-            {[0,1,2,3,4].map((i) => (
-              <div key={i} className="flex items-center gap-3 px-4 py-3 border-b border-line last:border-b-0">
-                <Skeleton width={32} height={32} circle />
-                <Skeleton className="flex-1" height="15px" />
-                <Skeleton width="80px" height="13px" />
-                <Skeleton width="72px" height="22px" style={{ borderRadius: 20 }} />
-                <Skeleton width="16px" height="16px" />
-              </div>
-            ))}
+            <table className="admin-table"><thead><tr><th></th><th>最終予約</th><th></th><th style={{ width: '32px' }}></th></tr></thead>
+              <tbody>{[0,1,2,3,4].map((i) => <UserDesktopRow key={i} loading />)}</tbody></table>
           </div>
-          {/* Mobile (< md): avatar | 名前 | ステータス | chevron */}
           <div className="md:hidden bg-surface border border-line rounded-xl overflow-hidden shadow-[var(--shadow-card-sm)]">
-            {[0,1,2,3,4].map((i) => (
-              <div key={i} className="flex items-center gap-3 px-4 py-3 border-b border-line last:border-b-0">
-                <Skeleton width={32} height={32} circle />
-                <Skeleton className="flex-1" height="15px" />
-                <Skeleton width="62px" height="22px" style={{ borderRadius: 20 }} />
-                <Skeleton width="16px" height="16px" />
-              </div>
-            ))}
+            {[0,1,2,3,4].map((i) => <UserMobileCard key={i} loading />)}
           </div>
         </>
       ) : filtered.length === 0 ? (
@@ -149,31 +136,7 @@ export default function Users() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((u) => (
-                <tr key={u.userId} className="cursor-pointer" onClick={() => setSelected(u.userId)}>
-                  <td data-label="ユーザー">
-                    <div className="flex items-center gap-2">
-                      {u.pictureUrl
-                        ? <img src={u.pictureUrl} alt="" className="avatar" />
-                        : <span className="avatar-fallback"><span className="icon">account_circle</span></span>}
-                      <span>{u.displayName || '(名前なし)'}</span>
-                    </div>
-                  </td>
-                  <td data-label="最終予約" className="text-[0.85rem] text-ink-sub">
-                    {u.lastReservedAt ? new Date(u.lastReservedAt).toLocaleDateString('ja-JP') : '-'}
-                  </td>
-                  <td data-label="状態">
-                    {u.isAdmin
-                      ? <span className="badge badge-info"><span className="icon icon-sm">shield_person</span>管理者</span>
-                      : u.banned
-                        ? <span className="badge badge-danger"><span className="icon icon-sm">block</span>BAN中</span>
-                        : <span className="badge badge-confirmed"><span className="icon icon-sm">check_circle</span>有効</span>}
-                  </td>
-                  <td>
-                    <span className="icon text-ink-pale" style={{ fontSize: 18 }}>chevron_right</span>
-                  </td>
-                </tr>
-              ))}
+              {filtered.map((u) => <UserDesktopRow key={u.userId} user={u} onClick={() => setSelected(u.userId)} />)}
             </tbody>
           </table>
         </div>
@@ -194,28 +157,46 @@ export default function Users() {
   )
 }
 
-function UserMobileCard({ u, onClick }: { u: User; onClick: () => void }) {
+function UserMobileCard({ u, loading = false, onClick }: { u?: User; loading?: boolean; onClick?: () => void }) {
   return (
     <button
       className="w-full flex items-center gap-3 px-4 py-3 text-left bg-transparent border-0 border-b border-line last:border-b-0 cursor-pointer hover:bg-[#fafbfc] transition-colors"
       onClick={onClick}
+      disabled={loading}
     >
       <div className="flex items-center gap-2 flex-1 min-w-0">
-        {u.pictureUrl
+        {loading ? <Skeleton width={32} height={32} circle /> : u?.pictureUrl
           ? <img src={u.pictureUrl} alt="" className="avatar" />
           : <span className="avatar-fallback"><span className="icon">account_circle</span></span>}
-        <span className="font-medium truncate">{u.displayName || '(名前なし)'}</span>
+        {loading ? <Skeleton className="flex-1" height="15px" /> : <span className="font-medium truncate">{u?.displayName || '(名前なし)'}</span>}
       </div>
       <div className="flex items-center gap-2 shrink-0">
-        {u.isAdmin
+        {loading ? <Skeleton width="62px" height="22px" style={{ borderRadius: 20 }} /> : u?.isAdmin
           ? <span className="badge badge-info"><span className="icon icon-sm">shield_person</span>管理者</span>
-          : u.banned
+          : u?.banned
             ? <span className="badge badge-danger"><span className="icon icon-sm">block</span>BAN中</span>
             : <span className="badge badge-confirmed"><span className="icon icon-sm">check_circle</span>有効</span>}
-        <span className="icon text-ink-pale" style={{ fontSize: 18 }}>chevron_right</span>
+        {loading ? <Skeleton width="16px" height="16px" /> : <span className="icon text-ink-pale" style={{ fontSize: 18 }}>chevron_right</span>}
       </div>
     </button>
   )
+}
+
+function UserDesktopRow({ user, loading = false, onClick }: { user?: User; loading?: boolean; onClick?: () => void }) {
+  return <tr className={loading ? '' : 'cursor-pointer'} onClick={onClick}>
+    <td data-label="ユーザー"><div className="flex items-center gap-2">
+      {loading ? <><Skeleton width={32} height={32} circle /><Skeleton className="flex-1" height="15px" /></> : <>
+        {user?.pictureUrl ? <img src={user.pictureUrl} alt="" className="avatar" /> : <span className="avatar-fallback"><span className="icon">account_circle</span></span>}
+        <span>{user?.displayName || '(名前なし)'}</span>
+      </>}
+    </div></td>
+    <td data-label="最終予約" className="text-[0.85rem] text-ink-sub">{loading ? <Skeleton width="80px" height="13px" /> : user?.lastReservedAt ? new Date(user.lastReservedAt).toLocaleDateString('ja-JP') : '-'}</td>
+    <td data-label="状態">{loading ? <Skeleton width="72px" height="22px" style={{ borderRadius: 20 }} /> : user?.isAdmin
+      ? <span className="badge badge-info"><span className="icon icon-sm">shield_person</span>管理者</span>
+      : user?.banned ? <span className="badge badge-danger"><span className="icon icon-sm">block</span>BAN中</span>
+      : <span className="badge badge-confirmed"><span className="icon icon-sm">check_circle</span>有効</span>}</td>
+    <td>{loading ? <Skeleton width="16px" height="16px" /> : <span className="icon text-ink-pale" style={{ fontSize: 18 }}>chevron_right</span>}</td>
+  </tr>
 }
 
 function TabButton({ active, onClick, label, count }:
@@ -281,13 +262,13 @@ function UserDetail({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ banned: next }),
       })
-      if (!res.ok) throw new Error()
-      setData({ ...data, user: { ...data.user, banned: next } })
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? '更新に失敗しました')
+      setData({ ...data, user: { ...data.user, banned: next, isAdmin: next ? false : data.user.isAdmin, isSuperAdmin: next ? false : data.user.isSuperAdmin, isRoomManager: next ? false : data.user.isRoomManager } })
       showToast(next ? 'BANしました' : 'BANを解除しました')
       setBanConfirm(false)
       onUpdated()
-    } catch {
-      throw new Error('更新に失敗しました')
+    } catch (err) {
+      throw err
     } finally {
       setWorking(false)
     }
@@ -314,10 +295,10 @@ function UserDetail({
               </button>
             </div>
 
-            {data.user.isAdmin ? (
+            {!data.user.banned && !data.user.canBan ? (
               <div className="bg-link-light text-link border border-link rounded-xl px-4 py-3 mb-4 text-[0.9rem] font-medium">
                 <span className="icon icon-sm align-middle">shield_person</span>
-                {' '}このユーザーは管理者です（BAN できません）
+                {' '}自分自身と管理者以上のユーザーはBANできません
               </div>
             ) : (
               <button
@@ -385,7 +366,7 @@ function UserDetail({
       {data && banConfirm && (
         <ConfirmDialog
           title={data.user.banned ? 'BANを解除しますか？' : 'このユーザーをBANしますか？'}
-          message={data.user.banned ? 'このユーザーのBANを解除します。' : 'このユーザーをBANします。'}
+          message={data.user.banned ? 'このユーザーのBANを解除します。削除した権限は復元されません。' : 'このユーザーをBANし、管理者・部屋取り権限をすべて削除します。'}
           confirmLabel={data.user.banned ? '解除' : 'BAN'}
           onClose={() => setBanConfirm(false)}
           onConfirm={execToggleBan}

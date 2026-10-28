@@ -22,8 +22,11 @@ export type ReservationSettings = ReservationSettingsCore & {
   defaultLotteryTime: string
   lotteryTimeOverrides: LotteryTimeOverrides
   lotteryMode: 'previous-day' | 'same-day'
+  notifyMode: 'previous-day' | 'same-day'
   notifyTime: string
   dayOverride?: ReservationDayOverride | null
+  /** 適用日を待たずに反映する特定日の時間枠。 */
+  immediateDateTimeSlots?: Record<string, TimeSlot[]>
   /** ハモアニ優先抽選の有効期間（開始日）。null なら無効 */
   hamoaniStartDate: string | null
   /** ハモアニ優先抽選の有効期間（終了日、当日を含む）。null なら無効 */
@@ -65,6 +68,31 @@ export const BASE_EFFECTIVE_FROM = '0000-00-00'
 
 const EMPTY_SCHEDULE: PerDaySchedule = { enabled: false, byWeekday: {}, byDate: {} }
 const EMPTY_LOTTERY_OVERRIDES: LotteryTimeOverrides = { byWeekday: {}, byDate: {} }
+
+type ImmediateDatedSettings = {
+  extraDates: string[]
+  excludedDates: string[]
+  byDate: Record<string, TimeSlot[]>
+}
+
+function readImmediateDatedSettings(data: any): ImmediateDatedSettings | null {
+  const value = data?.immediateDatedSettings
+  if (!value || !Array.isArray(value.extraDates) || !Array.isArray(value.excludedDates) ||
+      !value.byDate || typeof value.byDate !== 'object') return null
+  return { extraDates: value.extraDates, excludedDates: value.excludedDates, byDate: value.byDate }
+}
+
+function withImmediateDatedSettings<T extends ReservationSettingsCore>(settings: T, data: any): T {
+  const immediate = readImmediateDatedSettings(data)
+  if (!immediate) return settings
+  return {
+    ...settings,
+    extraDates: immediate.extraDates,
+    excludedDates: immediate.excludedDates,
+    perDaySchedule: { ...settings.perDaySchedule, byDate: immediate.byDate },
+    immediateDateTimeSlots: immediate.byDate,
+  }
+}
 
 export function normalizeLotteryTimeOverrides(value: any): LotteryTimeOverrides {
   const validEntries = (entries: any, keyCheck: (key: string) => boolean) =>
@@ -117,6 +145,9 @@ export function normalizeReservationSettings(data: any, effectiveFrom = BASE_EFF
     defaultLotteryTime: data?.lotteryTime ?? DEFAULT_LOTTERY_TIME,
     lotteryTimeOverrides: normalizeLotteryTimeOverrides(data?.lotteryTimeOverrides),
     lotteryMode: data?.lotteryMode === 'same-day' ? 'same-day' : 'previous-day',
+    notifyMode: data?.notifyMode === 'same-day' ? 'same-day' :
+      data?.notifyMode === 'previous-day' ? 'previous-day' :
+      (data?.lotteryMode === 'same-day' ? 'same-day' : 'previous-day'),
     notifyTime: typeof data?.notifyTime === 'string' && LOTTERY_TIME_RE.test(data.notifyTime)
       ? data.notifyTime : (data?.lotteryTime ?? DEFAULT_NOTIFY_TIME),
     hamoaniStartDate: typeof data?.hamoaniStartDate === 'string' && DATE_ONLY_RE.test(data.hamoaniStartDate) ? data.hamoaniStartDate : null,
@@ -139,6 +170,8 @@ export function pickTimeSlotsForDate(date: string, settings: ReservationSettings
     if (override.type === 'blocked') return []
     if (override.timeSlots?.length) return override.timeSlots
   }
+  const immediateSlots = (settings as ReservationSettings).immediateDateTimeSlots?.[date]
+  if (immediateSlots?.length) return immediateSlots
   const sched = settings.perDaySchedule
   const defaultSlots = settings.timeSlots?.length ? settings.timeSlots : DEFAULT_TIME_SLOTS
   if (!sched?.enabled) return defaultSlots
@@ -146,6 +179,39 @@ export function pickTimeSlotsForDate(date: string, settings: ReservationSettings
   const weekday = new Date(date + 'T00:00:00Z').getUTCDay()
   if (sched.byWeekday?.[String(weekday)]?.length) return sched.byWeekday[String(weekday)]
   return defaultSlots
+}
+
+/** 農部生協が開いている時間を農部室の予約枠から除く。端点が接するだけなら重複しない。 */
+export function excludeNobuSeikyoHours(roomSlots: TimeSlot[], seikyoSlots: TimeSlot[]): TimeSlot[] {
+  const toMinutes = (time: string) => {
+    const [hour, minute] = time.split(':').map(Number)
+    return hour * 60 + minute
+  }
+  const toTime = (minutes: number) => `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`
+  const blocked = seikyoSlots.map((slot) => slot.value.split('-').map(toMinutes))
+    .filter(([start, end]) => Number.isFinite(start) && Number.isFinite(end) && start < end)
+    .sort(([a], [b]) => a - b)
+  return roomSlots.flatMap((slot) => {
+    const [start, end] = slot.value.split('-').map(toMinutes)
+    if (!Number.isFinite(start) || !Number.isFinite(end) || start >= end) return []
+    let available: [number, number][] = [[start, end]]
+    for (const [blockedStart, blockedEnd] of blocked) {
+      available = available.flatMap(([a, b]) => {
+        if (blockedEnd <= a || blockedStart >= b) return [[a, b]] as [number, number][]
+        const parts: [number, number][] = []
+        if (a < blockedStart) parts.push([a, blockedStart])
+        if (blockedEnd < b) parts.push([blockedEnd, b])
+        return parts
+      })
+    }
+    return available.map(([a, b]) => ({ label: `${toTime(a)}〜${toTime(b)}`, value: `${toTime(a)}-${toTime(b)}` }))
+  })
+}
+
+export async function pickNobuRoomTimeSlotsForDate(db: Firestore, date: string, roomSlots: TimeSlot[]): Promise<TimeSlot[]> {
+  const seikyo = await resolveReservationSettingsForDate(db, date)
+  return excludeNobuSeikyoHours(roomSlots,
+    isDateAvailableBySettings(date, seikyo) ? pickTimeSlotsForDate(date, seikyo) : [])
 }
 
 export function isDateAvailableBySettings(date: string, settings: ReservationSettingsCore): boolean {
@@ -311,7 +377,7 @@ export async function listPendingReservationSettingsChanges(
     candidates.push({ ...legacy, source: 'legacy-next-change' })
   }
 
-  return candidates.sort(compareEffectiveFrom)
+  return candidates.sort(compareEffectiveFrom).map((change) => withImmediateDatedSettings(change, data))
 }
 
 export async function resolveReservationSettingsForDate(
@@ -342,19 +408,20 @@ export async function resolveReservationSettingsForDate(
     ? base.notifyTime : lotteryTime
   // ハモアニ期間はバージョン管理せず base の値をそのまま使う（管理画面から自由に即時変更する運用のため）
   const { hamoaniStartDate, hamoaniEndDate } = base
-  if (!latest) return { ...base, lotteryTime, notifyTime, dayOverride }
+  if (!latest) return withImmediateDatedSettings({ ...base, lotteryTime, notifyTime, dayOverride }, data)
 
-  return {
+  return withImmediateDatedSettings({
     ...latest,
     lotteryTime,
     defaultLotteryTime,
     lotteryTimeOverrides,
     lotteryMode: base.lotteryMode,
+    notifyMode: base.notifyMode,
     notifyTime,
     dayOverride,
     hamoaniStartDate,
     hamoaniEndDate,
-  }
+  }, data)
 }
 
 // ─── 汎用施設設定バージョン管理 (工部室・農部室) ───────────
@@ -397,7 +464,7 @@ export async function resolveFacilitySettingsForDate(
   // 農部生協用の resolveReservationSettingsForDate とは意図的に異なる。
   const versions = await listFacilitySettingsVersions(db, settingDocId, { maxEffectiveFrom: date })
   const latest = versions[versions.length - 1]
-  return latest ?? { ...defaults, effectiveFrom: BASE_EFFECTIVE_FROM }
+  return latest ?? { ...defaults, effectiveFrom: BASE_EFFECTIVE_FROM, lotteryTimeOverrides: EMPTY_LOTTERY_OVERRIDES }
 }
 
 export async function resolveReservationSettingsForDates(
@@ -434,9 +501,9 @@ export async function resolveReservationSettingsForDates(
     const lotteryTime = lotteryOverridesByDate[date]?.lotteryTime ?? lotteryTimeForDate(date, defaultLotteryTime, lotteryTimeOverrides)
     const notifyTime = typeof data?.notifyTime === 'string' && LOTTERY_TIME_RE.test(data.notifyTime)
       ? base.notifyTime : lotteryTime
-    result[date] = latest
-      ? { ...latest, lotteryTime, defaultLotteryTime, lotteryTimeOverrides, lotteryMode: base.lotteryMode, notifyTime, dayOverride: overridesByDate[date], hamoaniStartDate: base.hamoaniStartDate, hamoaniEndDate: base.hamoaniEndDate }
-      : { ...base, lotteryTime, notifyTime, dayOverride: overridesByDate[date] }
+    result[date] = withImmediateDatedSettings(latest
+      ? { ...latest, lotteryTime, defaultLotteryTime, lotteryTimeOverrides, lotteryMode: base.lotteryMode, notifyMode: base.notifyMode, notifyTime, dayOverride: overridesByDate[date], hamoaniStartDate: base.hamoaniStartDate, hamoaniEndDate: base.hamoaniEndDate }
+      : { ...base, lotteryTime, notifyTime, dayOverride: overridesByDate[date] }, data)
   }
   return result
 }

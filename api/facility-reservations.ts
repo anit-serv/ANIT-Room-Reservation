@@ -1,7 +1,7 @@
 import { VercelRequest, VercelResponse } from '@vercel/node'
 import * as admin from 'firebase-admin'
 import { verifyLineToken } from '../lib/verifyLineToken'
-import { resolveFacilitySettingsForDate } from '../lib/reservationSettings'
+import { excludeNobuSeikyoHours, isDateAvailableBySettings, pickNobuRoomTimeSlotsForDate, pickTimeSlotsForDate, resolveFacilitySettingsForDate, resolveReservationSettingsForDates } from '../lib/reservationSettings'
 import 'dotenv/config'
 
 const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n')
@@ -129,6 +129,9 @@ async function handleCreate(req: VercelRequest, res: VercelResponse) {
         if (byWd?.length) timeSlots = byWd
       }
     }
+    if (cfg.settingsDoc === 'nobu-room') {
+      timeSlots = await pickNobuRoomTimeSlotsForDate(db, date, timeSlots)
+    }
     const startMin = timeToMinutes(startTime)
     const endMin   = timeToMinutes(endTime)
     const fitsInSlot = timeSlots.some(s => {
@@ -249,7 +252,36 @@ async function handleAll(req: VercelRequest, res: VercelResponse) {
       dayMap[d.date].push({ id: doc.id, userId: own ? d.userId : '', bandName: d.bandName, startTime: d.startTime, endTime: d.endTime })
     })
     for (const day of Object.values(dayMap)) day.sort((a, b) => a.startTime.localeCompare(b.startTime))
-    return res.status(200).json({ dayMap, weekStart, weekEnd })
+    let availableSlotsByDate: Record<string, { label: string; value: string }[]> | undefined
+    if (cfg.settingsDoc === 'nobu-room') {
+      const baseDoc = await db.collection('settings').doc('nobu-room').get()
+      const baseData = baseDoc.data() ?? {}
+      const roomSlots = baseData.timeSlots?.length ? baseData.timeSlots
+        : baseData.openTime || baseData.closeTime
+          ? [{ label: '', value: `${baseData.openTime ?? '08:00'}-${baseData.closeTime ?? '20:00'}` }]
+          : [{ label: '8:00~20:00', value: '08:00-20:00' }]
+      const baseDefaults = {
+        availableDays: baseData.availableDays ?? [0, 1, 2, 3, 4, 5, 6],
+        extraDates: baseData.extraDates ?? [],
+        excludedDates: baseData.excludedDates ?? [],
+        timeSlots: roomSlots.filter((slot: any) => !slot.deleted),
+        perDaySchedule: baseData.perDaySchedule ?? { enabled: false, byWeekday: {}, byDate: {} },
+      }
+      const dates = Array.from({ length: 7 }, (_, i) => {
+        const day = new Date(`${weekStart}T00:00:00Z`)
+        day.setUTCDate(day.getUTCDate() + i)
+        return day.toISOString().slice(0, 10)
+      })
+      const seikyoByDate = await resolveReservationSettingsForDates(db, dates)
+      availableSlotsByDate = Object.fromEntries(await Promise.all(dates.map(async (date) => {
+        const settings = await resolveFacilitySettingsForDate(db, 'nobu-room', date, baseDefaults)
+        const slots = isDateAvailableBySettings(date, settings) ? pickTimeSlotsForDate(date, settings) : []
+        const seikyo = seikyoByDate[date]
+        const blocked = isDateAvailableBySettings(date, seikyo) ? pickTimeSlotsForDate(date, seikyo) : []
+        return [date, excludeNobuSeikyoHours(slots, blocked)] as const
+      })))
+    }
+    return res.status(200).json({ dayMap, weekStart, weekEnd, ...(availableSlotsByDate ? { availableSlotsByDate } : {}) })
   } catch (err: any) {
     return res.status(err.status ?? 500).json({ error: err.message })
   }
@@ -370,7 +402,23 @@ async function handleModify(req: VercelRequest, res: VercelResponse, docId: stri
     if (newStart === data.startTime && newEnd === data.endTime && Object.keys(updates).length === 0)
       return res.status(200).json({ success: true })
 
-    const slots = getEffectiveSlots(data.date, settingsDoc.data() ?? {})
+    const baseData = settingsDoc.data() ?? {}
+    const resolvedSettings = await resolveFacilitySettingsForDate(db, cfg.settingsDoc, data.date, {
+      availableDays: baseData.availableDays ?? [0, 1, 2, 3, 4, 5, 6],
+      extraDates: baseData.extraDates ?? [],
+      excludedDates: baseData.excludedDates ?? [],
+      timeSlots: baseData.timeSlots ?? [{ label: '8:00~20:00', value: '08:00-20:00' }],
+      perDaySchedule: baseData.perDaySchedule ?? { enabled: false, byWeekday: {}, byDate: {} },
+    })
+    const effectiveSlots = getEffectiveSlots(data.date, resolvedSettings)
+    const availableSlots = cfg.settingsDoc === 'nobu-room'
+      ? await pickNobuRoomTimeSlotsForDate(db, data.date,
+        effectiveSlots.map(({ start, end }) => ({ label: `${start}〜${end}`, value: `${start}-${end}` })))
+      : effectiveSlots.map(({ start, end }) => ({ label: `${start}〜${end}`, value: `${start}-${end}` }))
+    const slots = availableSlots.map((slot) => {
+      const [start, end] = slot.value.split('-')
+      return { start, end }
+    })
 
     if (timeToMinutes(newStart) < timeToMinutes(data.startTime)) {
       const slotStart = findSlotStart(data.startTime, slots)
@@ -395,7 +443,7 @@ async function handleModify(req: VercelRequest, res: VercelResponse, docId: stri
       s => timeToMinutes(finalStart) >= timeToMinutes(s.start)
         && timeToMinutes(finalEnd)   <= timeToMinutes(s.end)
     )
-    if (!fitsInSlot) {
+    if (!fitsInSlot && (newStart !== data.startTime || newEnd !== data.endTime)) {
       const slotStr = slots.map(s => `${s.start}〜${s.end}`).join(' / ')
       return res.status(400).json({ error: `予約可能時間は ${slotStr} です` })
     }

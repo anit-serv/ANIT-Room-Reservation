@@ -6,12 +6,12 @@ import SeikyoReservations from './pages/Reservations'
 import NobuRoomReservations from './pages/NobuRoomReservations'
 import KobuReservations from './pages/KobuReservations'
 import SeikyoSettings from './pages/Settings'
-import NobuEmergencySettings from './pages/NobuEmergencySettings'
 import NobuRoomSettings from './pages/NobuRoomSettings'
 import KobuSettings from './pages/KobuSettings'
 import Users from './pages/Users'
 import Admins from './pages/Admins'
 import Logs from './pages/Logs'
+import BandNotificationStatus from './pages/BandNotificationStatus'
 
 export default function AdminApp() {
   return (
@@ -25,8 +25,9 @@ export default function AdminApp() {
         <Route path="reservations/kobu" element={<KobuReservations />} />
         <Route path="settings" element={<Navigate to="/admin/settings/nobu" replace />} />
         <Route path="settings/nobu" element={<SeikyoSettings />} />
+        <Route path="settings/nobu-notifications" element={<BandNotificationStatus />} />
         <Route path="settings/room-preference" element={<Navigate to="/admin/settings/nobu" replace />} />
-        <Route path="settings/nobu-emergency" element={<NobuEmergencySettings />} />
+        <Route path="settings/nobu-emergency" element={<Navigate to="/admin/settings/nobu" replace />} />
         <Route path="settings/nobu-room" element={<NobuRoomSettings />} />
         <Route path="settings/kobu" element={<KobuSettings />} />
         <Route path="users" element={<Users />} />

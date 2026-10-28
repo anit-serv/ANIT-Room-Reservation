@@ -34,13 +34,15 @@ export async function bandUserKey(destination: BandDestination = 'post'): Promis
   return profile.user_key
 }
 
-export async function listBandPosts(maxPages = 1, destination: BandDestination = 'post'): Promise<{ posts: BandPost[]; complete: boolean }> {
+export async function listBandPosts(maxPages = 1, destination: BandDestination = 'post', since?: number): Promise<{ posts: BandPost[]; complete: boolean }> {
   const posts: BandPost[] = []
   let after: string | undefined
   for (let page = 0; page < maxPages; page++) {
     const result = await get<{ items: BandPost[]; paging?: { next_params?: { after?: string } } }>(
       '/v2/band/posts', { locale: 'ja_JP', ...(after ? { after } : {}) }, destination)
     posts.push(...(result.items ?? []))
+    // BAND returns newest posts first. Older pages cannot contain a match within this window.
+    if (since !== undefined && (result.items ?? []).some((item) => item.created_at < since)) return { posts, complete: true }
     after = result.paging?.next_params?.after
     if (!after) return { posts, complete: true }
   }
@@ -65,56 +67,30 @@ export async function findOwnComment(postKey: string, content: string, ownKey: s
   return comments.find((comment) => comment.author?.user_key === ownKey && comment.content === content)?.comment_key ?? null
 }
 
-export async function writeBandComment(postKey: string, content: string, ownKey: string): Promise<string> {
-  let key = await findOwnComment(postKey, content, ownKey)
-  if (key) return key
-  try {
-    await post('/v2/band/post/comment/create', { post_key: postKey, body: content }, 'comment')
-  } catch {
-    key = await findOwnComment(postKey, content, ownKey)
-    if (!key) {
-      await sleep(10_000)
-      key = await findOwnComment(postKey, content, ownKey)
-      if (!key) await post('/v2/band/post/comment/create', { post_key: postKey, body: content }, 'comment')
-    }
-  }
-  key = await findOwnComment(postKey, content, ownKey)
-  if (!key) throw new Error('BAND comment send result unknown')
-  return key
-}
-
-export async function writeBandPost(content: string, ownKey: string): Promise<string> {
-  const startedAt = Date.now()
-  const find = async () => (await listBandPosts(30)).posts
-    .filter((item) => item.author?.user_key === ownKey && item.content === content &&
-      item.created_at >= startedAt - 2 * 60_000)
-    .sort((a, b) => b.created_at - a.created_at)
-  let postKey: string | undefined
-  try {
-    const data = await post<{ post_key: string }>('/v2.2/band/post/create', { content, do_push: true })
-    postKey = data.post_key
-  } catch {
-    let matches = await find()
-    if (!matches.length) { await sleep(10_000); matches = await find() }
-    if (!matches.length) {
-      const data = await post<{ post_key: string }>('/v2.2/band/post/create', { content, do_push: true })
-      postKey = data.post_key
-    } else postKey = matches[0].post_key
-  }
-  if (!postKey) throw new Error('BAND post send result unknown')
-  const duplicates = await find()
-  for (const duplicate of duplicates) {
-    if (duplicate.post_key !== postKey) await removeBandPost(duplicate.post_key).catch(() => {})
-  }
-  return postKey
-}
-
 export async function removeBandComment(postKey: string, commentKey: string) {
   await post('/v2/band/post/comment/remove', { post_key: postKey, comment_key: commentKey }, 'comment')
 }
 
 export async function removeBandPost(postKey: string) {
   await post('/v2/band/post/remove', { post_key: postKey })
+}
+
+// Durable delivery uses one external write only; an ambiguous response is reconciled, never blindly resent.
+export async function createBandPostOnce(content: string): Promise<string> {
+  const data = await post<{ post_key: string }>('/v2.2/band/post/create', { content, do_push: true })
+  if (!data.post_key) throw new Error('BAND post key missing')
+  return data.post_key
+}
+export async function createBandCommentOnce(postKey: string, content: string, ownKey: string): Promise<string> {
+  await post('/v2/band/post/comment/create', { post_key: postKey, body: content }, 'comment')
+  const key = await findOwnComment(postKey, content, ownKey)
+  if (!key) throw new Error('BAND comment key missing')
+  return key
+}
+export async function findOwnPost(content: string, ownKey: string, startedAt: number): Promise<string | null> {
+  const listed = await listBandPosts(30, 'post', startedAt - 60_000)
+  return listed.posts.find((item) => item.author?.user_key === ownKey && item.content === content &&
+    item.created_at >= startedAt - 60_000)?.post_key ?? null
 }
 
 export function matchesMention(post: BandPost, ownKey: string): boolean {

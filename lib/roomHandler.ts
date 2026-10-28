@@ -3,12 +3,15 @@ import * as admin from 'firebase-admin'
 import * as crypto from 'crypto'
 import { verifyAdmin } from './verifyAdmin'
 import { verifyRoomManager } from './verifyRoomManager'
+import { roomManagerIds, roomManagerUpdate } from './roomManagerPermissions'
 import { getRoomDay, getRoomPreferenceConfig, isRoomPreferenceEnabled, minimumModeDate, normalizeRoomList, roomDayRef, roomModeRef, usableRooms } from './roomPreference'
 import { isDateAvailableBySettings, pickTimeSlotsForDate, resolveReservationSettingsForDate, todayJST } from './reservationSettings'
 import { reservationDeadline } from './lotteryOperation'
 import { refreshLotterySlot } from './roomAllocation'
 import { ensureBandPollCron } from './cronSchedule'
-import { bandUserKey, writeBandPost } from './band'
+import { processNotification } from './notificationService'
+import { milliseconds, schedulerEnabled, enqueue, QUEUE } from './schedulerQueue'
+import { schedulerStatus } from './schedulerStatus'
 import { resultMessage } from './notificationMessage'
 import 'dotenv/config'
 
@@ -59,7 +62,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           if (notificationMode === 'comment' && !process.env.BAND_COMMENT_KEY) {
             return res.status(400).json({ error: 'コメント先BANDのキーが未設定です' })
           }
-          if (notificationMode === 'comment') await ensureBandPollCron(db, req.headers.host)
+          // Post-only operation also needs cancellation replacements and cleanup.
+          await ensureBandPollCron(db, req.headers.host)
           await db.collection('settings').doc('room-preference').set({ notificationMode, fallbackPost,
             updatedAt: new Date(), updatedBy: me.userId }, { merge: true })
         }
@@ -82,17 +86,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
       if (req.method === 'PUT') {
         const userId = String(req.body?.userId ?? '')
-        const user = await db.collection('users').doc(userId).get()
-        if (!user.exists) return res.status(404).json({ error: '移譲先のユーザーが見つかりません' })
-        if (user.data()?.banned === true) return res.status(400).json({ error: '利用停止中のユーザーには移譲できません' })
-        await db.collection('settings').doc('room-manager').set({ userId,
-          displayName: user.data()?.displayName ?? '', updatedAt: new Date(), updatedBy: me.userId })
+        const userRef = db.collection('users').doc(userId)
+        await db.runTransaction(async (tx) => {
+          const user = await tx.get(userRef)
+          if (!user.exists) throw new Error('移譲先のユーザーが見つかりません')
+          if (user.data()?.banned === true) throw new Error('利用停止中のユーザーには移譲できません')
+          tx.set(db.collection('settings').doc('room-manager'), {
+            ...roomManagerUpdate([userId], me.userId), displayName: user.data()?.displayName ?? '',
+          })
+        })
         return res.status(200).json({ success: true })
       }
       return res.status(405).json({ error: 'Method Not Allowed' })
     }
 
-    if (path === 'notifications' || path === 'notifications/manual') {
+    if (path === 'notifications' || path === 'notifications/manual' || path === 'notifications/retry' || path === 'notifications/confirm-resend') {
       const me = await verifyAdmin(req.headers.authorization)
       if (path === 'notifications' && req.method === 'GET') {
         const [resultRefs, cleanup] = await Promise.all([
@@ -107,6 +115,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             notificationError: doc.data()?.notificationError ?? null,
             notificationDirty: doc.data()?.notificationDirty === true })),
           cleanupPending: cleanup.size,
+          scheduler: await schedulerStatus(db),
         })
       }
       if (path === 'notifications/manual' && req.method === 'POST') {
@@ -117,16 +126,74 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         if (!result.exists) return res.status(404).json({ error: '抽選結果が見つかりません' })
         const content = resultMessage(date, result.data())
         if (!content) return res.status(400).json({ error: '通知する結果がありません' })
-        const postKey = await writeBandPost(content, await bandUserKey())
-        await ref.update({ pollStatus: 'complete', notificationSentAt: new Date(),
-          notificationRevisionSent: result.data()?.notificationRevision ?? 1,
-          manualNotificationAt: new Date(), manualNotificationBy: me.userId,
-          deliveries: { ...(result.data()?.deliveries ?? {}), post: {
-            kind: 'post', postKey, content, revision: result.data()?.notificationRevision ?? 1 } },
-          notificationError: null, notificationDirty: false })
+        const unknown = await db.collection('band_deliveries').where('date', '==', date).get()
+        if (unknown.docs.some((doc) => doc.data().status !== 'sent')) {
+          return res.status(409).json({ error: '送信結果不明の記録があります。先に送信結果の再確認を実行してください' })
+        }
+        await db.runTransaction(async (tx) => {
+          const fresh = await tx.get(ref), data = fresh.data()!
+          if (milliseconds(data.notificationLeaseUntil) > Date.now()) throw new Error('通知処理中です')
+          if (data.notificationSentAt) throw new Error('既に通知済みです。結果更新の再試行を使ってください')
+          tx.update(ref, { notificationMode: 'post', pollStatus: 'posting', notificationError: null,
+            manualNotificationAt: new Date(), manualNotificationBy: me.userId })
+        })
+        await processNotification(db, date)
+        if (schedulerEnabled()) await enqueue(db, 'cleanup', 'all', Date.now(), { repeat: true })
+        return res.status(200).json({ success: true })
+      }
+      if (path === 'notifications/retry' && req.method === 'POST') {
+        const date = String(req.body?.date ?? '')
+        if (!DATE_RE.test(date)) return res.status(400).json({ error: '日付が不正です' })
+        const ref = db.collection(QUEUE).doc(`band_${date}`)
+        // Only reconcile existing send records. Unknown writes are never resent by this action.
+        await db.runTransaction(async (tx) => {
+          const job = await tx.get(ref)
+          if (job.data()?.status === 'running') throw new Error('通知処理中です')
+          tx.set(ref, { kind: 'band', date, status: 'pending', attempts: 0,
+            dueAt: new Date(), availableAt: new Date(), generation: (job.data()?.generation ?? 0) + 1 }, { merge: true })
+        })
+        if (!schedulerEnabled()) await processNotification(db, date)
+        return res.status(200).json({ success: true })
+      }
+      if (path === 'notifications/confirm-resend' && req.method === 'POST') {
+        const date = String(req.body?.date ?? '')
+        if (!DATE_RE.test(date) || req.body?.confirmedNotDelivered !== true) {
+          return res.status(400).json({ error: 'BAND画面で未送信であることを確認してください' })
+        }
+        const resultRef = db.collection('lottery_results').doc(date), jobRef = db.collection(QUEUE).doc(`band_${date}`)
+        await db.runTransaction(async (tx) => {
+          const [result, job, attempts] = await Promise.all([
+            tx.get(resultRef), tx.get(jobRef), tx.get(db.collection('band_deliveries').where('date', '==', date)),
+          ])
+          if (!result.exists || job.data()?.status === 'running' || milliseconds(result.data()?.notificationLeaseUntil) > Date.now()) {
+            throw new Error('通知処理中、または抽選結果が見つかりません')
+          }
+          const unknown = attempts.docs.filter((doc) => doc.data().status !== 'sent')
+          if (!unknown.length) throw new Error('送信結果不明の記録はありません')
+          if (unknown.some((doc) => milliseconds(doc.data().leaseUntil) > Date.now())) throw new Error('通知処理中です')
+          for (const attempt of unknown) tx.update(attempt.ref, { status: 'prepared', startedAt: new Date(),
+            resendConfirmedBy: me.userId, resendConfirmedAt: new Date() })
+          tx.update(resultRef, { notificationDirty: true, notificationError: null })
+          tx.set(jobRef, { kind: 'band', date, status: 'pending', attempts: 0, dueAt: new Date(), availableAt: new Date(),
+            generation: (job.data()?.generation ?? 0) + 1 }, { merge: true })
+        })
+        if (!schedulerEnabled()) await processNotification(db, date)
         return res.status(200).json({ success: true })
       }
       return res.status(405).json({ error: 'Method Not Allowed' })
+    }
+
+    if (path === 'transfer-candidates' && req.method === 'GET') {
+      const me = await verifyRoomManager(req.headers.authorization)
+      const [snap, managerSnap] = await Promise.all([
+        db.collection('users').get(),
+        db.collection('settings').doc('room-manager').get(),
+      ])
+      const managerIds = new Set(roomManagerIds(managerSnap.data()))
+      return res.status(200).json({ users: snap.docs
+        .filter((doc) => doc.id !== me.userId && doc.data().banned !== true &&
+          !managerIds.has(doc.id))
+        .map((doc) => ({ userId: doc.id, displayName: doc.data().displayName ?? '' })) })
     }
 
     if (path === 'transfer') {
@@ -134,14 +201,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const me = await verifyRoomManager(req.headers.authorization)
       const targetId = String(req.body?.userId ?? '')
       if (!targetId || targetId === me.userId) return res.status(400).json({ error: '別のユーザーを指定してください' })
-      const target = await db.collection('users').doc(targetId).get()
-      if (!target.exists) return res.status(404).json({ error: '移譲先のユーザーが見つかりません' })
+      const targetRef = db.collection('users').doc(targetId)
       const ref = db.collection('settings').doc('room-manager')
       await db.runTransaction(async (tx) => {
-        const current = await tx.get(ref)
-        if (current.data()?.userId !== me.userId) throw new Error('Forbidden')
-        tx.set(ref, { userId: targetId, displayName: target.data()?.displayName ?? '',
-          updatedAt: new Date(), updatedBy: me.userId })
+        const [current, target] = await Promise.all([tx.get(ref), tx.get(targetRef)])
+        const actorAdmin = await tx.get(db.collection('admins').doc(me.userId))
+        const ids = roomManagerIds(current.data())
+        if (!actorAdmin.exists && !ids.includes(me.userId)) throw new Error('Forbidden')
+        if (!target.exists) throw new Error('移譲先のユーザーが見つかりません')
+        if (target.data()?.banned === true) throw new Error('利用停止中のユーザーには移譲できません')
+        if (ids.includes(targetId)) throw new Error('移譲先は既に部屋取り権限を持っています')
+        const nextIds = actorAdmin.exists ? [targetId] : [...ids.filter((id) => id !== me.userId), targetId]
+        tx.set(ref, { ...roomManagerUpdate(nextIds, me.userId),
+          displayName: target.data()?.displayName ?? '' })
       })
       return res.status(200).json({ success: true })
     }
@@ -151,7 +223,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const me = await verifyRoomManager(req.headers.authorization)
       const token = crypto.randomBytes(24).toString('hex')
       const expiresAt = new Date(Date.now() + 24 * 60 * 60_000)
-      await db.collection('invitations').doc(token).set({ kind: 'room-manager', createdBy: me.userId, fromManager: me.userId,
+      await db.collection('invitations').doc(token).set({ kind: 'transfer', authority: 'room',
+        sourceId: me.userId, createdBy: me.userId, roomScope: me.isAdmin ? 'all' : 'self',
         createdAt: new Date(), expiresAt, used: false })
       return res.status(201).json({ url: `https://${req.headers.host}/api/admin/invite?token=${token}`,
         expiresAt: expiresAt.toISOString() })
@@ -215,6 +288,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(404).json({ error: 'Not Found' })
   } catch (err: any) {
     if (err.message === 'Unauthorized' || err.message === 'Forbidden') return authError(res, err)
+    if (err.message === '移譲先のユーザーが見つかりません') return res.status(404).json({ error: err.message })
+    if (err.message === '利用停止中のユーザーには移譲できません') return res.status(400).json({ error: err.message })
+    if (err.message === '移譲先は既に部屋取り権限を持っています') return res.status(400).json({ error: err.message })
+    if (err.message === '移譲先は管理者以上の権限を持っています') return res.status(400).json({ error: err.message })
     if (err.message === '予約後は部屋一覧を変更できません') return res.status(409).json({ error: err.message })
     console.error(err)
     return res.status(500).json({ error: err.message })

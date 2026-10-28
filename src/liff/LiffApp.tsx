@@ -24,12 +24,13 @@ const MAIN_TABS: { id: MainTab; icon: string; label: string }[] = [
   { id: 'my',       icon: 'event_note',   label: '自分の予約' },
 ]
 
-function NobuSubNav({ active, onChange }: { active: SubView; onChange: (v: SubView) => void }) {
+function NobuSubNav({ active, onChange, loading = false }: { active: SubView; onChange: (v: SubView) => void; loading?: boolean }) {
   return (
     <div className="flex gap-2 mb-4">
       {(['register', 'all'] as SubView[]).map((v) => (
         <button
           key={v}
+          disabled={loading}
           onClick={() => onChange(v)}
           className={
             'flex-1 py-2 rounded-lg text-[0.85rem] font-medium border transition ' +
@@ -38,7 +39,7 @@ function NobuSubNav({ active, onChange }: { active: SubView; onChange: (v: SubVi
               : 'bg-surface text-ink-sub border-line hover:border-brand')
           }
         >
-          {v === 'register' ? '予約登録' : '全体確認'}
+          {loading ? <Skeleton width="70%" height="14px" className="mx-auto" /> : v === 'register' ? '予約登録' : '全体確認'}
         </button>
       ))}
     </div>
@@ -161,80 +162,17 @@ function App() {
 
   if (!profile) return (
     <div className="liff-shell">
-      {/* タブナビゲーション */}
-      <nav className="flex bg-surface border-b border-line sticky top-0 z-10">
-        {MAIN_TABS.map((_, i) => (
-          <div key={i} className="flex-1 px-1 py-2.5 flex flex-col items-center gap-1">
-            <Skeleton width="22px" height="22px" />
-            <Skeleton width="40px" height="10px" />
-          </div>
-        ))}
-      </nav>
-      <main className="flex-1 p-4 overflow-y-auto">
-        {/* サブナビ (登録 / 全体確認) */}
-        <div className="flex gap-2 mb-4">
-          <Skeleton className="flex-1" height="36px" style={{ borderRadius: 8 }} />
-          <Skeleton className="flex-1" height="36px" style={{ borderRadius: 8 }} />
-        </div>
-        {/* ステップカード: バンド名 */}
-        <div className="bg-surface border border-line rounded-xl p-4 mb-3 shadow-[var(--shadow-card-sm)]">
-          <div className="flex items-center gap-1.5 mb-3">
-            <Skeleton width="20px" height="20px" circle />
-            <Skeleton width="60px" height="12px" />
-          </div>
-          <Skeleton width="100%" height="44px" style={{ borderRadius: 8 }} />
-        </div>
-        {/* ステップカード: 日付 */}
-        <div className="bg-surface border border-line rounded-xl p-4 mb-3 shadow-[var(--shadow-card-sm)]">
-          <div className="flex items-center gap-1.5 mb-3">
-            <Skeleton width="20px" height="20px" circle />
-            <Skeleton width="44px" height="12px" />
-          </div>
-          <div className="grid grid-cols-3 gap-2">
-            {[0,1,2,3,4,5].map((i) => <Skeleton key={i} height="42px" style={{ borderRadius: 8 }} />)}
-          </div>
-        </div>
-        {/* ステップカード: 時間帯 */}
-        <div className="bg-surface border border-line rounded-xl p-4 mb-3 shadow-[var(--shadow-card-sm)]">
-          <div className="flex items-center gap-1.5 mb-3">
-            <Skeleton width="20px" height="20px" circle />
-            <Skeleton width="52px" height="12px" />
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            {[0,1,2,3].map((i) => <Skeleton key={i} height="42px" style={{ borderRadius: 8 }} />)}
-          </div>
-        </div>
-        {/* 予約ボタン */}
-        <Skeleton width="100%" height="46px" style={{ borderRadius: 12 }} />
+      <MainTabNav active="nobu" loading />
+      <main className="flex-1 min-h-0 p-4 overflow-y-auto flex flex-col">
+        <NobuSubNav active="register" onChange={() => {}} loading />
+        <ReservationForm profile={null} />
       </main>
     </div>
   )
 
   return (
     <div className="liff-shell">
-      <nav className="relative flex bg-surface border-b border-line sticky top-0 z-10">
-        {/* スライドするアクティブインジケーター */}
-        <div
-          className="absolute bottom-0 h-[2.5px] bg-brand transition-transform duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]"
-          style={{
-            width: `${100 / MAIN_TABS.length}%`,
-            transform: `translateX(${MAIN_TABS.findIndex((t) => t.id === mainTab) * 100}%)`,
-          }}
-        />
-        {MAIN_TABS.map(({ id, icon, label }) => (
-          <button
-            key={id}
-            onClick={() => handleTabClick(id)}
-            className={
-              'flex-1 flex flex-col items-center gap-0.5 px-1 py-2.5 text-[0.7rem] transition-colors duration-200 ' +
-              (mainTab === id ? 'text-brand font-semibold' : 'text-ink-pale')
-            }
-          >
-            <span className="icon" style={{ fontSize: 22 }}>{icon}</span>
-            {label}
-          </button>
-        ))}
-      </nav>
+      <MainTabNav active={mainTab} onSelect={handleTabClick} />
 
       <main ref={mainRef} className="flex-1 min-h-0 p-4 overflow-y-auto flex flex-col">
         {mainTab === 'nobu' && (
@@ -301,3 +239,31 @@ function App() {
 }
 
 export default App
+
+function MainTabNav({ active, loading = false, onSelect }: {
+  active: MainTab
+  loading?: boolean
+  onSelect?: (tab: MainTab) => void
+}) {
+  return <nav className="relative flex bg-surface border-b border-line sticky top-0 z-10">
+    {!loading && <div
+      className="absolute bottom-0 h-[2.5px] bg-brand transition-transform duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]"
+      style={{
+        width: `${100 / MAIN_TABS.length}%`,
+        transform: `translateX(${MAIN_TABS.findIndex((tab) => tab.id === active) * 100}%)`,
+      }}
+    />}
+    {MAIN_TABS.map(({ id, icon, label }) => <button
+      key={id}
+      type="button"
+      disabled={loading}
+      onClick={() => onSelect?.(id)}
+      className={'flex-1 flex flex-col items-center gap-0.5 px-1 py-2.5 text-[0.7rem] transition-colors duration-200 ' +
+        (active === id && !loading ? 'text-brand font-semibold' : 'text-ink-pale')}
+    >
+      {loading ? <><Skeleton width="22px" height="22px" /><Skeleton width="40px" height="10px" /></> : <>
+        <span className="icon" style={{ fontSize: 22 }}>{icon}</span>{label}
+      </>}
+    </button>)}
+  </nav>
+}

@@ -1,6 +1,6 @@
 import { useState, useEffect, useLayoutEffect, useRef } from 'react'
 import type { LiffProfile } from '../LiffApp'
-import Skeleton from '../../components/Skeleton'
+import ScheduleLoading, { scheduleGridClass, scheduleToolbarClass } from '../components/ScheduleLoading'
 import CalendarPicker from '../../components/CalendarPicker'
 import FavoritePicker, { type Favorite } from '../../components/FavoritePicker'
 import { getCalendarPopoverPosition } from '../../components/popoverPosition'
@@ -725,17 +725,12 @@ export default function KobuSchedule({ profile, initialEdit, initialFocus, onEdi
   }, [modal, sheetPeeking])
 
   // ─── ローディング ─────────────────────────────────────
-  if (!settings) return (
-    <div>
-      <Skeleton width="200px" height="32px" className="mb-3" />
-      <Skeleton width="100%" height="420px" />
-    </div>
-  )
+  if (!settings) return <ScheduleLoading fullPage height={totalDisp} />
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
       {/* 週ナビゲーション */}
-      <div className="flex items-center gap-1.5 mb-2 flex-wrap relative">
+      <div className={scheduleToolbarClass}>
         <button ref={calendarButtonRef} className="btn-icon-nav" onClick={toggleCalendar}>
           <span className="icon">calendar_month</span>
         </button>
@@ -786,7 +781,7 @@ export default function KobuSchedule({ profile, initialEdit, initialFocus, onEdi
       {error && <div className="banner-error">{error}</div>}
 
       {loading && !dayMap ? (
-        <Skeleton width="100%" height="420px" />
+        <ScheduleLoading height={totalDisp} />
       ) : dayMap !== null ? (() => {
         function renderDayHeaders(tWeek: string) {
           return Array.from({ length: 7 }, (_, i) => addDays(tWeek, i)).map((date) => {
@@ -878,7 +873,7 @@ export default function KobuSchedule({ profile, initialEdit, initialFocus, onEdi
         }
 
         return (
-          <div className={`border border-line rounded-xl shadow-[var(--shadow-card-sm)] overflow-hidden flex flex-col flex-1 min-h-0 transition-[margin] duration-200 ${sheetPeeking ? 'mb-[168px]' : ''}`}
+          <div className={`${scheduleGridClass} ${sheetPeeking ? 'mb-[168px]' : ''}`}
             onClick={sheetPeeking ? () => setCloseConfirm(true) : undefined}>
             <div
               ref={scrollRef}
@@ -1058,7 +1053,7 @@ export default function KobuSchedule({ profile, initialEdit, initialFocus, onEdi
       )}
 
       {/* 予約モーダル（ボトムシート） */}
-      {(modal || modalClosing) && dayMap && (() => {
+      {modal && dayMap && (() => {
         const isDirty = editingId
           ? (bandName.trim() !== editOriginal?.bandName || modalStart !== editOriginal?.startTime || modalEnd !== editOriginal?.endTime)
           : !!bandName.trim()

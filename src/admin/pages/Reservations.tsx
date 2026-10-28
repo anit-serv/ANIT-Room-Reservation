@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { adminFetch } from '../auth'
 import { getPageCache, setPageCache } from '../pageCache'
-import Skeleton from '../../components/Skeleton'
+import { ReservationDesktopGroup, reservationMobileDateClass, reservationMobileRowClass, reservationMobileTriggerClass } from '../components/ReservationListLayout'
 import ConfirmDialog from '../../components/ConfirmDialog'
 import DatePicker from '../../components/DatePicker'
 
@@ -20,6 +20,7 @@ type Reservation = {
   order?: number
   hamoani?: boolean
   createdAt: number | null
+  nameOnlyEditable?: boolean
 }
 
 const RESERVATION_POLL_MS = 60_000
@@ -195,6 +196,11 @@ export default function Reservations() {
     else groups.push({ date, items: [reservation] })
     return groups
   }, [])
+  const loadingDate = dateFilter || addDaysJST(0)
+  const visibleGroups = loading ? [{ date: loadingDate, items: Array.from({ length: 5 }, (_, i): Reservation => ({
+    id: `loading-${i}`, userId: '', userDisplayName: '読み込み中', userPictureUrl: null,
+    bandName: '読み込み中', date: `${loadingDate}T12:00`, status: 'pending', createdAt: null,
+  })) }] : reservationGroups
 
   return (
     <div>
@@ -218,86 +224,17 @@ export default function Reservations() {
       </div>
 
       {error && <div className="banner-error">{error}</div>}
-      {loading ? (
-        <>
-          {/* Desktop skeleton (lg+): 日付ヘッダー + テーブル行 */}
-          <div className="hidden lg:flex flex-col gap-4">
-            <div className="bg-surface border border-line rounded-xl overflow-hidden shadow-[var(--shadow-card-sm)]">
-              <div className="flex items-center justify-between px-5 py-3 bg-bg border-b border-line">
-                <Skeleton width="160px" height="15px" />
-                <Skeleton width="24px" height="13px" />
-              </div>
-              {[0,1,2,3,4,5].map((i) => (
-                <div key={i} className="flex items-center gap-4 px-4 py-3 border-b border-line last:border-b-0" style={{ minHeight: 52 }}>
-                  <Skeleton width="150px" height="34px" />
-                  <Skeleton className="flex-1" height="17px" />
-                  <div className="flex items-center gap-2" style={{ width: 200 }}>
-                    <Skeleton width={22} height={22} circle />
-                    <Skeleton width="100px" height="13px" />
-                  </div>
-                  <Skeleton width="120px" height="22px" style={{ borderRadius: 20 }} />
-                  <Skeleton width="22px" height="13px" />
-                  <Skeleton width="72px" height="32px" />
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Mobile skeleton (< lg): アコーディオンカード */}
-          <div className="lg:hidden bg-surface border border-line rounded-xl overflow-hidden shadow-[var(--shadow-card-sm)]">
-            <div className="bg-bg px-4 py-2 border-b border-line">
-              <Skeleton width="150px" height="13px" />
-            </div>
-            {[0,1,2,3,4].map((i) => (
-              <div key={i} className="flex items-center gap-3 px-4 py-3 border-b border-line last:border-b-0">
-                <div className="flex-1">
-                  <Skeleton width="55%" height="15px" className="mb-1.5" />
-                  <Skeleton width="38%" height="12px" />
-                </div>
-                <Skeleton width="80px" height="22px" style={{ borderRadius: 20 }} />
-                <Skeleton width="32px" height="32px" />
-              </div>
-            ))}
-          </div>
-        </>
-      ) : reservations.length === 0 ? (
+      {!loading && reservations.length === 0 ? (
         <div className="empty-state">
           <span className="icon icon-xl text-ink-pale">event_busy</span>
           <span className="text-[0.9rem]">該当する予約がありません</span>
         </div>
       ) : (
-        <>
+        <div className={loading ? 'skeleton-layout' : ''} aria-busy={loading} ref={(el) => { if (el) el.inert = loading }}>
         {/* Desktop */}
         <div className="hidden lg:flex flex-col gap-4">
-          {reservationGroups.map((group) => (
-            <section key={group.date} className="bg-surface border border-line rounded-xl overflow-hidden shadow-[var(--shadow-card-sm)]">
-              <div ref={(el) => { desktopDateRefs.current[group.date] = el }} className="flex items-center justify-between px-5 py-3 bg-bg border-b border-line">
-                <div className="flex items-center gap-2 font-bold text-ink">
-                  <span className="icon icon-sm text-ink-pale">event</span>
-                  {formatDateHeading(group.date)}
-                </div>
-                <span className="text-[0.78rem] font-semibold text-ink-sub">{group.items.length}件</span>
-              </div>
-              <table className="admin-table" style={{ tableLayout: 'fixed', width: '100%' }}>
-                <colgroup>
-                  <col style={{ width: '150px' }} />
-                  <col />
-                  <col style={{ width: '200px' }} />
-                  <col style={{ width: '130px' }} />
-                  <col style={{ width: '70px' }} />
-                  <col style={{ width: '100px' }} />
-                </colgroup>
-                <thead>
-                  <tr>
-                    <th>時間</th>
-                    <th>バンド名</th>
-                    <th>登録者</th>
-                    <th className="text-right">ステータス</th>
-                    <th className="text-right">順位</th>
-                    <th>操作</th>
-                  </tr>
-                </thead>
-                <tbody>
+          {visibleGroups.map((group) => (
+            <ReservationDesktopGroup key={group.date} variant="nobu" label={formatDateHeading(group.date)} count={group.items.length} headerRef={(el) => { desktopDateRefs.current[group.date] = el }}>
                   {group.items.map((r) => {
                 const [, timePart] = r.date.split('T')
                 return (
@@ -351,20 +288,18 @@ export default function Reservations() {
                   </tr>
                 )
               })}
-                </tbody>
-              </table>
-            </section>
+            </ReservationDesktopGroup>
           ))}
         </div>
 
         {/* Mobile accordion */}
         <div className="lg:hidden bg-surface border border-line rounded-xl overflow-hidden shadow-[var(--shadow-card-sm)]">
-          {reservationGroups.map((group, i) => (
+          {visibleGroups.map((group, i) => (
             <div key={group.date}>
               <div
                 ref={(el) => { mobileDateRefs.current[group.date] = el }}
                 className={
-                  'bg-bg px-4 py-2 text-[0.82rem] font-bold text-ink-sub border-b border-line ' +
+                  reservationMobileDateClass + ' ' +
                   (i > 0 ? 'border-t' : '')
                 }
               >
@@ -385,7 +320,7 @@ export default function Reservations() {
             </div>
           ))}
         </div>
-        </>
+        </div>
       )}
 
       {deleteTarget && (
@@ -448,10 +383,10 @@ function ReservationMobileCard({
   return (
     <div
       ref={rowRef}
-      className={`border-b border-line last:border-b-0 ${highlighted ? 'row-highlight' : ''}`}
+      className={`${reservationMobileRowClass} ${highlighted ? 'row-highlight' : ''}`}
     >
       <button
-        className="w-full flex items-center gap-3 px-4 py-3 text-left bg-transparent border-0 cursor-pointer hover:bg-[#fafbfc] transition-colors"
+        className={reservationMobileTriggerClass}
         onClick={onToggle}
       >
         <div className="flex-1 min-w-0">
@@ -514,6 +449,7 @@ function EditModal({
   onClose: () => void
   onSaved: () => void
 }) {
+  const nameOnlyEditable = reservation.nameOnlyEditable === true
   const [bandName, setBandName] = useState(reservation.bandName)
   const [datePart, timePart] = reservation.date.split('T')
   const [date, setDate] = useState(datePart)
@@ -526,6 +462,7 @@ function EditModal({
   const [err, setErr] = useState<string | null>(null)
 
   useEffect(() => {
+    if (nameOnlyEditable) return
     let alive = true
     setLoadingDates(true)
     setErr(null)
@@ -552,9 +489,10 @@ function EditModal({
         if (alive) setLoadingDates(false)
       })
     return () => { alive = false }
-  }, [])
+  }, [nameOnlyEditable])
 
   useEffect(() => {
+    if (nameOnlyEditable) return
     if (!date) {
       setTimeSlots([])
       setTime('')
@@ -586,7 +524,7 @@ function EditModal({
         if (alive) setLoadingSlots(false)
       })
     return () => { alive = false }
-  }, [date])
+  }, [date, nameOnlyEditable])
 
   async function save() {
     setSaving(true)
@@ -595,7 +533,7 @@ function EditModal({
       const res = await adminFetch(`/api/admin/reservations/${reservation.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ bandName, date: `${date}T${time}` }),
+        body: JSON.stringify(nameOnlyEditable ? { bandName } : { bandName, date: `${date}T${time}` }),
       })
       if (!res.ok) throw new Error((await res.json()).error ?? '保存に失敗しました')
       onSaved()
@@ -616,6 +554,9 @@ function EditModal({
           </button>
         </div>
         {err && <div className="banner-error">{err}</div>}
+        {nameOnlyEditable && (
+          <div className="banner-warn">抽選締切後のため、バンド名のみ編集できます</div>
+        )}
         <div className="form-row">
           <label>バンド名</label>
           <input className="text-input" value={bandName} onChange={(e) => setBandName(e.target.value)} />
@@ -626,14 +567,14 @@ function EditModal({
             className="text-input"
             value={date}
             onChange={(e) => setDate(e.target.value)}
-            disabled={loadingDates || dateOptions.length === 0}
+            disabled={nameOnlyEditable || loadingDates || dateOptions.length === 0}
           >
             {dateOptions.map((d) => (
               <option key={d.value} value={d.value}>{d.label}</option>
             ))}
             {dateOptions.length === 0 && (
               <option value="">
-                {loadingDates ? '日付候補を読み込み中...' : '選択できる日付がありません'}
+                {nameOnlyEditable ? reservation.date.split('T')[0] : loadingDates ? '日付候補を読み込み中...' : '選択できる日付がありません'}
               </option>
             )}
           </select>
@@ -644,7 +585,7 @@ function EditModal({
             className="text-input"
             value={time}
             onChange={(e) => setTime(e.target.value)}
-            disabled={loadingSlots || timeSlots.length === 0}
+            disabled={nameOnlyEditable || loadingSlots || timeSlots.length === 0}
           >
             {timeSlots.map((slot) => (
               <option key={slot.value} value={slot.value}>
@@ -653,13 +594,13 @@ function EditModal({
             ))}
             {timeSlots.length === 0 && (
               <option value="">
-                {loadingSlots ? '時間枠を読み込み中...' : '選択できる時間枠がありません'}
+                {nameOnlyEditable ? reservation.date.split('T')[1] : loadingSlots ? '時間枠を読み込み中...' : '選択できる時間枠がありません'}
               </option>
             )}
           </select>
         </div>
         <div className="mt-4">
-          <button className="btn-primary" onClick={save} disabled={saving || loadingDates || loadingSlots || dateOptions.length === 0 || timeSlots.length === 0 || !date || !time}>
+          <button className="btn-primary" onClick={save} disabled={saving || !bandName.trim() || (!nameOnlyEditable && (loadingDates || loadingSlots || dateOptions.length === 0 || timeSlots.length === 0 || !date || !time))}>
             {saving ? '保存中...' : '保存'}
           </button>
         </div>

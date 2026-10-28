@@ -12,3 +12,4 @@ scripts
 .log
 
 .claude/
+.scheduler-cron-state.json

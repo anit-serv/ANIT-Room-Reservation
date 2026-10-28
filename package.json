@@ -2,6 +2,7 @@
   "name": "anit-room-reservation",
   "version": "1.0.0",
   "scripts": {
+    "test:scheduler": "node --test tests/scheduler.test.cjs",
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",

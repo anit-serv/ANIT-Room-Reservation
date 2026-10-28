@@ -157,6 +157,40 @@
 }
 @utility skel-circle { border-radius: 9999px; }
 
+/* Render the real form tree while settings are unavailable. Layout changes now
+   affect the loading state automatically instead of requiring a parallel page. */
+.skeleton-layout {
+  pointer-events: none;
+  user-select: none;
+}
+.skeleton-layout * {
+  color: transparent !important;
+  -webkit-text-fill-color: transparent !important;
+}
+.skeleton-layout :is(h1, h2, h3, input, select, textarea, button) {
+  background: linear-gradient(90deg, #ececef 0%, #f5f5f7 50%, #ececef 100%) !important;
+  background-size: 200% 100% !important;
+  animation: var(--animate-skel);
+  border-color: transparent !important;
+  border-radius: 6px;
+}
+.skeleton-layout td {
+  position: relative;
+}
+.skeleton-layout td::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 12px;
+  width: min(70%, 140px);
+  height: 14px;
+  transform: translateY(-50%);
+  background: linear-gradient(90deg, #ececef 0%, #f5f5f7 50%, #ececef 100%);
+  background-size: 200% 100%;
+  animation: var(--animate-skel);
+  border-radius: 6px;
+}
+
 /* ── スピナー ─────────────────────────────────────── */
 @utility spinner {
   width: 36px;

@@ -2,6 +2,8 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "rewrites": [
+    { "source": "/api/scheduler", "destination": "/api/data-organize?task=scheduler" },
+    { "source": "/api/scheduler/recover", "destination": "/api/data-organize?task=scheduler-recover" },
     { "source": "/api/admin/:path*",             "destination": "/api/admin?_path=:path*" },
     { "source": "/api/room/:path*",              "destination": "/api/admin?_path=room/:path*" },
     { "source": "/api/band-poll",               "destination": "/api/notify?_poll=1" },

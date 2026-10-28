@@ -1,3 +1,8 @@
 dist
 node_modules
 .env
+.env.*
+anit-room-reservation-firebase-adminsdk-*.json
+.scheduler-cron-state.json
+band-poll-check.jsonl
+.git

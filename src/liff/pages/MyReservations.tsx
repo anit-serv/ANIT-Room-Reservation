@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, type ReactNode } from 'react'
 import type { LiffProfile } from '../LiffApp'
 import Skeleton from '../../components/Skeleton'
 import ConfirmDialog from '../../components/ConfirmDialog'
@@ -6,6 +6,18 @@ import { getPageCache, setPageCache } from '../pageCache'
 
 const MY_RES_KEY = 'liff:my-reservations'
 const MY_FAV_KEY = 'liff:my-favorites'
+
+function ReservationGroupFrame({ date, count, loading = false, children }: { date?: string; count?: number; loading?: boolean; children: ReactNode }) {
+  return <section className="mb-4 last:mb-0 bg-surface border border-line rounded-xl overflow-hidden shadow-[var(--shadow-card-sm)]">
+    <div className="flex items-center justify-between bg-bg px-4 py-2.5 text-[0.82rem] font-bold text-ink-sub border-b border-line">
+      <span>{loading ? <Skeleton width="100px" height="14px" /> : date}</span>
+      <span className="text-[0.75rem] font-semibold">{loading ? <Skeleton width="28px" height="12px" /> : `${count ?? 0}件`}</span>
+    </div>
+    <div>{children}</div>
+  </section>
+}
+
+const RESERVATION_ROW_CLASS = 'flex items-center gap-3 px-4 py-[0.9rem] border-b border-line last:border-b-0 '
 
 type Favorite = {
   id: string
@@ -286,29 +298,6 @@ export default function MyReservations({ profile, initialEdit, onEditHandled, on
     }
   }
 
-  if (loading) return (
-    <div>
-      <Skeleton width="120px" height="20px" className="mb-4" />
-      {[0, 1, 2].map((i) => (
-        <div key={i} className="reservation-card">
-          <div className="flex flex-col items-center gap-1 shrink-0">
-            <Skeleton width="44px" height="44px" style={{ borderRadius: 12 }} />
-            <Skeleton width="32px" height="10px" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-start justify-between gap-2 mb-1.5">
-              <Skeleton width="55%" height="16px" />
-              <Skeleton width="56px" height="20px" style={{ borderRadius: 20 }} />
-            </div>
-            <Skeleton width="72%" height="12px" />
-          </div>
-        </div>
-      ))}
-    </div>
-  )
-
-  if (error) return <div className="banner-error mt-4">{error}</div>
-
   const favSection = (
     <div className="mb-4 bg-surface border border-line rounded-xl overflow-hidden shadow-[var(--shadow-card-sm)]">
       <button
@@ -361,6 +350,22 @@ export default function MyReservations({ profile, initialEdit, onEditHandled, on
       </div>
     </div>
   )
+
+  if (loading) return <div>
+    <div className="skeleton-layout" aria-busy="true" ref={(el) => { if (el) el.inert = true }}>{favSection}</div>
+    <div className="flex items-center justify-between mb-4">
+      <p className="text-[1.05rem] font-bold m-0 text-ink"><Skeleton width="120px" height="20px" /></p>
+      <Skeleton width="44px" height="24px" />
+    </div>
+    <ReservationGroupFrame loading>
+      {[0, 1, 2].map((i) => <div key={i} className={RESERVATION_ROW_CLASS}>
+        <div className="flex flex-col items-center gap-1 shrink-0"><Skeleton width="44px" height="44px" style={{ borderRadius: 12 }} /><Skeleton width="32px" height="10px" /></div>
+        <div className="flex-1 min-w-0"><div className="flex items-start justify-between gap-2 mb-1"><Skeleton width="55%" height="16px" /><Skeleton width="56px" height="20px" style={{ borderRadius: 20 }} /></div><Skeleton width="72%" height="12px" /></div>
+      </div>)}
+    </ReservationGroupFrame>
+  </div>
+
+  if (error) return <div className="banner-error mt-4">{error}</div>
 
   if (reservations.length === 0) {
     return (
@@ -424,12 +429,7 @@ export default function MyReservations({ profile, initialEdit, onEditHandled, on
       )}
 
       {reservationGroups.map((group) => (
-        <section key={group.date} className="mb-4 last:mb-0 bg-surface border border-line rounded-xl overflow-hidden shadow-[var(--shadow-card-sm)]">
-          <div className="flex items-center justify-between bg-bg px-4 py-2.5 text-[0.82rem] font-bold text-ink-sub border-b border-line">
-            <span>{formatDateHeading(group.date)}</span>
-            <span className="text-[0.75rem] font-semibold">{group.items.length}件</span>
-          </div>
-          <div>
+        <ReservationGroupFrame key={group.date} date={formatDateHeading(group.date)} count={group.items.length}>
       {group.items.map((r) => {
         const isDeleting  = deleting === r.id
         const past        = isPast(r)
@@ -452,7 +452,7 @@ export default function MyReservations({ profile, initialEdit, onEditHandled, on
           <div
             key={r.id}
             className={
-              'flex items-center gap-3 px-4 py-[0.9rem] border-b border-line last:border-b-0 ' +
+              RESERVATION_ROW_CLASS +
               (isCancelled ? '' : 'cursor-pointer active:bg-bg')
             }
             onClick={isCancelled ? undefined : () => onReservationOpen?.(r)}
@@ -519,8 +519,7 @@ export default function MyReservations({ profile, initialEdit, onEditHandled, on
           </div>
         )
       })}
-          </div>
-        </section>
+        </ReservationGroupFrame>
       ))}
 
       {/* お気に入り編集モーダル */}

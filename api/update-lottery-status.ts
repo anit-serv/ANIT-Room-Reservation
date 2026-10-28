@@ -3,6 +3,8 @@ import * as admin from 'firebase-admin';
 import { updateReservationStatus } from '../lib/update-reservation-status';
 import 'dotenv/config';
 import { lotteryTargetDate } from '../lib/lotteryOperation';
+import { schedulerEnabled } from '../lib/schedulerQueue';
+import { runScheduler } from '../lib/scheduler';
 
 // ---------------------------------------------------------
 // 1. 設定・初期化
@@ -29,11 +31,12 @@ const db = admin.firestore();
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // セキュリティチェック
   const { key, date } = req.query;
-  if (key !== process.env.CRON_SECRET) {
+  if (!process.env.CRON_SECRET || key !== process.env.CRON_SECRET) {
     return res.status(401).json({ status: 'error', message: 'Unauthorized' });
   }
 
   try {
+    if (schedulerEnabled()) return res.status(200).json(await runScheduler(db))
     // 1. 対象の日付を決定
     let targetDateStr: string;
 

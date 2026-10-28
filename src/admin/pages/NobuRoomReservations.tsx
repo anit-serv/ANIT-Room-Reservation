@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { adminFetch } from '../auth'
 import { getPageCache, setPageCache } from '../pageCache'
-import Skeleton from '../../components/Skeleton'
+import { ReservationDesktopGroup, reservationMobileDateClass, reservationMobileRowClass, reservationMobileTriggerClass } from '../components/ReservationListLayout'
 import ConfirmDialog from '../../components/ConfirmDialog'
 import DatePicker from '../../components/DatePicker'
 
@@ -194,6 +194,10 @@ export default function NobuRoomReservations() {
     else groups.push({ date: reservation.date, items: [reservation] })
     return groups
   }, [])
+  const visibleGroups = loading ? [{ date: dateFilter || addDaysJST(0), items: Array.from({ length: 5 }, (_, i): NobuRoomReservation => ({
+    id: `loading-${i}`, userId: '', userDisplayName: '読み込み中', userPictureUrl: null,
+    bandName: '読み込み中', date: dateFilter || addDaysJST(0), startTime: '12:00', endTime: '13:00', status: 'confirmed', createdAt: null,
+  })) }] : reservationGroups
 
   return (
     <div>
@@ -213,79 +217,17 @@ export default function NobuRoomReservations() {
 
       {error && <div className="banner-error">{error}</div>}
 
-      {loading ? (
-        <>
-          {/* Desktop skeleton (lg+) */}
-          <div className="hidden lg:flex flex-col gap-4">
-            <div className="bg-surface border border-line rounded-xl overflow-hidden shadow-[var(--shadow-card-sm)]">
-              <div className="flex items-center justify-between px-5 py-3 bg-bg border-b border-line">
-                <Skeleton width="160px" height="15px" />
-                <Skeleton width="24px" height="13px" />
-              </div>
-              {[0,1,2,3,4].map((i) => (
-                <div key={i} className="flex items-center gap-4 px-4 py-3 border-b border-line last:border-b-0" style={{ minHeight: 52 }}>
-                  <Skeleton width="180px" height="34px" />
-                  <Skeleton className="flex-1" height="17px" />
-                  <div className="flex items-center gap-2" style={{ width: 220 }}>
-                    <Skeleton width={22} height={22} circle />
-                    <Skeleton width="110px" height="13px" />
-                  </div>
-                  <Skeleton width="88px" height="32px" />
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Mobile skeleton (< lg) */}
-          <div className="lg:hidden bg-surface border border-line rounded-xl overflow-hidden shadow-[var(--shadow-card-sm)]">
-            <div className="bg-bg px-4 py-2 border-b border-line">
-              <Skeleton width="150px" height="13px" />
-            </div>
-            {[0,1,2,3,4].map((i) => (
-              <div key={i} className="flex items-center gap-3 px-4 py-3 border-b border-line last:border-b-0">
-                <div className="flex-1">
-                  <Skeleton width="55%" height="15px" className="mb-1.5" />
-                  <Skeleton width="40%" height="12px" />
-                </div>
-                <Skeleton width="32px" height="32px" />
-              </div>
-            ))}
-          </div>
-        </>
-      ) : reservations.length === 0 ? (
+      {!loading && reservations.length === 0 ? (
         <div className="empty-state">
           <span className="icon icon-xl text-ink-pale">event_busy</span>
           <span className="text-[0.9rem]">該当する予約がありません</span>
         </div>
       ) : (
-        <>
+        <div className={loading ? 'skeleton-layout' : ''} aria-busy={loading} ref={(el) => { if (el) el.inert = loading }}>
           {/* Desktop */}
           <div className="hidden lg:flex flex-col gap-4">
-            {reservationGroups.map((group) => (
-              <section key={group.date} className="bg-surface border border-line rounded-xl overflow-hidden shadow-[var(--shadow-card-sm)]">
-                <div ref={(el) => { desktopDateRefs.current[group.date] = el }} className="flex items-center justify-between px-5 py-3 bg-bg border-b border-line">
-                  <div className="flex items-center gap-2 font-bold text-ink">
-                    <span className="icon icon-sm text-ink-pale">event</span>
-                    {formatDateHeading(group.date)}
-                  </div>
-                  <span className="text-[0.78rem] font-semibold text-ink-sub">{group.items.length}件</span>
-                </div>
-                <table className="admin-table" style={{ tableLayout: 'fixed', width: '100%' }}>
-                  <colgroup>
-                    <col style={{ width: '180px' }} />
-                    <col />
-                    <col style={{ width: '220px' }} />
-                    <col style={{ width: '100px' }} />
-                  </colgroup>
-                  <thead>
-                    <tr>
-                      <th>時間帯</th>
-                      <th>バンド名</th>
-                      <th>登録者</th>
-                      <th>操作</th>
-                    </tr>
-                  </thead>
-                  <tbody>
+            {visibleGroups.map((group) => (
+              <ReservationDesktopGroup key={group.date} variant="room" label={formatDateHeading(group.date)} count={group.items.length} headerRef={(el) => { desktopDateRefs.current[group.date] = el }}>
                     {group.items.map((r) => (
                       <tr key={r.id}
                         ref={(el) => { desktopRowRefs.current[r.id] = el }}
@@ -324,17 +266,15 @@ export default function NobuRoomReservations() {
                         </td>
                       </tr>
                     ))}
-                  </tbody>
-                </table>
-              </section>
+              </ReservationDesktopGroup>
             ))}
           </div>
 
           {/* Mobile */}
           <div className="lg:hidden bg-surface border border-line rounded-xl overflow-hidden shadow-[var(--shadow-card-sm)]">
-            {reservationGroups.map((group) => (
+            {visibleGroups.map((group) => (
               <div key={group.date}>
-                <div ref={(el) => { mobileDateRefs.current[group.date] = el }} className="bg-bg px-4 py-2 text-[0.82rem] font-bold text-ink-sub border-b border-line">
+                <div ref={(el) => { mobileDateRefs.current[group.date] = el }} className={reservationMobileDateClass}>
                   {formatDateHeading(group.date)}
                 </div>
                 {group.items.map((r) => (
@@ -348,7 +288,7 @@ export default function NobuRoomReservations() {
               </div>
             ))}
           </div>
-        </>
+        </div>
       )}
 
       {deleteTarget && (
@@ -378,9 +318,9 @@ function NobuRoomMobileCard({ r, highlighted, rowRef, open, onToggle, onEdit, on
   open: boolean; onToggle: () => void; onEdit: () => void; onDelete: () => void
 }) {
   return (
-    <div ref={rowRef} className={`border-b border-line last:border-b-0 ${highlighted ? 'row-highlight' : ''}`}>
+    <div ref={rowRef} className={`${reservationMobileRowClass} ${highlighted ? 'row-highlight' : ''}`}>
       <button
-        className="w-full flex items-center gap-3 px-4 py-3 text-left bg-transparent border-0 cursor-pointer hover:bg-[#fafbfc] transition-colors"
+        className={reservationMobileTriggerClass}
         onClick={onToggle}
       >
         <div className="flex-1 min-w-0">

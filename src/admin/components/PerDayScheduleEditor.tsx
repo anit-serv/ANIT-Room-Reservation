@@ -20,6 +20,7 @@ type Props = {
   presets?: TimeSlotPreset[]
   onSavePreset?: (name: string, slots: TimeSlot[]) => Promise<void> | void
   onDeletePreset?: (id: string) => Promise<void> | void
+  immediateDateRules?: boolean
 }
 
 function todayJST(): string {
@@ -55,7 +56,7 @@ export function findAllConflicts(s: PerDaySchedule): boolean {
 }
 
 export default function PerDayScheduleEditor({
-  schedule, onChange, defaultSlots, availableDays, extraDates = [], excludedDates = [], presets, onSavePreset, onDeletePreset,
+  schedule, onChange, defaultSlots, availableDays, extraDates = [], excludedDates = [], presets, onSavePreset, onDeletePreset, immediateDateRules = false,
 }: Props) {
   const [pickWeekday, setPickWeekday] = useState<string>('')
   const [pickDate, setPickDate]       = useState<string>('')
@@ -143,6 +144,7 @@ export default function PerDayScheduleEditor({
         )}
         <button type="button" className="btn-outline w-auto px-3 py-2" onClick={() => setAdding('date')}>
           <span className="icon icon-sm">add</span> 特定日ルールを追加
+          {immediateDateRules && <span className="ml-2 badge badge-neutral">即時反映</span>}
         </button>
       </div>
 
@@ -166,7 +168,8 @@ export default function PerDayScheduleEditor({
       {adding === 'date' && (
         <RuleComposer title="特定日ルールを追加" onClose={() => { setAdding(null); setPickDate('') }}>
           <div className="flex gap-2 items-center flex-wrap">
-            <DatePicker value={pickDate} onChange={setPickDate} min={todayJST()} placeholder="日付を選択" />
+            <DatePicker value={pickDate} onChange={setPickDate} min={todayJST()} placeholder="日付を選択"
+              isDateDisabled={immediateDateRules ? (date) => !!getDateWarning(date, availableDays, extraDates, excludedDates) : undefined} />
             <button
               type="button"
               className="btn-primary w-auto px-4 py-2"
@@ -211,7 +214,7 @@ export default function PerDayScheduleEditor({
       )}
 
       {dateRules.length > 0 && (
-        <RuleList title="特定日ルール">
+        <RuleList title={immediateDateRules ? '特定日ルール（即時反映）' : '特定日ルール'}>
           {dateRules.map(([date, slots]) => (
             <RuleCard
               key={date}

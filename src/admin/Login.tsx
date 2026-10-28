@@ -40,10 +40,8 @@ export default function Login() {
   const urlError = params.get('error')
   const displayError = exchangeError ?? (urlError
     ? urlError === 'not_admin'           ? '管理者として登録されていません'
-      : urlError === 'invitation_expired' ? '招待リンクの有効期限が切れています'
-      : urlError === 'invitation_used'    ? 'この招待リンクは既に使用されています'
-      : urlError === 'invalid_invitation' ? '無効な招待リンクです'
       : urlError === 'invalid'            ? '認証に失敗しました'
+      : urlError === 'invalid_invitation' ? '招待リンクは使用済みか無効です'
       : 'ログインに失敗しました'
     : null)
 

@@ -1,6 +1,6 @@
 import { useState, useEffect, useLayoutEffect, useRef } from 'react'
 import type { LiffProfile } from '../LiffApp'
-import Skeleton from '../../components/Skeleton'
+import ScheduleLoading, { scheduleGridClass, scheduleToolbarClass } from '../components/ScheduleLoading'
 import CalendarPicker from '../../components/CalendarPicker'
 import FavoritePicker, { type Favorite } from '../../components/FavoritePicker'
 import { getCalendarPopoverPosition } from '../../components/popoverPosition'
@@ -82,23 +82,6 @@ function formatDate(dateStr: string) {
 }
 
 // ─── 予約可能チェック ──────────────────────────────────
-function isDateAvailable(date: string, settings: NobuRoomSettings, today: string, maxDate: string): boolean {
-  if (date < today || date > maxDate) return false
-  if (settings.excludedDates.includes(date)) return false
-  const wd = new Date(date + 'T00:00:00Z').getUTCDay()
-  return settings.availableDays.includes(wd) || settings.extraDates.includes(date)
-}
-
-// ─── タイムスロットユーティリティ ────────────────────
-function getEffectiveSlots(date: string, settings: NobuRoomSettings): TimeSlot[] {
-  const { perDaySchedule, timeSlots } = settings
-  if (!perDaySchedule?.enabled) return timeSlots ?? []
-  if (perDaySchedule.byDate?.[date]?.length)  return perDaySchedule.byDate[date]
-  const wd = String(new Date(date + 'T00:00:00Z').getUTCDay())
-  if (perDaySchedule.byWeekday?.[wd]?.length) return perDaySchedule.byWeekday[wd]
-  return timeSlots ?? []
-}
-
 function slotsRange(slots: TimeSlot[]): { open: number; close: number } {
   if (!slots.length) return { open: 8 * 60, close: 20 * 60 }
   const starts = slots.map(s => toMinutes(s.value.split('-')[0]))
@@ -168,6 +151,7 @@ export default function NobuRoomSchedule({ profile, initialEdit, initialFocus, o
     const cached = getPageCache<DayMap>(`${NOBU_ROOM_WEEK_PREFIX}${initWS}`)
     return cached ? { [initWS]: cached } : {}
   })
+  const [availableSlotsByWeek, setAvailableSlotsByWeek] = useState<Record<string, Record<string, TimeSlot[]>>>({})
   const [outgoingWeek,      setOutgoingWeek]      = useState<string | null>(null)
   const [slideDir,          setSlideDir]          = useState<'left' | 'right' | null>(null)
   const scrollRef   = useRef<HTMLDivElement>(null)
@@ -251,6 +235,12 @@ export default function NobuRoomSchedule({ profile, initialEdit, initialFocus, o
   }
 
   const dayMap = weekCache[weekStart] ?? null
+  function getEffectiveSlots(date: string): TimeSlot[] {
+    return availableSlotsByWeek[getSundayOfWeek(date)]?.[date] ?? []
+  }
+  function isRoomDateAvailable(date: string, _settings: NobuRoomSettings, today: string, maxDate: string): boolean {
+    return date >= today && date <= maxDate && getEffectiveSlots(date).length > 0
+  }
 
   useEffect(() => {
     if (modal === null) { onBookingActive?.(false); return }
@@ -337,7 +327,7 @@ export default function NobuRoomSchedule({ profile, initialEdit, initialFocus, o
   }, [pendingRepeat, dayMap, weekStart])
 
   async function fetchWeek(start: string, silent = false, force = false) {
-    if (!force && weekCache[start] !== undefined) return
+    if (!force && weekCache[start] !== undefined && availableSlotsByWeek[start] !== undefined) return
     if (!silent) { setLoading(true); setError(null) }
     try {
       const res = await fetch(`/api/nobu-room-reservations/all?weekStart=${start}`, {
@@ -347,6 +337,7 @@ export default function NobuRoomSchedule({ profile, initialEdit, initialFocus, o
       const data = await res.json()
       const dayMapData = data.dayMap ?? {}
       setWeekCache(prev => ({ ...prev, [start]: dayMapData }))
+      setAvailableSlotsByWeek(prev => ({ ...prev, [start]: data.availableSlotsByDate ?? {} }))
       setPageCache(`${NOBU_ROOM_WEEK_PREFIX}${start}`, dayMapData)
     } catch {
       if (!silent) setError('取得に失敗しました')
@@ -402,7 +393,7 @@ export default function NobuRoomSchedule({ profile, initialEdit, initialFocus, o
   function handleDayTap(e: React.MouseEvent<HTMLDivElement>, date: string) {
     if (sheetPeeking) {
       if (settings) {
-        const effectiveSlots = getEffectiveSlots(date, settings)
+        const effectiveSlots = getEffectiveSlots(date)
         const rect       = e.currentTarget.getBoundingClientRect()
         const yOffset    = e.clientY - rect.top
         const rawMinutes = dispStart + Math.floor(yOffset / 15) * 15
@@ -416,9 +407,9 @@ export default function NobuRoomSchedule({ profile, initialEdit, initialFocus, o
     if (!dayMap || !settings) return
     const today   = todayJST()
     const maxDate = maxBookingDate()
-    if (!isDateAvailable(date, settings, today, maxDate)) return
+    if (!isRoomDateAvailable(date, settings, today, maxDate)) return
 
-    const effectiveSlots = getEffectiveSlots(date, settings)
+    const effectiveSlots = getEffectiveSlots(date)
     const rect       = e.currentTarget.getBoundingClientRect()
     const yOffset    = e.clientY - rect.top
     const rawMinutes = dispStart + Math.floor(yOffset / 15) * 15
@@ -459,7 +450,7 @@ export default function NobuRoomSchedule({ profile, initialEdit, initialFocus, o
 
   function isPresetAvailable(preset: TimePreset): boolean {
     if (!modal || !dayMap || !settings) return false
-    const effectiveSlots = getEffectiveSlots(modal.date, settings)
+    const effectiveSlots = getEffectiveSlots(modal.date)
     const startOpts = buildStartOptions(modal.date, dayMap, effectiveSlots)
     const endOpts   = buildEndOptions(toMinutes(preset.startTime), modal.date, dayMap, effectiveSlots)
     const isPastStart = modal.date === todayJST() && toMinutes(preset.startTime) < (Math.floor(nowMinutes / 15) + 1) * 15
@@ -475,7 +466,7 @@ export default function NobuRoomSchedule({ profile, initialEdit, initialFocus, o
   function handleStartChange(newStart: string) {
     setModalStart(newStart)
     if (!modal || !dayMap || !settings) return
-    const effectiveSlots = getEffectiveSlots(modal.date, settings)
+    const effectiveSlots = getEffectiveSlots(modal.date)
     const endOpts  = buildEndOptions(toMinutes(newStart), modal.date, dayMap, effectiveSlots)
     const targetEnd = toMinutes(newStart) + 60
     const best = endOpts.reduce((prev, curr) =>
@@ -496,7 +487,7 @@ export default function NobuRoomSchedule({ profile, initialEdit, initialFocus, o
     if (!timeSlot || !modal || !dayMap || !settings) return
     const [favStart, favEnd] = timeSlot.split('-')
     if (!favStart || !favEnd) return
-    const effectiveSlots = getEffectiveSlots(modal.date, settings)
+    const effectiveSlots = getEffectiveSlots(modal.date)
     const startOpts = buildStartOptions(modal.date, dayMap, effectiveSlots)
     const endOpts = buildEndOptions(toMinutes(favStart), modal.date, dayMap, effectiveSlots)
     const isPastStart = modal.date === todayJST() && toMinutes(favStart) < (Math.floor(nowMinutes / 15) + 1) * 15
@@ -617,28 +608,31 @@ export default function NobuRoomSchedule({ profile, initialEdit, initialFocus, o
     const today = todayJST()
     const maxDate = maxBookingDate()
     setRepeatBlocked(null)
-    if (!isDateAvailable(nextDate, settings, today, maxDate)) {
-      const { md, wd } = formatDate(nextDate)
-      const nextNextDate = addDays(date, 14)
-      setRepeatBlocked({
-        reason: `来週（${md}${wd}）は予約不可日のため予約できません。`,
-        nextNextDate,
-        nextNextAvail: isDateAvailable(nextNextDate, settings, today, maxDate),
-      })
-      return
-    }
     const nextWeekStart = getSundayOfWeek(nextDate)
     const nextDayMap = weekCache[nextWeekStart]
     const { md, wd } = formatDate(nextDate)
     const nextNextDate = addDays(date, 14)
 
-    if (nextDayMap === undefined) {
+    if (nextDayMap === undefined || availableSlotsByWeek[nextWeekStart] === undefined) {
       // キャッシュ未取得 → バックグラウンドで取得し、再試行を促す
       fetchWeek(nextWeekStart, true)
       setRepeatBlocked({
         reason: `来週（${md}${wd}）のスケジュールを確認中です。もう一度タップしてください。`,
         nextNextDate,
-        nextNextAvail: isDateAvailable(nextNextDate, settings, today, maxDate),
+        nextNextAvail: isRoomDateAvailable(nextNextDate, settings, today, maxDate),
+      })
+      return
+    }
+
+    const repeatFits = getEffectiveSlots(nextDate).some((slot) => {
+      const [start, end] = slot.value.split('-')
+      return block.startTime >= start && block.endTime <= end
+    })
+    if (!isRoomDateAvailable(nextDate, settings, today, maxDate) || !repeatFits) {
+      setRepeatBlocked({
+        reason: `来週（${md}${wd}）の ${block.startTime}〜${block.endTime} は農部室を予約できません。`,
+        nextNextDate,
+        nextNextAvail: isRoomDateAvailable(nextNextDate, settings, today, maxDate),
       })
       return
     }
@@ -651,7 +645,7 @@ export default function NobuRoomSchedule({ profile, initialEdit, initialFocus, o
       setRepeatBlocked({
         reason: `来週（${md}${wd}）の ${block.startTime}〜${block.endTime} はすでに予約が入っています。`,
         nextNextDate,
-        nextNextAvail: isDateAvailable(nextNextDate, settings, today, maxDate),
+        nextNextAvail: isRoomDateAvailable(nextNextDate, settings, today, maxDate),
       })
       return
     }
@@ -725,17 +719,12 @@ export default function NobuRoomSchedule({ profile, initialEdit, initialFocus, o
   }, [modal, sheetPeeking])
 
   // ─── ローディング ─────────────────────────────────────
-  if (!settings) return (
-    <div>
-      <Skeleton width="200px" height="32px" className="mb-3" />
-      <Skeleton width="100%" height="420px" />
-    </div>
-  )
+  if (!settings) return <ScheduleLoading fullPage height={totalDisp} />
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
       {/* 週ナビゲーション */}
-      <div className="flex items-center gap-1.5 mb-2 flex-wrap relative">
+      <div className={scheduleToolbarClass}>
         <button ref={calendarButtonRef} className="btn-icon-nav" onClick={toggleCalendar}>
           <span className="icon">calendar_month</span>
         </button>
@@ -769,7 +758,7 @@ export default function NobuRoomSchedule({ profile, initialEdit, initialFocus, o
                 }}
                 getDayClass={(date) => {
                   if (date < today) return 'text-ink-pale hover:bg-[#f0f0f0] cursor-pointer'
-                  if (isDateAvailable(date, settings, today, maxDate)) return 'text-ink hover:bg-[#f0f0f0] cursor-pointer'
+                  if (isRoomDateAvailable(date, settings, today, maxDate)) return 'text-ink hover:bg-[#f0f0f0] cursor-pointer'
                   return 'text-[#c8c8c8] cursor-default'
                 }}
               />
@@ -786,14 +775,14 @@ export default function NobuRoomSchedule({ profile, initialEdit, initialFocus, o
       {error && <div className="banner-error">{error}</div>}
 
       {loading && !dayMap ? (
-        <Skeleton width="100%" height="420px" />
+        <ScheduleLoading height={totalDisp} />
       ) : dayMap !== null ? (() => {
         function renderDayHeaders(tWeek: string) {
           return Array.from({ length: 7 }, (_, i) => addDays(tWeek, i)).map((date) => {
             const { md, wd } = formatDate(date)
             const isToday = date === today
             const isPast  = date < today
-            const isAvail = !isPast && isDateAvailable(date, settings!, today, maxDate)
+            const isAvail = !isPast && isRoomDateAvailable(date, settings!, today, maxDate)
             return (
               <div key={date}
                 className={
@@ -811,7 +800,7 @@ export default function NobuRoomSchedule({ profile, initialEdit, initialFocus, o
             const blocks     = tMap[date] ?? []
             const isPast     = date < today
             const isToday    = date === today
-            const isAvail    = !isPast && isDateAvailable(date, settings!, today, maxDate)
+            const isAvail    = !isPast && isRoomDateAvailable(date, settings!, today, maxDate)
             const isBookable = isAvail
             return (
               <div key={date}
@@ -831,7 +820,7 @@ export default function NobuRoomSchedule({ profile, initialEdit, initialFocus, o
                     : null
                 })}
                 {isBookable
-                  ? computeGrayZones(getEffectiveSlots(date, settings!), dispStart, dispEnd).map((z, gi) => (
+                  ? computeGrayZones(getEffectiveSlots(date), dispStart, dispEnd).map((z, gi) => (
                       <div key={gi} className="absolute left-0 right-0 bg-[#f0f0f0] pointer-events-none" style={{ top: z.top, height: z.height }} />
                     ))
                   : <div className="absolute inset-0 bg-[#f0f0f0] pointer-events-none" style={{ zIndex: 5 }} />
@@ -878,7 +867,7 @@ export default function NobuRoomSchedule({ profile, initialEdit, initialFocus, o
         }
 
         return (
-          <div className={`border border-line rounded-xl shadow-[var(--shadow-card-sm)] overflow-hidden flex flex-col flex-1 min-h-0 transition-[margin] duration-200 ${sheetPeeking ? 'mb-[168px]' : ''}`}
+          <div className={`${scheduleGridClass} ${sheetPeeking ? 'mb-[168px]' : ''}`}
             onClick={sheetPeeking ? () => setCloseConfirm(true) : undefined}>
             <div
               ref={scrollRef}
@@ -1058,7 +1047,7 @@ export default function NobuRoomSchedule({ profile, initialEdit, initialFocus, o
       )}
 
       {/* 予約モーダル（ボトムシート） */}
-      {(modal || modalClosing) && dayMap && (() => {
+      {modal && dayMap && (() => {
         const isDirty = editingId
           ? (bandName.trim() !== editOriginal?.bandName || modalStart !== editOriginal?.startTime || modalEnd !== editOriginal?.endTime)
           : !!bandName.trim()
@@ -1071,7 +1060,7 @@ export default function NobuRoomSchedule({ profile, initialEdit, initialFocus, o
         const effectiveDayMap = editingId
           ? { ...dayMap, [modal.date]: (dayMap[modal.date] ?? []).filter(b => b.id !== editingId) }
           : dayMap
-        const effectiveSlots = getEffectiveSlots(modal.date, settings)
+        const effectiveSlots = getEffectiveSlots(modal.date)
         return (
           <div className={`fixed inset-0 z-50 flex flex-col justify-end ${modalClosing ? 'animate-fade-out' : 'animate-fade-in'} ${sheetPeeking ? 'pointer-events-none' : ''}`}>
             {!sheetPeeking && (

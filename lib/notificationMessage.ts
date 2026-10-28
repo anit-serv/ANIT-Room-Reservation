@@ -31,9 +31,9 @@ export function resultMessage(date: string, resultData: any): string {
   return `${text}------------------\n※詳細はLINE ANIT部屋取りシステム【全登録一覧】からも確認できます。`
 }
 
-export function notificationWindow(date: string, lotteryMode: 'previous-day' | 'same-day', notifyTime: string) {
+export function notificationWindow(date: string, notifyMode: 'previous-day' | 'same-day', notifyTime: string) {
   const day = new Date(`${date}T00:00:00+09:00`)
-  if (lotteryMode === 'previous-day') day.setUTCDate(day.getUTCDate() - 1)
+  if (notifyMode === 'previous-day') day.setUTCDate(day.getUTCDate() - 1)
   const [hour, minute] = notifyTime.split(':').map(Number)
   const startsAt = new Date(day.getTime() + (hour * 60 + minute) * 60_000)
   return { startsAt, endsAt: new Date(startsAt.getTime() + 60 * 60_000) }

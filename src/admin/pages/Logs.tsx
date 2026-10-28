@@ -42,6 +42,12 @@ const ACTION_LABELS: Record<string, { label: string; icon: string; color: string
   'admin.add':                          { label: '管理者追加',               icon: 'person_add',      color: 'var(--color-brand)' },
   'admin.remove':                       { label: '管理者削除',               icon: 'person_remove',   color: 'var(--color-danger)' },
   'admin.super.transfer':               { label: 'スーパー管理者移譲',       icon: 'star',            color: 'var(--color-super)' },
+  'admin.admin.transfer':               { label: '管理者権限移譲',         icon: 'shield_person',   color: 'var(--color-link)' },
+  'admin.room.transfer':                { label: '部屋取り権限移譲',       icon: 'meeting_room',    color: 'var(--color-link)' },
+  'admin.admin.add':                   { label: '管理者権限追加',         icon: 'person_add',      color: 'var(--color-link)' },
+  'admin.admin.remove':                { label: '管理者権限削除',         icon: 'person_remove',   color: 'var(--color-danger)' },
+  'admin.room.add':                    { label: '部屋取り権限追加',       icon: 'person_add',      color: 'var(--color-link)' },
+  'admin.room.remove':                 { label: '部屋取り権限削除',       icon: 'person_remove',   color: 'var(--color-danger)' },
   'invitation.create':                  { label: '招待発行',                 icon: 'add_link',        color: 'var(--color-brand)' },
   'invitation.revoke':                  { label: '招待取消',                 icon: 'link_off',        color: 'var(--color-ink-sub)' },
   'preset.create':                      { label: 'プリセット作成',           icon: 'bookmark_add',    color: 'var(--color-brand)' },
@@ -253,16 +259,7 @@ export default function Logs() {
 
       {loading ? (
         <div className="flex flex-col gap-2">
-          {[0, 1, 2, 3, 4, 5].map((i) => (
-            <div key={i} className="grid grid-cols-[32px_1fr_auto] gap-3 items-start p-3 bg-surface border border-line rounded-lg shadow-[var(--shadow-card-sm)]">
-              <Skeleton width={32} height={32} circle />
-              <div className="flex-1">
-                <Skeleton width="70%" height="14px" className="mb-1" />
-                <Skeleton width="40%" height="12px" />
-              </div>
-              <Skeleton width="60px" height="12px" />
-            </div>
-          ))}
+          {[0, 1, 2, 3, 4, 5].map((i) => <AuditLogRow key={i} loading />)}
         </div>
       ) : logs.length === 0 ? (
         <div className="empty-state">
@@ -272,28 +269,7 @@ export default function Logs() {
       ) : (
         <>
           <div className="flex flex-col gap-2">
-            {logs.map((log) => {
-              const meta = ACTION_LABELS[log.action] ?? { label: log.action, icon: 'info', color: 'var(--color-ink-sub)' }
-              return (
-                <div key={log.id} className="grid grid-cols-[32px_1fr_auto] gap-3 items-start p-3 bg-surface border border-line rounded-lg shadow-[var(--shadow-card-sm)]">
-                  <div className="flex items-center justify-center w-8 h-8" style={{ color: meta.color }}>
-                    <span className="icon icon-md">{meta.icon}</span>
-                  </div>
-                  <div className="min-w-0">
-                    <div className="text-[0.9rem] leading-relaxed">
-                      <span className="font-semibold">{log.actorDisplayName}</span>
-                      <span className="text-ink-sub"> が </span>
-                      <span className="font-semibold" style={{ color: meta.color }}>{meta.label}</span>
-                      {log.targetLabel && (<><span className="text-ink-sub">: </span><span>{log.targetLabel}</span></>)}
-                    </div>
-                    {renderDetails(log.action, log.details)}
-                  </div>
-                  <div className="text-[0.75rem] text-ink-pale whitespace-nowrap">
-                    {log.createdAt ? new Date(log.createdAt).toLocaleString('ja-JP') : '-'}
-                  </div>
-                </div>
-              )
-            })}
+            {logs.map((log) => <AuditLogRow key={log.id} log={log} />)}
           </div>
 
           {hasMore && (
@@ -307,4 +283,16 @@ export default function Logs() {
       )}
     </div>
   )
+}
+
+function AuditLogRow({ log, loading = false }: { log?: Log; loading?: boolean }) {
+  const meta = log ? ACTION_LABELS[log.action] ?? { label: log.action, icon: 'info', color: 'var(--color-ink-sub)' } : null
+  return <div className="grid grid-cols-[32px_1fr_auto] gap-3 items-start p-3 bg-surface border border-line rounded-lg shadow-[var(--shadow-card-sm)]">
+    {loading ? <Skeleton width={32} height={32} circle /> : <div className="flex items-center justify-center w-8 h-8" style={{ color: meta?.color }}><span className="icon icon-md">{meta?.icon}</span></div>}
+    <div className="min-w-0">{loading ? <><Skeleton width="70%" height="14px" className="mb-1" /><Skeleton width="40%" height="12px" /></> : <>
+      <div className="text-[0.9rem] leading-relaxed"><span className="font-semibold">{log?.actorDisplayName}</span><span className="text-ink-sub"> が </span><span className="font-semibold" style={{ color: meta?.color }}>{meta?.label}</span>{log?.targetLabel && <><span className="text-ink-sub">: </span><span>{log.targetLabel}</span></>}</div>
+      {log && renderDetails(log.action, log.details)}
+    </>}</div>
+    {loading ? <Skeleton width="60px" height="12px" /> : <div className="text-[0.75rem] text-ink-pale whitespace-nowrap">{log?.createdAt ? new Date(log.createdAt).toLocaleString('ja-JP') : '-'}</div>}
+  </div>
 }

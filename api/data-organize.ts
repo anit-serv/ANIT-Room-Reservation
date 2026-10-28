@@ -3,6 +3,9 @@ import * as admin from 'firebase-admin';
 import { applyLotteryCronSchedule } from '../lib/cronSchedule';
 import { resolveReservationSettingsForDate, todayJST } from '../lib/reservationSettings';
 import { lotteryTargetDate } from '../lib/lotteryOperation';
+import { runScheduler } from '../lib/scheduler';
+import { schedulerEnabled } from '../lib/schedulerQueue';
+import { schedulerStatus } from '../lib/schedulerStatus';
 import 'dotenv/config';
 
 // ---------------------------------------------------------
@@ -32,11 +35,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const cronSecret = process.env.CRON_SECRET
   const authHeader = req.headers.authorization
   const { key, days } = req.query;
-  const isAuthorized =
+  const isAuthorized = !!cronSecret && (
     (authHeader === `Bearer ${cronSecret}`) ||
-    (key === cronSecret)
+    (key === cronSecret))
   if (!isAuthorized) {
     return res.status(401).json({ status: 'error', message: 'Unauthorized' });
+  }
+  if (req.query.task === 'scheduler' || req.query.task === 'scheduler-recover' ||
+      (schedulerEnabled() && req.query.task === 'apply-lottery-time')) {
+    try {
+      if (req.query.inspect === '1') return res.status(200).json(await schedulerStatus(db))
+      return res.status(200).json(await runScheduler(db, req.query.task === 'scheduler-recover'))
+    }
+    catch { return res.status(503).json({ error: 'Scheduler failed. Recovery will retry.' }) }
   }
 
   // ---------------------------------------------------------
@@ -55,15 +66,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const snap = await ref.get();
       const applied = snap.data()?.appliedLotteryTime;
 
-      if (applied === target && snap.data()?.appliedNotifyTime === notifyTime) {
+      if (applied === target && snap.data()?.appliedNotifyTime === notifyTime && snap.data()?.appliedLotteryMode === settings.lotteryMode) {
         return res.status(200).json({ status: 'skipped', lotteryTime: target });
       }
 
-      const result = await applyLotteryCronSchedule(target, notifyTime);
+      const result = await applyLotteryCronSchedule(target, notifyTime, settings.lotteryMode);
       if (result.warning) {
         return res.status(200).json({ status: 'warning', lotteryTime: target, cronWarning: result.warning });
       }
-      await ref.set({ appliedLotteryTime: target, appliedNotifyTime: notifyTime }, { merge: true });
+      await ref.set({ appliedLotteryTime: target, appliedNotifyTime: notifyTime, appliedLotteryMode: settings.lotteryMode }, { merge: true });
       return res.status(200).json({ status: 'success', lotteryTime: target });
     } catch (error: any) {
       console.error(error);
