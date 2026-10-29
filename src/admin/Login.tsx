@@ -1,3 +1,4 @@
+import { DATABASE_QUOTA_MESSAGE } from '../../lib/serviceErrors'
 import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { setAdminToken, getAdminToken } from './auth'
@@ -39,7 +40,8 @@ export default function Login() {
 
   const urlError = params.get('error')
   const displayError = exchangeError ?? (urlError
-    ? urlError === 'not_admin'           ? '管理者として登録されていません'
+    ? urlError === 'database_quota'     ? DATABASE_QUOTA_MESSAGE
+      : urlError === 'not_admin'           ? '管理者として登録されていません'
       : urlError === 'invalid'            ? '認証に失敗しました'
       : urlError === 'invalid_invitation' ? '招待リンクは使用済みか無効です'
       : 'ログインに失敗しました'

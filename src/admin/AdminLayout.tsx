@@ -18,6 +18,7 @@ const SUBLINK_MOB  = 'flex items-center gap-2 px-3 py-2 rounded-lg text-[0.85rem
 export default function AdminLayout() {
   const navigate = useNavigate()
   const location = useLocation()
+  const [authError, setAuthError] = useState('')
   const [me, setMe] = useState<AdminMe | null>(null)
 
   const reservationsOpen = location.pathname.startsWith('/admin/reservations')
@@ -157,16 +158,24 @@ export default function AdminLayout() {
     if (!token) { navigate('/admin/login', { replace: true }); return }
     adminFetch('/api/admin/auth/me')
       .then(async (r) => {
-        if (!r.ok) { clearAdminToken(); navigate('/admin/login', { replace: true }); return }
-        setMe(await r.json())
+        if (r.status === 401 || r.status === 403) { clearAdminToken(); navigate('/admin/login', { replace: true }); return }
+        const data = await r.json()
+        if (!r.ok) throw new Error(data.error ?? 'サーバーへ接続できませんでした')
+        setMe(data)
       })
-      .catch(() => { clearAdminToken(); navigate('/admin/login', { replace: true }) })
+      .catch((error) => setAuthError(error.message ?? 'サーバーへ接続できませんでした'))
   }, [navigate])
 
   function handleLogout() {
     clearAdminToken()
     navigate('/admin/login', { replace: true })
   }
+
+  if (authError) return <main className="min-h-dvh bg-bg flex items-center justify-center p-4">
+    <div className="admin-card max-w-md"><div className="banner-error" role="alert">{authError}</div>
+      <button className="btn-primary mt-4" onClick={() => window.location.reload()}>再試行する</button>
+    </div>
+  </main>
 
   return (
     <div className="flex min-h-dvh max-md:flex-col">

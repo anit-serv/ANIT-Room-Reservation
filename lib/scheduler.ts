@@ -32,8 +32,16 @@ export async function reconcileScheduler(db: Firestore) {
       }
     }
   }
+  await repairNotificationJobs(db)
+  // A daily maintenance item guarantees queue replenishment even with no reservations for more than 10 days.
+  await enqueue(db, 'cleanup', 'daily', Date.parse(`${shiftDate(today, 1)}T00:10:00+09:00`), { repeat: true })
+}
+
+/** Lightweight crash repair; does not reload all settings or rewrite every day job. */
+async function repairNotificationJobs(db: Firestore) {
+  const first = shiftDate(dateJST(), -1), last = shiftDate(dateJST(), 9)
   // Read by target date, not by "today's" mode, so midnight and overlapping schedules cannot change the target.
-  const results = await db.collection('lottery_results').orderBy('__name__').startAt(first).endAt(dates[10]).get()
+  const results = await db.collection('lottery_results').orderBy('__name__').startAt(first).endAt(last).get()
   for (const result of results.docs) {
     const data = result.data()
     if (data.pollStatus === 'active' || data.pollStatus === 'posting' || data.notificationDirty) {
@@ -43,8 +51,20 @@ export async function reconcileScheduler(db: Firestore) {
   const cleanup = await db.collection('band_cleanup').orderBy('nextAttemptAt').limit(1).get()
   const nextCleanup = milliseconds(cleanup.docs[0]?.data().nextAttemptAt)
   if (nextCleanup && nextCleanup < Date.now() + 24 * 3_600_000) await enqueue(db, 'cleanup', 'all', nextCleanup, { repeat: true })
-  // A daily maintenance item guarantees queue replenishment even with no reservations for more than 10 days.
-  await enqueue(db, 'cleanup', 'daily', Date.parse(`${shiftDate(today, 1)}T00:10:00+09:00`), { repeat: true })
+}
+
+export function markSchedulerDirty(db: Firestore, writer: Pick<FirebaseFirestore.Transaction, 'set'>) {
+  writer.set(db.collection('scheduler_state').doc('worker'), { needsReconcile: true, reconcileRevision: randomUUID() }, { merge: true })
+}
+
+async function markReconciled(db: Firestore, revision: string | null) {
+  const state = db.collection('scheduler_state').doc('worker')
+  await db.runTransaction(async tx => {
+    const current = await tx.get(state)
+    if ((current.data()?.reconcileRevision ?? null) === revision) tx.set(state, {
+      needsReconcile: false, lastReconciledAt: new Date(),
+    }, { merge: true })
+  })
 }
 
 async function executeJob(db: Firestore, kind: JobKind, date: string, dueAt: number): Promise<number | undefined> {
@@ -82,16 +102,22 @@ export async function runScheduler(db: Firestore, recover = false) {
   const state = db.collection('scheduler_state').doc('worker'), token = randomUUID()
   const claimed = await db.runTransaction(async (tx) => {
     const doc = await tx.get(state)
-    if (milliseconds(doc.data()?.leaseUntil) > Date.now()) return false
+    if (milliseconds(doc.data()?.leaseUntil) > Date.now()) return null
     tx.set(state, { token, leaseUntil: new Date(Date.now() + LEASE_MS), startedAt: new Date() }, { merge: true })
-    return true
+    return { needsReconcile: doc.data()?.needsReconcile === true, revision: doc.data()?.reconcileRevision ?? null,
+      lastReconciledAt: milliseconds(doc.data()?.lastReconciledAt) }
   })
   if (!claimed) return { status: 'busy' }
   let processed = 0, failed = 0
   const started = Date.now()
   try {
     if (recover) await recoverExpiredJobs(db)
-    await reconcileScheduler(db)
+    // Full rebuilding every two minutes can exhaust the free Firestore quota.
+    // Settings writes invalidate atomically; an hourly rebuild also repairs legacy writers.
+    if (claimed.needsReconcile || !claimed.lastReconciledAt || Date.now() - claimed.lastReconciledAt >= 3_600_000) {
+      await reconcileScheduler(db)
+      await markReconciled(db, claimed.revision)
+    } else await repairNotificationJobs(db)
     while (processed < 12 && Date.now() - started < 20_000) {
       const owner = (await state.get()).data()
       if (owner?.token !== token || milliseconds(owner.leaseUntil) <= Date.now()) break
@@ -124,6 +150,9 @@ export async function runScheduler(db: Firestore, recover = false) {
 
 /** Called after settings saves. A failed sync is durable and recovery will recalculate the queue. */
 export async function refreshScheduler(db: Firestore) {
+  const revision = randomUUID()
+  await db.collection('scheduler_state').doc('worker').set({ needsReconcile: true, reconcileRevision: revision }, { merge: true })
   await reconcileScheduler(db)
+  await markReconciled(db, revision)
   await syncSchedulerCron(db)
 }

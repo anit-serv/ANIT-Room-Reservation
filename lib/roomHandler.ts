@@ -1,3 +1,4 @@
+import { isFirestoreQuotaError, DATABASE_QUOTA_MESSAGE } from './serviceErrors'
 import { VercelRequest, VercelResponse } from '@vercel/node'
 import * as admin from 'firebase-admin'
 import * as crypto from 'crypto'
@@ -287,6 +288,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     return res.status(404).json({ error: 'Not Found' })
   } catch (err: any) {
+    if (isFirestoreQuotaError(err)) return res.status(503).json({ error: DATABASE_QUOTA_MESSAGE })
     if (err.message === 'Unauthorized' || err.message === 'Forbidden') return authError(res, err)
     if (err.message === '移譲先のユーザーが見つかりません') return res.status(404).json({ error: err.message })
     if (err.message === '利用停止中のユーザーには移譲できません') return res.status(400).json({ error: err.message })

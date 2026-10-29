@@ -1,3 +1,4 @@
+import { isFirestoreQuotaError, DATABASE_QUOTA_MESSAGE, SERVICE_UNAVAILABLE_MESSAGE } from '../lib/serviceErrors'
 import { prepareOperationPlans } from '../lib/operationPlanStore'
 import type { PlanWarning, OperationImpact } from '../lib/operationPlan'
 import { VercelRequest, VercelResponse } from '@vercel/node'
@@ -9,7 +10,7 @@ import { applyLotteryCronSchedule } from '../lib/cronSchedule'
 import { lotteryTargetDate, reservationDeadline } from '../lib/lotteryOperation'
 import { notificationFollowsLottery, operationChangeOnExecutionDate, timingOverridesValid } from '../lib/lotteryTiming'
 import { schedulerEnabled } from '../lib/schedulerQueue'
-import { refreshScheduler } from '../lib/scheduler'
+import { refreshScheduler, markSchedulerDirty } from '../lib/scheduler'
 import { getRoomPreferenceConfig } from '../lib/roomPreference'
 import { refreshLotterySlot } from '../lib/roomAllocation'
 import roomHandler from '../lib/roomHandler'
@@ -222,7 +223,7 @@ async function handleAuthExchange(req: VercelRequest, res: VercelResponse) {
     await docRef.delete()
     return res.status(200).json({ token: data.accessToken })
   } catch (err: any) {
-    return res.status(500).json({ error: err.message })
+    return res.status(503).json({ error: isFirestoreQuotaError(err) ? DATABASE_QUOTA_MESSAGE : SERVICE_UNAVAILABLE_MESSAGE })
   }
 }
 
@@ -324,8 +325,10 @@ async function handleAuthCallback(req: VercelRequest, res: VercelResponse) {
     }
     return redirectWithAuthCode(res, loginUrl, accessToken)
   } catch (err) {
-    console.error('OAuth callback error:', err)
-    return res.redirect(302, `${loginUrl}?error=${cookies.admin_invitation ? 'invalid_invitation' : 'invalid'}`)
+    const quota = isFirestoreQuotaError(err)
+    console.error('OAuth callback failed', { reason: quota ? 'firestore_quota' : 'oauth_or_database_error',
+      code: (err as any)?.code ?? null, status: (err as any)?.response?.status ?? null })
+    return res.redirect(302, `${loginUrl}?error=${quota ? 'database_quota' : cookies.admin_invitation ? 'invalid_invitation' : 'invalid'}`)
   }
 }
 
@@ -433,8 +436,8 @@ async function handleAuthMe(req: VercelRequest, res: VercelResponse) {
     const info = await verifyAdmin(req.headers.authorization)
     return res.status(200).json(info)
   } catch (err: any) {
-    const status = err.message === 'Forbidden' ? 403 : 401
-    return res.status(status).json({ error: err.message })
+    if (err.message === 'Forbidden' || err.message === 'Unauthorized') return res.status(err.message === 'Forbidden' ? 403 : 401).json({ error: err.message })
+    return res.status(503).json({ error: isFirestoreQuotaError(err) ? DATABASE_QUOTA_MESSAGE : SERVICE_UNAVAILABLE_MESSAGE })
   }
 }
 
@@ -789,6 +792,7 @@ async function handleSettings(req: VercelRequest, res: VercelResponse, preview =
       operationWarnings = plans?.warnings ?? []
       affectedOperations = plans?.affectedOperations ?? []
       plans?.write()
+      markSchedulerDirty(db, batch)
       const rootUpdate: Record<string, unknown> = {}
       if (saveRecurring) {
         batch.set(docRef.collection('versions').doc(effectiveFrom), {
@@ -965,6 +969,7 @@ async function handleSettingsScheduled(req: VercelRequest, res: VercelResponse) 
       extraDates: [], excludedDates: [], perDaySchedule: { enabled: false, byWeekday: {}, byDate: {} },
       lotteryTimeOverrides: { byWeekday: {}, byDate: {} } }, undefined, targetDate)
     plans.write()
+    markSchedulerDirty(db, tx)
     tx.delete(docRef.collection('versions').doc(targetDate))
     tx.delete(db.collection('room_preference_modes').doc(targetDate))
     if (root.data()?.nextChange?.effectiveFrom === targetDate) tx.set(docRef, { nextChange: admin.firestore.FieldValue.delete() }, { merge: true })

@@ -1,3 +1,4 @@
+import { DATABASE_QUOTA_MESSAGE } from '../../lib/serviceErrors'
 import { useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { adminFetch, clearAdminToken, getAdminToken, setAdminToken } from '../admin/auth'
@@ -32,7 +33,7 @@ export default function RoomApp() {
     if (code) {
       setAuthLoading(true)
       fetch(`/api/admin/auth/exchange?code=${encodeURIComponent(code)}`)
-        .then(async (response) => { if (!response.ok) throw new Error('ログインに失敗しました'); return response.json() })
+        .then(async (response) => { const data = await response.json(); if (!response.ok) throw new Error(data.error ?? 'ログインに失敗しました'); return data })
         .then((data) => { setAdminToken(data.token); navigate('/room', { replace: true }) })
         .catch((err) => setError(err.message))
         .finally(() => setAuthLoading(false))
@@ -40,8 +41,9 @@ export default function RoomApp() {
     }
     if (!getAdminToken()) { setAuthLoading(false); return }
     adminFetch('/api/room/me').then(async (response) => {
-      if (!response.ok) throw new Error('部屋取り権限がありません')
-      setMe(await response.json())
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.error ?? '部屋取り権限を確認できませんでした')
+      setMe(data)
     }).catch((err) => setError(err.message)).finally(() => setAuthLoading(false))
   }, [navigate, params])
 
@@ -134,7 +136,7 @@ export default function RoomApp() {
     <div className={`bg-surface border border-line rounded-xl p-6 max-w-sm w-full ${authLoading ? 'skeleton-layout' : ''}`} aria-busy={authLoading} ref={(el) => { if (el) el.inert = authLoading }}>
       <h1 className="text-xl font-bold mb-3">部屋取り専用ページ</h1>
       {error && <div className="banner-error mb-3">{error}</div>}
-        {params.get('error') && <div className="banner-error mb-3">権限または招待リンクを確認してください</div>}
+        {params.get('error') && <div className="banner-error mb-3">{params.get('error') === 'database_quota' ? DATABASE_QUOTA_MESSAGE : '権限または招待リンクを確認してください'}</div>}
       <button className="btn-primary" onClick={() => { window.location.href = '/api/admin/auth/start?role=room' }}>LINEでログイン</button>
     </div>
   </div>

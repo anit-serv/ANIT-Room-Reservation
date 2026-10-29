@@ -703,3 +703,97 @@ test('no timing warning for unchanged schedules or dates outside the existing bo
   const added = await savePlan(newDateDb, proposedPlan({ lotteryTime: '14:00', notifyTime: '14:00' }), at('2026-10-29T12:00:00'))
   assert.deepEqual(added.affectedOperations, [])
 })
+
+
+function readMeter(db) {
+  let units = 0
+  const wrap = ref => new Proxy(ref, { get(target, key) {
+    const value = target[key]
+    if (key === 'get') return async () => {
+      const result = await value.call(target)
+      units += result.docs ? Math.max(1, result.docs.length) : 1
+      return result
+    }
+    if (typeof value !== 'function') return value
+    return (...args) => {
+      const result = value.apply(target, args)
+      return result && typeof result.get === 'function' ? wrap(result) : result
+    }
+  } })
+  return { db: { collection: path => wrap(db.collection(path)), runTransaction: fn => db.runTransaction(fn) },
+    get units() { return units } }
+}
+
+test('quiet recovery avoids repeated full settings scans and stays within a bounded read budget', async () => {
+  await withSchedulerClock(at('2026-10-29T10:00:00'), async advance => {
+    const original = planFixture({ availableDays: [], extraDates: [] }), meter = readMeter(original)
+    await runScheduler(meter.db, true)
+    const first = meter.units
+    advance(at('2026-10-29T10:02:00'))
+    await runScheduler(meter.db, true)
+    const second = meter.units - first
+    assert.ok(first > second, `initial=${first} recurring=${second}`)
+    assert.ok(second <= 16, `quiet recovery charged ${second} read units`)
+    assert.ok(first * 24 + second * (720 - 24) < 20_000)
+    assert.equal(original.rows.get('scheduler_state/worker').needsReconcile, false)
+  })
+})
+
+test('atomic settings invalidation forces immediate rebuild while ordinary recovery remains lightweight', async () => {
+  const { markSchedulerDirty } = require('../lib/scheduler.ts')
+  await withSchedulerClock(at('2026-10-29T10:00:00'), async advance => {
+    const db = planFixture({ availableDays: [], extraDates: [] })
+    await runScheduler(db, true)
+    assert.equal(db.rows.has('scheduled_jobs/lottery_2026-10-30'), false)
+    await db.runTransaction(async tx => {
+      tx.set(db.collection('settings').doc('reservation'), { extraDates: ['2026-10-30'] }, { merge: true })
+      markSchedulerDirty(db, tx)
+    })
+    assert.equal(db.rows.get('scheduler_state/worker').needsReconcile, true)
+    advance(at('2026-10-29T10:02:00'))
+    await runScheduler(db, true)
+    assert.equal(db.rows.has('scheduled_jobs/lottery_2026-10-30'), true)
+    assert.equal(db.rows.get('scheduler_state/worker').needsReconcile, false)
+  })
+})
+
+test('lightweight recovery still repairs a crash after initial notification state was saved', async () => {
+  await withSchedulerClock(at('2026-10-29T10:00:00'), async advance => {
+    const db = planFixture({ availableDays: [], extraDates: [] })
+    await runScheduler(db, true)
+    await db.collection('lottery_results').doc('2026-10-29').set(result())
+    let sends = 0
+    delivery.deliveryApi.sendPost = async () => { sends++; return 'crash-repair' }
+    advance(at('2026-10-29T10:02:00'))
+    await runScheduler(db, true)
+    assert.equal(sends, 1)
+    assert.equal(db.rows.get('scheduled_jobs/band_2026-10-29').status, 'done')
+    await runScheduler(db, true)
+    assert.equal(sends, 1)
+  })
+})
+
+test('quota failure is classified separately from a rejected LINE token', () => {
+  const { isFirestoreQuotaError, DATABASE_QUOTA_MESSAGE } = require('../lib/serviceErrors.ts')
+  assert.equal(isFirestoreQuotaError({ code: 8, message: 'quota' }), true)
+  assert.equal(isFirestoreQuotaError({ message: '8 RESOURCE_EXHAUSTED: Quota exceeded.' }), true)
+  assert.equal(isFirestoreQuotaError({ code: 'RESOURCE_EXHAUSTED' }), true)
+  assert.equal(isFirestoreQuotaError(new Error('Unauthorized')), false)
+  assert.equal(isFirestoreQuotaError({ response: { status: 429 } }), false)
+  assert.match(DATABASE_QUOTA_MESSAGE, /利用上限/)
+})
+
+
+test('hourly rebuilding still discovers legacy settings changes without an invalidation marker', async () => {
+  await withSchedulerClock(at('2026-10-29T10:00:00'), async advance => {
+    const db = planFixture({ availableDays: [], extraDates: [] })
+    await runScheduler(db, true)
+    await db.collection('settings').doc('reservation').update({ extraDates: ['2026-10-30'] })
+    advance(at('2026-10-29T10:02:00'))
+    await runScheduler(db, true)
+    assert.equal(db.rows.has('scheduled_jobs/lottery_2026-10-30'), false)
+    advance(at('2026-10-29T11:00:00'))
+    await runScheduler(db, true)
+    assert.equal(db.rows.has('scheduled_jobs/lottery_2026-10-30'), true)
+  })
+})
