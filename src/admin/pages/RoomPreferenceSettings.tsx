@@ -1,7 +1,7 @@
-export default function RoomPreferenceSettings({ enabled, onEnabledChange, mode, onModeChange, fallback, onFallbackChange, commentConfigured }: {
+export default function RoomPreferenceSettings({ enabled, onEnabledChange, mode, onModeChange, commentConfigured }: {
   enabled: boolean; onEnabledChange: (enabled: boolean) => void
   mode: 'post' | 'comment'; onModeChange: (mode: 'post' | 'comment') => void
-  fallback: boolean; onFallbackChange: (fallback: boolean) => void; commentConfigured: boolean
+  commentConfigured: boolean
 }) {
   return <div className="space-y-4 mb-6">
     <section className="admin-card">
@@ -24,11 +24,10 @@ export default function RoomPreferenceSettings({ enabled, onEnabledChange, mode,
       <h2 className="font-bold mb-3">BAND通知方式</h2>
       <label className="block text-sm mb-3">方式<select className="text-input mt-1" value={mode}
         onChange={(event) => onModeChange(event.target.value as 'post' | 'comment')}>
-        <option value="post">投稿先BANDに新規投稿</option><option value="comment">コメント先BANDでメンション投稿にコメント</option>
+        <option value="post">投稿先BANDに新規投稿</option><option value="comment">新規投稿＋メンション投稿にコメント</option>
       </select></label>
       {mode === 'comment' && <><p className="text-sm text-ink-sub mb-2">コメント先BAND: {commentConfigured ? '設定済み' : '未設定'}</p>
-        <label className="flex items-center gap-2 text-sm mb-3"><input type="checkbox" checked={fallback}
-          onChange={(event) => onFallbackChange(event.target.checked)} />1時間以内に対象投稿がなければ投稿先BANDに自動投稿</label></>}
+        <p className="text-sm text-ink-sub mb-3">通知時刻に投稿先BANDへ新規投稿し、1時間以内のメンション投稿にもコメントします。対象投稿がなくても新規投稿は行います。</p></>}
       <p className="text-[0.82rem] text-ink-sub">画面下部の「適用日」と「確認する」から保存します。適用日以降の利用日分の通知に反映します。</p>
     </section>
   </div>

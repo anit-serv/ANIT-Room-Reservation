@@ -78,11 +78,13 @@ export async function processNotification(db: Firestore, date: string): Promise<
       await attachDelivery(db, date, key, delivery)
       deliveries[key] = delivery
     }
-    if (data.notificationMode === 'post' && !data.notificationSentAt && data.pollStatus === 'posting') {
+    if (isActive && Date.now() < milliseconds(data.pollStartsAt)) return milliseconds(data.pollStartsAt)
+    // The dedicated results Band always receives a post, including in comment mode.
+    // Persist it before scanning so comment lookup failures cannot suppress this delivery.
+    if ((data.notificationMode === 'post' && !data.notificationSentAt && data.pollStatus === 'posting') || isActive) {
       await send('post', '', 'post', ownPostKey)
     }
     if (isActive) {
-      if (Date.now() < milliseconds(data.pollStartsAt)) return milliseconds(data.pollStartsAt)
       // A complete scan is mandatory before deciding there is no matching post.
       const listed = await listBandPosts(finished ? 30 : 1, 'comment', milliseconds(data.pollStartsAt))
       if (finished && !listed.complete) throw new Error('BAND投稿の全件確認が完了していません')
@@ -92,9 +94,6 @@ export async function processNotification(db: Firestore, date: string): Promise<
         await send('comment', post.post_key, `p_${post.post_key}`, ownCommentKey)
       }
       await ref.update({ pollLastSuccessAt: new Date() })
-      if (finished && !Object.values(deliveries).some((item) => item.kind === 'comment') && data.fallbackPost) {
-        await send('post', '', 'post', ownPostKey)
-      }
     }
     // Existing deliveries are updated even after the one-hour mention window has ended.
     for (const [key, previous] of Object.entries(deliveries)) {

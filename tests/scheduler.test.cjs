@@ -160,14 +160,32 @@ test('all matching mention posts receive one comment per revision', async () => 
   } })
   band.listBandPosts = async () => ({ complete: true, posts: ['a', 'b'].map(post_key => ({ post_key,
     created_at: now, author: { role: 'leader' }, content: '<band:refer user_key="self">' })) })
-  let comments = 0
-  delivery.deliveryApi.sendComment = async target => { comments++; return `comment-${target}` }
+  let comments = 0, posts = 0
+  delivery.deliveryApi.sendPost = async () => { posts++; return `dedicated-result-${posts}` }
+  delivery.deliveryApi.sendComment = async target => { comments++; return `comment-${target}-${comments}` }
   await processNotification(db, '2026-10-29')
   await processNotification(db, '2026-10-29')
   assert.equal(comments, 2)
-  assert.equal(Object.keys(db.rows.get('lottery_results/2026-10-29').deliveries).length, 2)
+  assert.equal(posts, 1)
+  assert.equal(Object.keys(db.rows.get('lottery_results/2026-10-29').deliveries).length, 3)
+  await db.collection('lottery_results').doc('2026-10-29').update({ notificationRevision: 2, notificationDirty: true })
+  await processNotification(db, '2026-10-29')
+  assert.equal(posts, 2)
+  assert.equal(comments, 4)
+  assert.equal((await db.collection('band_cleanup').get()).size, 3)
 })
-test('failed/incomplete final BAND read never triggers fallback posting', async () => {
+test('comment mode waits until notification time before posting or scanning', async () => {
+  const now = Date.now(), startsAt = now + 60_000
+  const db = new FakeFirestore({ 'lottery_results/2026-10-29': {
+    ...result(), notificationMode: 'comment', pollStatus: 'active',
+    pollStartsAt: new Date(startsAt), pollEndsAt: new Date(startsAt + 3_600_000),
+  } })
+  delivery.deliveryApi.sendPost = async () => { throw new Error('Posted too early') }
+  band.listBandPosts = async () => { throw new Error('Scanned too early') }
+  assert.equal(await processNotification(db, '2026-10-29'), startsAt)
+  assert.deepEqual(db.rows.get('lottery_results/2026-10-29').deliveries, {})
+})
+test('comment scan failure preserves the dedicated post without posting duplicates on retry', async () => {
   const now = Date.now(), db = new FakeFirestore({ 'lottery_results/2026-10-29': {
     ...result(), notificationMode: 'comment', fallbackPost: true, pollStatus: 'active',
     pollStartsAt: new Date(now - 3_600_000), pollEndsAt: new Date(now - 1),
@@ -176,12 +194,14 @@ test('failed/incomplete final BAND read never triggers fallback posting', async 
   delivery.deliveryApi.sendPost = async () => { posts++; return 'unsafe-fallback' }
   band.listBandPosts = async () => ({ complete: false, posts: [] })
   await assert.rejects(processNotification(db, '2026-10-29'))
-  assert.equal(posts, 0)
+  assert.equal(posts, 1)
+  await assert.rejects(processNotification(db, '2026-10-29'))
+  assert.equal(posts, 1)
   assert.ok(db.rows.get('lottery_results/2026-10-29').notificationError)
 })
-test('successful final scan with no matching posts permits one fallback', async () => {
+test('comment mode posts even without matching mentions or fallback enabled', async () => {
   const now = Date.now(), db = new FakeFirestore({ 'lottery_results/2026-10-29': {
-    ...result(), notificationMode: 'comment', fallbackPost: true, pollStatus: 'active',
+    ...result(), notificationMode: 'comment', fallbackPost: false, pollStatus: 'active',
     pollStartsAt: new Date(now - 3_600_000), pollEndsAt: new Date(now - 1),
   } })
   let posts = 0

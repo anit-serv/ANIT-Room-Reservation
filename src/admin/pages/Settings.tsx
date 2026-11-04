@@ -558,8 +558,7 @@ export default function Settings() {
               ['曜日ルール', Object.keys(perDaySchedule.byWeekday).length + '件'],
               ['特定日ルール（即時反映）', Object.keys(perDaySchedule.byDate).length + '件'],
               ['希望部屋モード',        roomModeEnabled ? 'オン' : 'オフ'],
-              ['BAND通知方式', notificationMode === 'comment' ? 'メンション投稿にコメント' : '新規投稿'],
-              ...(notificationMode === 'comment' ? [['対象投稿がない場合', fallbackPost ? '1時間後に自動投稿' : '手動通知']] : []),
+              ['BAND通知方式', notificationMode === 'comment' ? '新規投稿＋メンション投稿にコメント' : '新規投稿'],
               ['ハモアニ期間（即時反映）', hamoaniStartDate && hamoaniEndDate ? `${hamoaniStartDate} 〜 ${hamoaniEndDate}` : '無効'],
             ] as [string, string][]).map(([label, value]) => (
               <tr key={label} className="border-b border-line last:border-0">
@@ -797,8 +796,8 @@ export default function Settings() {
 
       <OperationWarnings warnings={savedOperationWarnings} />
       <RoomPreferenceSettings enabled={roomModeEnabled} onEnabledChange={setRoomModeEnabled}
-        mode={notificationMode} onModeChange={setNotificationMode} fallback={fallbackPost}
-        onFallbackChange={setFallbackPost} commentConfigured={commentConfigured} />
+        mode={notificationMode} onModeChange={setNotificationMode}
+        commentConfigured={commentConfigured} />
 
       {/* 抽選・通知時刻 */}
       <div className="admin-card">
