@@ -209,7 +209,7 @@ export default function Admins() {
         <button className="btn-outline mt-2" disabled={!editUserId} onClick={changeSelectedAuthority}>
           選択したユーザーの権限を追加
         </button>
-        <button className="btn-outline mt-2 ml-2" onClick={() => createAuthorityLink('grant')}>追加リンクを作成</button>
+        <button className="btn-outline mt-2" onClick={() => createAuthorityLink('grant')}>追加リンクを作成</button>
         <p className="text-[0.78rem] text-ink-sub mt-2">リンクは24時間有効で、最初の1人が利用すると無効になります。</p>
         {grantLink && <input className="text-input mt-2" readOnly aria-label="追加リンク" value={grantLink}
           onFocus={(event) => event.target.select()} />}

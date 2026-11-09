@@ -7,7 +7,7 @@ const DATES_CACHE_KEY = 'liff:nobu-settings'
 function slotCacheKey(date: string) { return `liff:nobu-slots:${date}` }
 
 type TimeSlot    = { label: string; value: string }
-type DateEntry   = { label: string; value: string; timeSlots: TimeSlot[]; lotteryTime?: string; roomPreferenceEnabled?: boolean }
+type DateEntry   = { label: string; value: string; timeSlots: TimeSlot[]; lotteryTime?: string; lotteryTimeLabel?: string; roomPreferenceEnabled?: boolean }
 type SlotEntry   = { id: string; userId: string; bandName: string; status: string; order?: number; hamoani?: boolean; assignedRoom?: string | null; waitRank?: number | null; lotteryRank?: number | null }
 type TimeSlotMap = { [timeSlot: string]: SlotEntry[] }
 type DetailModal = { entry: SlotEntry; date: string; timeSlot: string }
@@ -154,10 +154,10 @@ export default function AllReservations({ profile, initialFocus, onFocusHandled,
         ))}
       </div>
 
-      {selectedDateEntry?.lotteryTime && (
+      {(selectedDateEntry?.lotteryTimeLabel || selectedDateEntry?.lotteryTime) && (
         <div className="flex items-center gap-1.5 text-[0.82rem] text-ink-sub -mt-2 mb-4 px-1">
           <span className="icon icon-sm text-brand">schedule</span>
-          <span>抽選時刻 <strong className="text-ink">{selectedDateEntry.lotteryTime}</strong></span>
+          <span>抽選時刻 <strong className="text-ink">{selectedDateEntry.lotteryTimeLabel ?? selectedDateEntry.lotteryTime}</strong></span>
         </div>
       )}
 

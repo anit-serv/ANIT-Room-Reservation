@@ -101,23 +101,40 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(405).json({ error: 'Method Not Allowed' })
     }
 
-    if (path === 'notifications' || path === 'notifications/manual' || path === 'notifications/retry' || path === 'notifications/confirm-resend') {
+    if (['notifications', 'notifications/manual', 'notifications/retry', 'notifications/confirm-resend', 'notifications/ignore', 'notifications/resend'].includes(path)) {
       const me = await verifyAdmin(req.headers.authorization)
       if (path === 'notifications' && req.method === 'GET') {
-        const [resultRefs, cleanup] = await Promise.all([
+        const [resultRefs, cleanup, scheduler] = await Promise.all([
           db.collection('lottery_results').listDocuments(),
           db.collection('band_cleanup').limit(30).get(),
+          schedulerStatus(db),
         ])
-        const results = await Promise.all(resultRefs
-          .sort((a, b) => b.id.localeCompare(a.id)).slice(0, 30).map((ref) => ref.get()))
+        const dates = new Set(resultRefs.map((ref) => ref.id).sort().reverse().slice(0, 30))
+        for (const job of scheduler.manual) {
+          if (job.kind === 'band' || job.kind === 'notify') dates.add(job.date)
+        }
+        const results = await Promise.all([...dates].sort().reverse().map((date) =>
+          db.collection('lottery_results').doc(date).get()))
         return res.status(200).json({
-          results: results.map((doc) => ({ date: doc.id, pollStatus: doc.data()?.pollStatus ?? null,
+          results: results.filter((doc) => doc.exists).map((doc) => ({ date: doc.id, pollStatus: doc.data()?.pollStatus ?? null,
             notificationSentAt: doc.data()?.notificationSentAt?.toMillis?.() ?? null,
             notificationError: doc.data()?.notificationError ?? null,
-            notificationDirty: doc.data()?.notificationDirty === true })),
+            notificationDirty: doc.data()?.notificationDirty === true,
+            ignored: doc.data()?.notificationIgnoredRevision === (doc.data()?.notificationRevision ?? 1) })),
           cleanupPending: cleanup.size,
-          scheduler: await schedulerStatus(db),
+          scheduler,
         })
+      }
+      if (path === 'notifications/ignore' && req.method === 'POST') {
+        const date = String(req.body?.date ?? '')
+        if (!DATE_RE.test(date)) return res.status(400).json({ error: '日付が不正です' })
+        const ref = db.collection('lottery_results').doc(date)
+        await db.runTransaction(async (tx) => {
+          const data = (await tx.get(ref)).data()
+          if (!data) throw new Error('抽選結果が見つかりません')
+          tx.update(ref, { notificationIgnoredRevision: data.notificationRevision ?? 1 })
+        })
+        return res.status(200).json({ success: true })
       }
       if (path === 'notifications/manual' && req.method === 'POST') {
         const date = String(req.body?.date ?? '')
@@ -156,8 +173,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         if (!schedulerEnabled()) await processNotification(db, date)
         return res.status(200).json({ success: true })
       }
-      if (path === 'notifications/confirm-resend' && req.method === 'POST') {
+      if ((path === 'notifications/confirm-resend' || path === 'notifications/resend') && req.method === 'POST') {
         const date = String(req.body?.date ?? '')
+        const allowWithoutPriorAttempt = path === 'notifications/resend'
         if (!DATE_RE.test(date) || req.body?.confirmedNotDelivered !== true) {
           return res.status(400).json({ error: 'BAND画面で未送信であることを確認してください' })
         }
@@ -170,11 +188,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             throw new Error('通知処理中、または抽選結果が見つかりません')
           }
           const unknown = attempts.docs.filter((doc) => doc.data().status !== 'sent')
-          if (!unknown.length) throw new Error('送信結果不明の記録はありません')
+          if (!unknown.length && !allowWithoutPriorAttempt) throw new Error('送信結果不明の記録はありません')
           if (unknown.some((doc) => milliseconds(doc.data().leaseUntil) > Date.now())) throw new Error('通知処理中です')
+          const data = result.data()!
+          const needsInitialPost = allowWithoutPriorAttempt && data.pollStatus === 'unnotified' &&
+            !data.notificationSentAt && attempts.empty && !Object.keys(data.deliveries ?? {}).length
+          if (needsInitialPost && !resultMessage(date, data)) throw new Error('通知する結果がありません')
+          if (allowWithoutPriorAttempt && !data.pollStatus && !data.notificationSentAt && attempts.empty) {
+            throw new Error('初回通知の開始をお待ちください')
+          }
           for (const attempt of unknown) tx.update(attempt.ref, { status: 'prepared', startedAt: new Date(),
             resendConfirmedBy: me.userId, resendConfirmedAt: new Date() })
-          tx.update(resultRef, { notificationDirty: true, notificationError: null })
+          tx.update(resultRef, { notificationDirty: true, notificationError: null, notificationIgnoredRevision: null,
+            ...(needsInitialPost ? { notificationMode: 'post', pollStatus: 'posting' } : {}) })
           tx.set(jobRef, { kind: 'band', date, status: 'pending', attempts: 0, dueAt: new Date(), availableAt: new Date(),
             generation: (job.data()?.generation ?? 0) + 1 }, { merge: true })
         })

@@ -22,6 +22,11 @@ const axios = require('axios')
 axios.get = axios.post = axios.patch = () => { throw new Error('Unexpected network access') }
 
 const mode = { lotteryMode: 'previous-day', lotteryTime: '21:00', notifyMode: 'same-day', notifyTime: '00:10' }
+test('reservation draw labels follow execution time and mode instead of the default time', () => {
+  assert.equal(timing.lotteryTimeLabel('2027-01-01', mode), '前日 20:55')
+  assert.equal(timing.lotteryTimeLabel('2027-01-01', { ...mode, lotteryTime: '19:30' }), '前日 19:25')
+  assert.equal(timing.lotteryTimeLabel('2027-01-01', { ...mode, lotteryMode: 'same-day' }), '前日 23:55')
+})
 const defaultApi = () => ({ sendPost: async () => 'post-1', sendComment: async () => 'comment-1', findPost: async () => null, findComment: async () => null })
 const result = () => ({ notificationRevision: 1, notificationDirty: false, notificationMode: 'post', pollStatus: 'posting',
   results: { '09:00-10:00': { rankedEntries: [{ reservationId: 'r1', bandName: 'A', lotteryRank: 1 }] } }, deliveries: {} })

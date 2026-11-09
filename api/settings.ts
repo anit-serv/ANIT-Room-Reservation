@@ -13,6 +13,7 @@ import {
 } from '../lib/reservationSettings'
 import 'dotenv/config'
 import { reservationDeadline } from '../lib/lotteryOperation'
+import { lotteryTimeLabel } from '../lib/schedulerTiming'
 import { getRoomDay, isRoomPreferenceEnabled, usableRooms } from '../lib/roomPreference'
 
 const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n')
@@ -31,7 +32,7 @@ const WEEK_DAYS = ['日', '月', '火', '水', '木', '金', '土']
 
 type DateEntry = {
   label: string; value: string; timeSlots: TimeSlot[]; effectiveFrom: string; lotteryTime: string
-  hamoaniActive: boolean
+  lotteryTimeLabel: string; hamoaniActive: boolean
   roomPreferenceEnabled: boolean; roomChoices: Record<string, string[]>; roomRegistrationPending: boolean
 }
 
@@ -68,6 +69,7 @@ async function buildDateList(forView: boolean): Promise<DateEntry[]> {
       timeSlots: forView || !roomPreferenceEnabled ? allSlots : allSlots.filter((slot) => roomChoices[slot.value].length > 0),
       effectiveFrom: settings.effectiveFrom,
       lotteryTime: settings.lotteryTime,
+      lotteryTimeLabel: lotteryTimeLabel(dateStr, settings),
       hamoaniActive: isHamoaniActive(settings, dateStr),
       roomPreferenceEnabled,
       roomChoices,

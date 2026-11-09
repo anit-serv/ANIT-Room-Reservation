@@ -6,7 +6,7 @@ import FavoritePicker, { type Favorite } from '../../components/FavoritePicker'
 
 type Props = { profile: LiffProfile | null; onBookingActive?: (active: boolean) => void }
 type TimeSlot  = { label: string; value: string }
-type DateEntry = { label: string; value: string; timeSlots: TimeSlot[]; lotteryTime?: string; hamoaniActive?: boolean; roomPreferenceEnabled?: boolean; roomRegistrationPending?: boolean; roomChoices?: Record<string, string[]> }
+type DateEntry = { label: string; value: string; timeSlots: TimeSlot[]; lotteryTime?: string; lotteryTimeLabel?: string; hamoaniActive?: boolean; roomPreferenceEnabled?: boolean; roomRegistrationPending?: boolean; roomChoices?: Record<string, string[]> }
 
 export default function ReservationForm({ profile, onBookingActive }: Props) {
   const [bandName,          setBandName]          = useState('')
@@ -143,7 +143,7 @@ export default function ReservationForm({ profile, onBookingActive }: Props) {
 
   const dateLabel = dates.find((d) => d.value === selectedDate)?.label ?? ''
   const timeLabel = timeSlots.find((t) => t.value === selectedTime)?.label ?? ''
-  const lotteryTime = selectedDateEntry?.lotteryTime ?? ''
+  const lotteryTime = selectedDateEntry?.lotteryTimeLabel ?? selectedDateEntry?.lotteryTime ?? ''
 
   if (done && !loadingSettings) {
     const isAlreadyFav = !!selectedFavId || favorites.some(f => f.name === bandName.trim())

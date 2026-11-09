@@ -7,6 +7,7 @@ type NotificationRow = {
   pollStatus: string | null
   notificationError: string | null
   notificationDirty: boolean
+  ignored: boolean
 }
 type SchedulerStatus = { enabled: boolean; pending: number; running: number; lastRecoveryAt: number | null;
   cronError: string | null; manual: { id: string; date: string; kind: string; error: string | null }[] }
@@ -33,44 +34,31 @@ export default function BandNotificationStatus() {
     load().catch((err) => setError(err.message)).finally(() => setLoading(false))
   }, [load])
 
-  async function manualPost(date: string) {
-    if (!window.confirm(`${date}の抽選結果を投稿先BANDに新規投稿しますか？`)) return
+  async function handleNotification(date: string, action: 'ignore' | 'resend') {
+    if (action === 'resend' && !window.confirm(`${date}の抽選結果の通知を再送しますか？送信結果が不明な場合は、BANDに同じ内容の投稿・コメントがないことを確認してから実行してください。`)) return
     setBusy(true)
     setError('')
     setNotice('')
     try {
-      const response = await adminFetch('/api/room/notifications/manual', {
+      const response = await adminFetch(`/api/room/notifications/${action}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ date }),
+        body: JSON.stringify({ date, confirmedNotDelivered: action === 'resend' }),
       })
       const data = await response.json()
-      if (!response.ok) throw new Error(data.error ?? '通知に失敗しました')
+      if (!response.ok) throw new Error(data.error ?? '通知の操作に失敗しました')
       await load()
-      setNotice(`${date}を通知しました`)
+      setNotice(action === 'ignore' ? '確認一覧から非表示にしました。' : '通知の再送を受け付けました。')
     } catch (err: any) {
       setError(err.message)
     } finally {
       setBusy(false)
     }
   }
-  async function retry(date: string, confirmResend = false) {
-    if (confirmResend && !window.confirm(`${date}の投稿・コメントがBANDに存在しないことを確認しましたか？確認済みの場合だけ再送を許可してください。`)) return
-    setBusy(true)
-    setError('')
-    try {
-      const response = await adminFetch(`/api/room/notifications/${confirmResend ? 'confirm-resend' : 'retry'}`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ date, confirmedNotDelivered: confirmResend }),
-      })
-      const result = await response.json()
-      if (!response.ok) throw new Error(result.error ?? '再確認を開始できませんでした')
-      setNotice(confirmResend ? '未送信の確認を記録し、再送を予約しました。' : '送信結果の再確認を予約しました。送信結果不明の投稿は自動再送しません。')
-      await load()
-    } catch (err: any) { setError(err.message) } finally { setBusy(false) }
-  }
 
+  const bandJobErrors = new Map(scheduler?.manual.filter((job) => job.kind === 'band').map((job) => [job.date, job.error]))
   const needsAttention = notifications.filter((row) =>
-    row.pollStatus === 'unnotified' || Boolean(row.notificationError) || row.notificationDirty)
+    !row.ignored && (row.pollStatus === 'unnotified' || Boolean(row.notificationError) || row.notificationDirty || bandJobErrors.has(row.date)))
 
   return <div>
     <h1 className="text-2xl font-bold mb-6">BAND通知状況</h1>
@@ -81,12 +69,10 @@ export default function BandNotificationStatus() {
       <p className="text-sm">待機中 {scheduler.pending}件・実行中 {scheduler.running}件</p>
       <p className="text-sm text-ink-sub mt-2">最終復旧確認: {scheduler.lastRecoveryAt ? new Date(scheduler.lastRecoveryAt).toLocaleString('ja-JP') : '未確認'}</p>
       {scheduler.cronError && <p className="text-sm text-danger mt-2">{scheduler.cronError}</p>}
-      {scheduler.manual.map((job) => <div className="border border-line rounded-lg p-3 mt-3 text-sm" key={job.id}>
+      {scheduler.manual.filter((job) => !notifications.some((row) => row.date === job.date &&
+        (job.kind === 'band' || (job.kind === 'notify' && row.ignored)))).map((job) => <div className="border border-line rounded-lg p-3 mt-3 text-sm" key={job.id}>
         <strong>{job.date}：{({ lottery: '抽選', notify: '通知開始', band: '通知更新', cleanup: '旧通知の削除' } as Record<string, string>)[job.kind] ?? '自動処理'}の確認が必要です</strong>
         <p>{job.error}</p>
-        {job.kind === 'band' && <button className="btn-outline mt-2" disabled={busy} onClick={() => retry(job.date)}>送信結果を再確認する</button>}
-        {job.kind === 'band' && job.error?.includes('送信結果') && <button className="btn-outline mt-2" disabled={busy}
-          onClick={() => retry(job.date, true)}>未送信を確認して再送を許可する</button>}
       </div>)}
     </section>}
     <section className="admin-card">
@@ -97,8 +83,8 @@ export default function BandNotificationStatus() {
         {needsAttention.length === 0 && cleanupPending === 0 && !error &&
           <p className="text-sm text-ink-sub">現在、確認が必要な通知はありません。</p>}
         <div className="space-y-2">{needsAttention.map((row) =>
-          <NotificationStatusRow key={row.date} row={row} busy={busy} onManualPost={manualPost}
-            onRetry={!scheduler?.enabled ? retry : undefined} />)}</div>
+          <NotificationStatusRow key={row.date} row={{ ...row, notificationError: row.notificationError ?? bandJobErrors.get(row.date) ?? null }}
+            busy={busy} onAction={handleNotification} />)}</div>
       </>}
     </section>
   </div>
@@ -117,15 +103,13 @@ function NotificationStatusRow({
   busy = false,
   loading = false,
   index = 0,
-  onManualPost,
-  onRetry,
+  onAction,
 }: {
   row?: NotificationRow
   busy?: boolean
   loading?: boolean
   index?: number
-  onManualPost?: (date: string) => void
-  onRetry?: (date: string, confirmResend?: boolean) => void
+  onAction?: (date: string, action: 'ignore' | 'resend') => void
 }) {
   if (loading) return (
     <div className="border border-line rounded-lg p-3 text-sm">
@@ -143,12 +127,10 @@ function NotificationStatusRow({
     <div className="border border-line rounded-lg p-3 text-sm">
       <div className="font-semibold">{row.date} — {label}</div>
       {row.notificationError && <p className="text-warn mt-1">{row.notificationError}</p>}
-      {row.notificationError && onRetry && <button className="btn-outline mt-2" disabled={busy}
-        onClick={() => onRetry(row.date)}>送信結果を再確認する</button>}
-      {row.notificationError?.includes('送信結果') && onRetry && <button className="btn-outline mt-2" disabled={busy}
-        onClick={() => onRetry(row.date, true)}>未送信を確認して再送を許可する</button>}
-      {row.pollStatus === 'unnotified' && <button className="btn-outline mt-2" disabled={busy}
-        onClick={() => onManualPost?.(row.date)}>確認後、投稿先BANDに手動通知</button>}
+      <div className="flex flex-wrap gap-2 mt-2">
+        <button className="btn-outline" disabled={busy} onClick={() => onAction?.(row.date, 'ignore')}>無視する</button>
+        <button className="btn-outline" disabled={busy} onClick={() => onAction?.(row.date, 'resend')}>再送する</button>
+      </div>
     </div>
   )
 }

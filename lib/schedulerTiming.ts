@@ -18,6 +18,12 @@ export function executionTimes(date: string, settings: {
   }
 }
 export function retryDelay(attempt: number): number { return Math.min(15 * 60_000, 30_000 * 2 ** Math.min(attempt, 5)) }
+/** User-facing draw time, relative to the reservation date, in JST. */
+export function lotteryTimeLabel(date: string, settings: Parameters<typeof executionTimes>[1]): string {
+  const draw = new Date(executionTimes(date, settings).lottery + 9 * 3_600_000)
+  const day = draw.toISOString().slice(0, 10) < date ? '前日' : '当日'
+  return `${day} ${draw.toISOString().slice(11, 16)}`
+}
 export function nextMinute(now: number): number { return (Math.floor(now / 60_000) + 1) * 60_000 }
 export function cronWakeSchedule(at: number, minuteCadence: boolean, now = Date.now()) {
   const wake = Math.max(nextMinute(now), Math.ceil(at / 60_000) * 60_000)
